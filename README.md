@@ -62,7 +62,8 @@ The repository also includes a reproducible pipeline that:
   agent and DeepSeek V4 Pro as the user simulator;
 - disables and rejects reasoning/thinking content;
 - converts only successful train trajectories to 16K Qwen3 SFT rows;
-- runs the AReaL-only, AReaL-then-Tau2, and Tau2-only ablations; and
+- runs AReaL-only, Tau2-only, AReaL-then-Tau2, and a step-matched
+  AReaL-then-random-AReaL continuation control; and
 - evaluates the official test split while reporting only `pass^1` and
   `pass^4`.
 

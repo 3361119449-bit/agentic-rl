@@ -52,6 +52,60 @@ def simulation(task_id: str, trial: int, reward: float) -> dict:
 
 
 class PipelineTests(unittest.TestCase):
+    def test_areal_sampling_matches_tau2_row_count(self) -> None:
+        paths = []
+        for suffix in (".areal.jsonl", ".tau2.jsonl", ".sampled.jsonl"):
+            handle = tempfile.NamedTemporaryFile(dir=HERE, suffix=suffix, delete=False)
+            handle.close()
+            paths.append(Path(handle.name))
+        areal, reference, output = paths
+        manifest = output.with_suffix(".manifest.json")
+        try:
+            source_rows = [
+                {
+                    "messages": [{"role": "user", "content": f"request-{index}"}],
+                    "answer": {"role": "assistant", "content": f"answer-{index}"},
+                    "metadata": {"source_dialog_id": f"dialog-{index}"},
+                }
+                for index in range(8)
+            ]
+            areal.write_text(
+                "".join(json.dumps(row) + "\n" for row in source_rows),
+                encoding="utf-8",
+            )
+            reference.write_text("{}\n{}\n{}\n", encoding="utf-8")
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(HERE / "sample_areal_to_match_tau2.py"),
+                    "--areal",
+                    str(areal),
+                    "--tau2-reference",
+                    str(reference),
+                    "--output",
+                    str(output),
+                    "--seed",
+                    "7",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            sampled = [
+                json.loads(line)
+                for line in output.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(len(sampled), 3)
+            self.assertEqual(
+                len({row["metadata"]["source_dialog_id"] for row in sampled}), 3
+            )
+            details = json.loads(manifest.read_text(encoding="utf-8"))
+            self.assertEqual(details["tau2_reference_rows"], 3)
+            self.assertEqual(details["output_rows"], 3)
+        finally:
+            for path in (*paths, manifest):
+                path.unlink(missing_ok=True)
+
     @unittest.skipUnless(
         os.getenv("RUN_QWEN_INTEGRATION") == "1",
         "set RUN_QWEN_INTEGRATION=1 to load the Qwen tokenizer",

@@ -1,12 +1,13 @@
 # Tau2 train rollout SFT and pass^1/pass^4 evaluation
 
-This directory implements the second SFT data source and the three requested
+This directory implements the second SFT data source and the four requested
 ablations:
 
 | experiment | first SFT stage | second SFT stage |
 |---|---|---|
 | AReaL only | cleaned AReaL data | none |
 | AReaL then Tau2 | cleaned AReaL data | successful Tau2-train rollouts |
+| AReaL then matched AReaL | cleaned AReaL data | random AReaL rows, count-matched to Tau2 |
 | Tau2 only | successful Tau2-train rollouts | none |
 
 Final evaluation reports only official Tau2 `pass^1` and `pass^4` on the
@@ -129,7 +130,27 @@ The conversion is intentionally strict:
 `--skip-token-count` exists only for offline structural tests and must not be
 used for a production dataset.
 
-## 5. Run the three SFT ablations
+## 5. Build the step-matched AReaL continuation control
+
+After the Tau2 SFT JSONL exists, uniformly sample the same number of rows from
+the cleaned AReaL JSONL without replacement:
+
+```bash
+python training/tau2_rollout_sft/sample_areal_to_match_tau2.py \
+  --tau2-reference training/tau2_rollout_sft/generated/tau2_airline_train_success_sft.jsonl \
+  --output training/tau2_rollout_sft/generated/areal_random_matched_to_tau2_rows.jsonl \
+  --seed 42
+```
+
+The sibling manifest records both input hashes, the seed, selected row count,
+and output hash. This is a row-count/optimizer-step control, not a token-count
+control: AReaL and Tau2 sequences can have different length distributions.
+
+To make the second-stage optimizer step count identical, both continuation
+runs below use the same starting checkpoint, sampled row count, `val_ratio=0`,
+epochs, global batch size, learning rate, and all other optimizer settings.
+
+## 6. Run the four SFT ablations
 
 All commands use the existing verl entry point. Keep work and checkpoint
 directories separate so prepared Parquet and optimizer state cannot cross
@@ -171,11 +192,42 @@ python training/qwen3_4b_sft/train_qwen3_4b_verl_sft.py \
   --work-dir training/qwen3_4b_sft/work/areal_then_tau2 \
   --output-dir training/qwen3_4b_sft/checkpoints/areal_then_tau2 \
   --experiment-name areal-then-tau2 \
+  --val-ratio 0 \
+  --epochs 2 \
+  --global-batch-size 32 \
+  --learning-rate 2e-5 \
+  --seed 42 \
   --resume-mode disable \
   --num-gpus 8 --ulysses-size 2
 ```
 
-## 6. Evaluate each model with four test trials
+### AReaL then step-matched random AReaL
+
+Use the exact same final AReaL-only HF checkpoint and second-stage training
+settings as the preceding AReaL-then-Tau2 command:
+
+```bash
+python training/qwen3_4b_sft/train_qwen3_4b_verl_sft.py \
+  --model /root/agentic-rl/training/qwen3_4b_sft/checkpoints/areal_only/FINAL_HF_MODEL \
+  --data-jsonl training/tau2_rollout_sft/generated/areal_random_matched_to_tau2_rows.jsonl \
+  --work-dir training/qwen3_4b_sft/work/areal_then_areal_matched \
+  --output-dir training/qwen3_4b_sft/checkpoints/areal_then_areal_matched \
+  --experiment-name areal-then-areal-matched \
+  --val-ratio 0 \
+  --epochs 2 \
+  --global-batch-size 32 \
+  --learning-rate 2e-5 \
+  --seed 42 \
+  --resume-mode disable \
+  --num-gpus 8 --ulysses-size 2
+```
+
+This control measures the gain from an equal amount of continued SFT/replay.
+The difference between it and AReaL-then-Tau2 is therefore evidence about the
+content of the official Tau2 train trajectories rather than merely extra
+updates.
+
+## 7. Evaluate each model with four test trials
 
 Serve one trained HF model at a time through vLLM. Qwen3's non-thinking tool
 format uses the Hermes tool parser:
@@ -206,10 +258,10 @@ python training/tau2_rollout_sft/run_tau2_deepseek.py \
   --user-llm-args '{"temperature":0.0,"extra_body":{"thinking":{"type":"disabled"}}}'
 ```
 
-Repeat with a unique `--save-name` for each of the three checkpoints. Do not use
+Repeat with a unique `--save-name` for each of the four checkpoints. Do not use
 `base`; evaluation must use `test`.
 
-## 7. Report only pass^1 and pass^4
+## 8. Report only pass^1 and pass^4
 
 ```bash
 python training/tau2_rollout_sft/report_pass1_pass4.py \
