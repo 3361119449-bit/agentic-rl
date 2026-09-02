@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare AReaL airline SFT data and launch Qwen3-4B SFT with verl.
+"""Prepare airline prefix/answer SFT data and launch Qwen3-4B SFT with verl.
 
 The source JSONL stores the prompt/history in ``messages`` and the supervised
 next assistant turn in ``answer``. This module appends ``answer`` during
@@ -32,13 +32,13 @@ except ModuleNotFoundError as exc:
     MultiTurnSFTDataset = object  # type: ignore[assignment,misc]
 
 
-SCRIPT_VERSION = 1
+SCRIPT_VERSION = 2
 DEFAULT_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 DATA_RELATIVE_PATH = Path(
     "datasets/tau2_airline_sft_strict_cleaned/data/"
     "airline_sft_no_thinking_under_16k_strict_leakage_cleaned.jsonl"
 )
-FORBIDDEN_KEYS = {"thinking", "reasoning"}
+FORBIDDEN_KEYS = {"thinking", "reasoning", "reasoning_content"}
 THINK_TAG_RE = re.compile(r"</?think(?:\s[^>]*)?>", re.IGNORECASE)
 
 
@@ -65,7 +65,10 @@ class ARealLastAnswerSFTDataset(MultiTurnSFTDataset):
             raise ValueError(f"Row {item}: final message must be the appended answer")
 
         tools = None
-        if self.tools is not None:
+        tools_json = row.get("tools_json")
+        if isinstance(tools_json, str) and tools_json.strip() not in {"", "null"}:
+            tools = json.loads(tools_json)
+        elif self.tools is not None:
             tools = convert_nested_value_to_list_recursive(self.tools[item])
 
         template_kwargs = dict(self.apply_chat_template_kwargs)
@@ -255,6 +258,7 @@ def scan_source(path: Path) -> dict[str, Any]:
     dialogs: set[str] = set()
     rows = 0
     targets = {"text": 0, "tool_call": 0}
+    rows_with_tools = 0
     for line_number, record, raw_line in read_jsonl(path):
         digest.update(raw_line)
         reject_thinking(record, f"line[{line_number}]")
@@ -271,6 +275,11 @@ def scan_source(path: Path) -> dict[str, Any]:
             raise ValueError(f"Line {line_number}: empty supervised answer")
         target_kind = "tool_call" if normalized_answer["tool_calls"] else "text"
         targets[target_kind] += 1
+        tools = record.get("tools")
+        if tools is not None:
+            if not isinstance(tools, list) or not tools:
+                raise ValueError(f"Line {line_number}: tools must be a non-empty list")
+            rows_with_tools += 1
         dialogs.add(source_dialog_id(record, line_number))
         rows += 1
     if rows == 0:
@@ -280,6 +289,7 @@ def scan_source(path: Path) -> dict[str, Any]:
         "dialogs": dialogs,
         "sha256": digest.hexdigest(),
         "targets": targets,
+        "rows_with_tools": rows_with_tools,
     }
 
 
@@ -338,6 +348,7 @@ def prepare_dataset(
     schema = arrow.schema(
         [
             arrow.field("messages", arrow.list_(message_type), nullable=False),
+            arrow.field("tools_json", arrow.string(), nullable=False),
             arrow.field("sample_id", arrow.string(), nullable=False),
             arrow.field("source_dialog_id", arrow.string(), nullable=False),
             arrow.field("turn_index", arrow.int32(), nullable=False),
@@ -376,6 +387,12 @@ def prepare_dataset(
             buffers[split].append(
                 {
                     "messages": messages,
+                    "tools_json": json.dumps(
+                        record.get("tools"),
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    ),
                     "sample_id": f"{dialog_id}:{turn_index}:{line_number}",
                     "source_dialog_id": dialog_id,
                     "turn_index": turn_index,
@@ -402,6 +419,7 @@ def prepare_dataset(
         "source_rows": scan["rows"],
         "source_dialogs": len(scan["dialogs"]),
         "target_types": scan["targets"],
+        "rows_with_tool_schemas": scan["rows_with_tools"],
         "val_ratio": val_ratio,
         "seed": seed,
         "train_rows": counts["train"],

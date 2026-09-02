@@ -54,4 +54,19 @@ assistant messages in its history.
 See [`training/qwen3_4b_sft/README.md`](training/qwen3_4b_sft/README.md) for
 AutoDL setup, full-parameter SFT, and lower-memory LoRA commands.
 
+## Tau2 train rollout SFT and evaluation
+
+The repository also includes a reproducible pipeline that:
+
+- rolls out official Tau2 airline train tasks with DeepSeek V4 Flash as the
+  agent and DeepSeek V4 Pro as the user simulator;
+- disables and rejects reasoning/thinking content;
+- converts only successful train trajectories to 16K Qwen3 SFT rows;
+- runs the AReaL-only, AReaL-then-Tau2, and Tau2-only ablations; and
+- evaluates the official test split while reporting only `pass^1` and
+  `pass^4`.
+
+See
+[`training/tau2_rollout_sft/README.md`](training/tau2_rollout_sft/README.md).
+
 No license is asserted here for upstream datasets or repositories. Users should follow the terms of the original data sources.

@@ -12,14 +12,14 @@ non-thinking output.
 
 ## What the script does
 
-1. Verifies that the JSONL contains no `thinking`, `reasoning`, or `<think>`
-   material.
+1. Verifies that the JSONL contains no `thinking`, `reasoning`,
+   `reasoning_content`, or `<think>` material.
 2. Converts JSONL to nested Parquet without changing the source file.
 3. Appends each row's `answer` to its `messages` history.
 4. Splits by complete `source_dialog_id`, so sub-trajectories from one dialog
    never cross the train/validation boundary.
 5. Uses the full Qwen chat template, including correct grouping of consecutive
-   tool responses.
+   tool responses and optional per-row OpenAI tool schemas.
 6. Masks the loss over the complete history and supervises only the final
    appended `answer`.
 7. Launches verl's FSDP SFT trainer with a hard 16,384-token limit and no silent
@@ -121,3 +121,8 @@ The published AReaL JSONL contains message history and tool calls, but no
 top-level tool-schema list. This script preserves that data exactly. During Tau2
 evaluation, the agent runtime should still provide the current airline tool
 schemas to the model; do not hard-code test environment state into SFT data.
+
+JSONL produced by `training/tau2_rollout_sft/convert_tau2_results_to_sft.py`
+does contain a top-level `tools` list. The preparation step stores it in
+Parquet, and the custom dataset passes it to Qwen's chat template for every
+row.

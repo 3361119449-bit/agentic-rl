@@ -1,5 +1,8 @@
 /training/qwen3_4b_sft/work/
 /training/qwen3_4b_sft/checkpoints/
+/training/tau2_rollout_sft/generated/
+/training/tau2_rollout_sft/results/
+/training/tau2_rollout_sft/tmp*/
 /wandb/
 __pycache__/
 *.py[cod]
