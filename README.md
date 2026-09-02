@@ -44,4 +44,14 @@ cd agentic-rl
 git lfs pull
 ```
 
+## Train Qwen3-4B with verl
+
+The repository includes a verl SFT entry point for
+`Qwen/Qwen3-4B-Instruct-2507`. It prepares the JSONL as Parquet, splits by full
+source dialog, and supervises only each row's final `answer` rather than the
+assistant messages in its history.
+
+See [`training/qwen3_4b_sft/README.md`](training/qwen3_4b_sft/README.md) for
+AutoDL setup, full-parameter SFT, and lower-memory LoRA commands.
+
 No license is asserted here for upstream datasets or repositories. Users should follow the terms of the original data sources.

@@ -1,0 +1,5 @@
+/training/qwen3_4b_sft/work/
+/training/qwen3_4b_sft/checkpoints/
+/wandb/
+__pycache__/
+*.py[cod]
