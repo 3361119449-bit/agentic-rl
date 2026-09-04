@@ -1,0 +1,272 @@
+[
+  {
+    "task_id": "0",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "1",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "3",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "4",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "5",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "7",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "9",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "10",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "11",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "12",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "14",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "15",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "17",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "20",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "21",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "23",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "27",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "28",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "33",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "34",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "36",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "38",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "39",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "40",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "41",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "42",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "43",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "46",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "47",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  },
+  {
+    "task_id": "49",
+    "deterministic_rules": [
+      "confirmation_before_database_write",
+      "one_tool_call_per_assistant_turn",
+      "no_unannotated_database_mutation"
+    ],
+    "judge_checks": []
+  }
+]

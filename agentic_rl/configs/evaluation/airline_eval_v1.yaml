@@ -1,0 +1,58 @@
+project:
+  domain: airline
+  tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
+  verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
+  annotation_version: v1-test-frozen
+  reward_version: v1
+
+model:
+  base: Qwen/Qwen3-4B-Instruct-2507
+  sft_input: ${MERGED_SFT_MODEL}
+
+rollout:
+  max_context_length: 16384
+  max_soft_turns: 15
+  max_hard_turns: 24
+  reserved_observation_tokens: 1024
+  reserved_template_tokens: 128
+  min_final_response_tokens: 64
+  per_turn_max_new_tokens: 1024
+  temperature: 1.0
+  top_p: 1.0
+  top_k: -1
+  group_size: 4
+  concurrency: 2
+
+user_simulator:
+  provider: DeepSeek
+  model: ${DEEPSEEK_USER_MODEL}
+  temperature: 0.0
+  thinking: disabled
+  max_retries: 2
+  llm_args:
+    api_base: ${DEEPSEEK_BASE_URL}
+    extra_body:
+      thinking:
+        type: disabled
+
+judge:
+  provider: DeepSeek
+  model: ${DEEPSEEK_JUDGE_MODEL}
+  base_url: ${DEEPSEEK_BASE_URL}
+  calls_per_trajectory: 1
+  output_schema_version: "1.0"
+  max_retries: 2
+
+annotations:
+  required_actions: data/annotations/airline_required_actions.test.v1.json
+  semantic_checks: data/annotations/airline_semantic_checks.test.v1.json
+  transfer_rules: data/annotations/airline_transfer_rules.test.v1.json
+  policy_rules: data/annotations/airline_mandatory_policy_rules.test.v1.json
+
+outputs:
+  trajectories: ${TRAJECTORY_OUTPUT_DIR:-outputs/evaluation_trajectories}
+  checkpoints: outputs/checkpoints
+  judge_cache: ${JUDGE_CACHE_DIR:-outputs/evaluation_judge_cache}
+  user_cache: ${USER_CACHE_DIR:-outputs/evaluation_user_cache}
+  metrics: outputs/evaluation_metrics
+  reports: outputs/reports

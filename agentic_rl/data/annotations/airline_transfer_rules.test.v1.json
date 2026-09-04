@@ -1,0 +1,194 @@
+[
+  {
+    "task_id": "2",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "6",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "8",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "13",
+    "allowed": true,
+    "required": true,
+    "valid_conditions": [
+      {
+        "condition_id": "13:policy_transfer",
+        "description": "The requested change cannot be completed by the airline agent under the official policy and transfer is the proper resolution."
+      }
+    ],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [
+      "YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON."
+    ],
+    "semantic_checks": [
+      {
+        "criterion_id": "13:transfer_valid",
+        "description": "The transfer is legitimate and not task avoidance."
+      }
+    ]
+  },
+  {
+    "task_id": "16",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "18",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "19",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "22",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "24",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "25",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "26",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "29",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "30",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "31",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "32",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "35",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "37",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "44",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "45",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "48",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  }
+]

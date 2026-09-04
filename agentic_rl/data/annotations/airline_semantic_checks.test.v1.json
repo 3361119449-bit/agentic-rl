@@ -1,0 +1,302 @@
+[
+  {
+    "task_id": "2",
+    "semantic_checks": [
+      {
+        "criterion_id": "2:nl:0",
+        "description": "Agent should not offer compensation unless the user asks for it."
+      },
+      {
+        "criterion_id": "2:nl:1",
+        "description": "Agent should check that the flight was indeed delayed."
+      },
+      {
+        "criterion_id": "2:nl:2",
+        "description": "Agent should detect that the number of passengers on the delayed flight mentioned by the user is incorrect."
+      },
+      {
+        "criterion_id": "2:nl:3",
+        "description": "Agent should not offer a certificate of $50 as the user does not want to change or cancel the reservation."
+      }
+    ]
+  },
+  {
+    "task_id": "6",
+    "semantic_checks": [
+      {
+        "criterion_id": "6:nl:0",
+        "description": "Agent should not allow user to add insurance."
+      }
+    ]
+  },
+  {
+    "task_id": "8",
+    "semantic_checks": [
+      {
+        "criterion_id": "8:nl:0",
+        "description": "Agent get sophia_silva_7557 user details."
+      },
+      {
+        "criterion_id": "8:nl:1",
+        "description": "Agent identifies reservation id as WUNA5K."
+      },
+      {
+        "criterion_id": "8:nl:2",
+        "description": "Agent books one-way flight HAT271, May 26, in economy, no travel insurance, no baggage. Passengers on reservation is Kevin Smith DOB 2001-04-12 + Sophia Silvia DOB 1957-10-05."
+      },
+      {
+        "criterion_id": "8:nl:3",
+        "description": "Agent uses single certificate for payment."
+      }
+    ]
+  },
+  {
+    "task_id": "13",
+    "semantic_checks": [
+      {
+        "criterion_id": "13:nl:0",
+        "description": "Agent correctly identified that the changes requested by the user cannot be done because the policy stipulates that modification of origin, destination or trip type of a flight is not allowed."
+      }
+    ]
+  },
+  {
+    "task_id": "16",
+    "semantic_checks": [
+      {
+        "criterion_id": "16:nl:0",
+        "description": "Agent updates M05KNL to economy with the following flights: HAT110 and HAT172 on 2024-05-24."
+      },
+      {
+        "criterion_id": "16:nl:1",
+        "description": "Agent uses payment id gift_card_8887175."
+      }
+    ]
+  },
+  {
+    "task_id": "18",
+    "semantic_checks": [
+      {
+        "criterion_id": "18:nl:0",
+        "description": "Reservation JG7FMM is updated to economy."
+      },
+      {
+        "criterion_id": "18:nl:1",
+        "description": "Reservation 2FBBAH is updated to economy."
+      },
+      {
+        "criterion_id": "18:nl:2",
+        "description": "Reservation X7BYG1 is updated to economy. "
+      },
+      {
+        "criterion_id": "18:nl:3",
+        "description": "Reservation BOH180 is updated to economy. "
+      },
+      {
+        "criterion_id": "18:nl:4",
+        "description": "Reservation EQ1G6C is updated to economy."
+      },
+      {
+        "criterion_id": "18:nl:5",
+        "description": "Agent communicates that user will save $23553 in total."
+      }
+    ]
+  },
+  {
+    "task_id": "19",
+    "semantic_checks": [
+      {
+        "criterion_id": "19:nl:0",
+        "description": "Agent cancels reservation Z7GOZK"
+      }
+    ]
+  },
+  {
+    "task_id": "22",
+    "semantic_checks": [
+      {
+        "criterion_id": "22:nl:0",
+        "description": "Agent updates reservation FQ8APE to economy with payment method gift_card_8190333."
+      },
+      {
+        "criterion_id": "22:nl:1",
+        "description": "Agent updates reservation FQ8APE passenger to Omar Rossi."
+      },
+      {
+        "criterion_id": "22:nl:2",
+        "description": "Agent updates reservation FQ8APE baggages to 3 free baggages."
+      }
+    ]
+  },
+  {
+    "task_id": "24",
+    "semantic_checks": [
+      {
+        "criterion_id": "24:nl:0",
+        "description": "Agent does not cancel reservation H9ZU1C because it doesn't meet criteria set by policy."
+      },
+      {
+        "criterion_id": "24:nl:1",
+        "description": "Agent books basic economy round trip from JFK to SEA leaving 2024-05-20 (flight HAT069) and returning 2024-05-25 (flight HAT276), with 1 free bag."
+      },
+      {
+        "criterion_id": "24:nl:2",
+        "description": "Agent charges $67 to gift_card_7773485 and $39 to gift_card_7359776."
+      }
+    ]
+  },
+  {
+    "task_id": "25",
+    "semantic_checks": [
+      {
+        "criterion_id": "25:nl:0",
+        "description": "Agent books one way economy flight from DTW to SEA on 2024-05-17 with flights HAT097 and HAT251 for passenger Ivan Smith, no baggage, no insurance."
+      },
+      {
+        "criterion_id": "25:nl:1",
+        "description": "Agent charges $128 to gift_card_8516878 and $247 to credit_card_3563913."
+      }
+    ]
+  },
+  {
+    "task_id": "26",
+    "semantic_checks": [
+      {
+        "criterion_id": "26:nl:0",
+        "description": "Agent does not offer the refund because reservation doesn't meet policy criteria."
+      }
+    ]
+  },
+  {
+    "task_id": "29",
+    "semantic_checks": [
+      {
+        "criterion_id": "29:nl:0",
+        "description": "Agent informs the user that the reservation can't be changed and it can be cancelled instead."
+      },
+      {
+        "criterion_id": "29:nl:1",
+        "description": "Agent cancelled reservation VA5SGQ."
+      },
+      {
+        "criterion_id": "29:nl:2",
+        "description": "Agent books new round trip reservation with flights HAT169 and HAT033 with one bag."
+      }
+    ]
+  },
+  {
+    "task_id": "30",
+    "semantic_checks": [
+      {
+        "criterion_id": "30:nl:0",
+        "description": "Agent updates reservation to flights HAT266 and HAT112."
+      },
+      {
+        "criterion_id": "30:nl:1",
+        "description": "Agent does not make modifications to checked bags since policy doesn't allow to remove bags."
+      }
+    ]
+  },
+  {
+    "task_id": "31",
+    "semantic_checks": [
+      {
+        "criterion_id": "31:nl:0",
+        "description": "Agent doesn't book any flight."
+      }
+    ]
+  },
+  {
+    "task_id": "32",
+    "semantic_checks": [
+      {
+        "criterion_id": "32:nl:0",
+        "description": "Agent update reservation OWZ4XL to economy."
+      },
+      {
+        "criterion_id": "32:nl:1",
+        "description": "Agent updates reservation OWZ4XL to flight HAT041."
+      }
+    ]
+  },
+  {
+    "task_id": "35",
+    "semantic_checks": [
+      {
+        "criterion_id": "35:nl:0",
+        "description": "Agent does not cancel the reservation since this is not allowed."
+      },
+      {
+        "criterion_id": "35:nl:1",
+        "description": "Agent books a one-way one-stop flight from JFK to SFO on 2024-05-24 with flights HAT069 and HAT258."
+      },
+      {
+        "criterion_id": "35:nl:2",
+        "description": "Agent charges $290 to credit card credit_card_907483"
+      }
+    ]
+  },
+  {
+    "task_id": "37",
+    "semantic_checks": [
+      {
+        "criterion_id": "37:nl:0",
+        "description": "Agent does not cancel reservation NQNU5R since it is in the past."
+      },
+      {
+        "criterion_id": "37:nl:1",
+        "description": "Agent does not cancel reservation IFOYYZ since it doesn't meet criteria."
+      },
+      {
+        "criterion_id": "37:nl:2",
+        "description": "Agent upgrades M20IZO to business class."
+      }
+    ]
+  },
+  {
+    "task_id": "44",
+    "semantic_checks": [
+      {
+        "criterion_id": "44:nl:0",
+        "description": "Agent does not cancel reservation S61CZX as the user is healthy."
+      },
+      {
+        "criterion_id": "44:nl:1",
+        "description": "The total cost that the agent mentions is between $1380 and $1390."
+      },
+      {
+        "criterion_id": "44:nl:2",
+        "description": "Agent upgrades NM1VX1 to business."
+      },
+      {
+        "criterion_id": "44:nl:3",
+        "description": "Agent upgrades H8Q05L to business."
+      },
+      {
+        "criterion_id": "44:nl:4",
+        "description": "Agent updates KC18K6 to business."
+      }
+    ]
+  },
+  {
+    "task_id": "45",
+    "semantic_checks": [
+      {
+        "criterion_id": "45:nl:0",
+        "description": "Agent should not cancel reservation PEP4E0."
+      },
+      {
+        "criterion_id": "45:nl:1",
+        "description": "Agent should not change PEP4E0 flight."
+      }
+    ]
+  },
+  {
+    "task_id": "48",
+    "semantic_checks": [
+      {
+        "criterion_id": "48:nl:0",
+        "description": "Agent does not cancel 3RK2T9."
+      }
+    ]
+  }
+]

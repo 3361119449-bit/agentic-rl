@@ -1,0 +1,10 @@
+.env
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+*.py[cod]
+data/parquet/
+outputs/
+dist/
+*.egg-info/
+uv.lock

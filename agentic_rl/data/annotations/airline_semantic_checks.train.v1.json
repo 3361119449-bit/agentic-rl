@@ -1,0 +1,444 @@
+[
+  {
+    "task_id": "0",
+    "semantic_checks": [
+      {
+        "criterion_id": "0:nl:0",
+        "description": "Agent should refuse to proceed with the cancellation."
+      }
+    ]
+  },
+  {
+    "task_id": "1",
+    "semantic_checks": [
+      {
+        "criterion_id": "1:nl:0",
+        "description": "Agent should not approve the cancellation."
+      }
+    ]
+  },
+  {
+    "task_id": "3",
+    "semantic_checks": [
+      {
+        "criterion_id": "3:nl:0",
+        "description": "Agent detects that user is actually a Silver member."
+      },
+      {
+        "criterion_id": "3:nl:1",
+        "description": "Agent communicate to user that she can bring 4 suitcases (silver member with economy flights = 2 free suitcases per passengers)."
+      }
+    ]
+  },
+  {
+    "task_id": "4",
+    "semantic_checks": [
+      {
+        "criterion_id": "4:nl:0",
+        "description": "Agent should realize that flight was not cancel and not in business class."
+      },
+      {
+        "criterion_id": "4:nl:1",
+        "description": "Agent should not offer any compensation."
+      }
+    ]
+  },
+  {
+    "task_id": "5",
+    "semantic_checks": [
+      {
+        "criterion_id": "5:nl:0",
+        "description": "Agent identifies that user is not a Gold member but a Regular member."
+      },
+      {
+        "criterion_id": "5:nl:1",
+        "description": "Agent does not offer any compensation as the user does not want to change or cancel the flight."
+      }
+    ]
+  },
+  {
+    "task_id": "7",
+    "semantic_checks": [
+      {
+        "criterion_id": "7:nl:0",
+        "description": "Agent upgrades XEHM4B to business."
+      },
+      {
+        "criterion_id": "7:nl:1",
+        "description": "Agent cancels XEHM4B (as it is business flight)."
+      },
+      {
+        "criterion_id": "7:nl:2",
+        "description": "Agent cancels 59XX6W (as it has insurance and the user is sick)."
+      },
+      {
+        "criterion_id": "7:nl:3",
+        "description": "Agent communicates that total cost of upcoming flights is $1,628."
+      }
+    ]
+  },
+  {
+    "task_id": "9",
+    "semantic_checks": [
+      {
+        "criterion_id": "9:nl:0",
+        "description": "Check that Agent does not cancel IFOYYZ. Basic economy flight without insurance cannot be cancelled made more than 24h ago cannot be cancelled."
+      },
+      {
+        "criterion_id": "9:nl:1",
+        "description": "Check that Agent does not cancel NQNU5R. Flights that have already departed cannot be cancelled."
+      },
+      {
+        "criterion_id": "9:nl:2",
+        "description": "Check that Agent searched for direct flights between JFK and MCO on May 22 2024."
+      },
+      {
+        "criterion_id": "9:nl:3",
+        "description": "Reservation M20IZO is not modified by Agent."
+      }
+    ]
+  },
+  {
+    "task_id": "10",
+    "semantic_checks": [
+      {
+        "criterion_id": "10:nl:0",
+        "description": "Check that Agent does not offer to change cabin for only some of the flights in a reservation."
+      }
+    ]
+  },
+  {
+    "task_id": "11",
+    "semantic_checks": [
+      {
+        "criterion_id": "11:nl:0",
+        "description": "Check that agent does not remove passenger since changing the number of passengers is not allowed."
+      },
+      {
+        "criterion_id": "11:nl:1",
+        "description": "Check that agent downgrades all passengers to basic economy."
+      },
+      {
+        "criterion_id": "11:nl:2",
+        "description": "Check that agent refunds $5244 to original payment method."
+      }
+    ]
+  },
+  {
+    "task_id": "12",
+    "semantic_checks": [
+      {
+        "criterion_id": "12:nl:0",
+        "description": "Check that Agent clearly identifies that policy only does not allow change of cabin for only some of the passengers. All passengers must fly in the same cabin."
+      },
+      {
+        "criterion_id": "12:nl:1",
+        "description": "Check that agent correctly adds 2 checked bags for free."
+      }
+    ]
+  },
+  {
+    "task_id": "14",
+    "semantic_checks": [
+      {
+        "criterion_id": "14:nl:0",
+        "description": "Agent communicates that total gift card balance is $327."
+      },
+      {
+        "criterion_id": "14:nl:1",
+        "description": "Agent communicates that total certificate balance if $1000."
+      },
+      {
+        "criterion_id": "14:nl:2",
+        "description": "Agent should cancel reservation K1NW8N."
+      },
+      {
+        "criterion_id": "14:nl:3",
+        "description": "Agent should book a reservation with the following flights: HAT023 and HAT204, HAT100. No insurance. No baggage. Departure on 2024-05-26, return on 2024-05-28."
+      },
+      {
+        "criterion_id": "14:nl:4",
+        "description": "Agent communicated that the $1786 will be charged to the mastercard."
+      }
+    ]
+  },
+  {
+    "task_id": "15",
+    "semantic_checks": [
+      {
+        "criterion_id": "15:nl:0",
+        "description": "Agent updates reservation M05KNL to economy with flights HAT110 and HAT172 on 2024-05-24."
+      },
+      {
+        "criterion_id": "15:nl:1",
+        "description": "Agent uses the payment id: gift_card_8887175"
+      }
+    ]
+  },
+  {
+    "task_id": "17",
+    "semantic_checks": [
+      {
+        "criterion_id": "17:nl:0",
+        "description": "Reservation FQ8APE is updated to economy."
+      },
+      {
+        "criterion_id": "17:nl:1",
+        "description": "Passenger for reservation FQ8APE is updated to Omar Rossi."
+      },
+      {
+        "criterion_id": "17:nl:2",
+        "description": "Number of bags for reservation FQ8APE is updated to 3."
+      }
+    ]
+  },
+  {
+    "task_id": "20",
+    "semantic_checks": [
+      {
+        "criterion_id": "20:nl:0",
+        "description": "Agent books one-way one-stop economy trip from JFK to SEA with flights HAT136 and HAT039 on 2024-05-20, 3 baggages, no insurance."
+      },
+      {
+        "criterion_id": "20:nl:1",
+        "description": "Agent charges $250 on payment method certificate_7504069 and $5 on credit_card_4421486."
+      }
+    ]
+  },
+  {
+    "task_id": "21",
+    "semantic_checks": [
+      {
+        "criterion_id": "21:nl:0",
+        "description": "Agent updates reservation OBUT9V return flights to HAT290 and HAT175 on May 27."
+      },
+      {
+        "criterion_id": "21:nl:1",
+        "description": "Agent assigns payment to gift_card_6276644."
+      },
+      {
+        "criterion_id": "21:nl:2",
+        "description": "Agent updates reservation OBUT9V to 2 free baggages."
+      }
+    ]
+  },
+  {
+    "task_id": "23",
+    "semantic_checks": [
+      {
+        "criterion_id": "23:nl:0",
+        "description": "Agent mentions that total sum on gift cards is $327."
+      },
+      {
+        "criterion_id": "23:nl:1",
+        "description": "Agent mentions that total sum on certificates is $1000."
+      },
+      {
+        "criterion_id": "23:nl:2",
+        "description": "Agent cancels reservation K1NW8N."
+      },
+      {
+        "criterion_id": "23:nl:3",
+        "description": "Agent books a round-trip reservation from JFK to SFO in business with outbound flights HAT023 and HAT204 on 2024-05-26 and return flight HAT100 on 2024-05-28 for Mohamed Silva."
+      },
+      {
+        "criterion_id": "23:nl:4",
+        "description": "For this reservation Agent charges $500 on certificate_3765853, $198 on gift_card_8020792, $129 on gift_card_6136092\", and $44 on credit_card_2198526."
+      },
+      {
+        "criterion_id": "23:nl:5",
+        "description": "Agent books a similar reservation for Raj Sanchez with $250 payment on certificate_9984806 and $621 payment on credit_card_2198526."
+      },
+      {
+        "criterion_id": "23:nl:6",
+        "description": "Agent books a similar reservation for Liam Wilson with $250 on certificate_2765295 and $621 on credit_card_2198526."
+      },
+      {
+        "criterion_id": "23:nl:7",
+        "description": "Agent communicates that Mastercard will be charged $1286."
+      }
+    ]
+  },
+  {
+    "task_id": "27",
+    "semantic_checks": [
+      {
+        "criterion_id": "27:nl:0",
+        "description": "Agent confirms that flight HAT039 from ATL to SEA on 2024-05-15 has been delayed."
+      },
+      {
+        "criterion_id": "27:nl:1",
+        "description": "Agent confirms that user can receive compensation because he has Silver status."
+      },
+      {
+        "criterion_id": "27:nl:2",
+        "description": "Agent doesn't issue a certificate as the user doesn't want to change or cancel the reservation."
+      }
+    ]
+  },
+  {
+    "task_id": "28",
+    "semantic_checks": [
+      {
+        "criterion_id": "28:nl:0",
+        "description": "Agent does not cancel flight."
+      },
+      {
+        "criterion_id": "28:nl:1",
+        "description": "Agent does not offer any refund."
+      }
+    ]
+  },
+  {
+    "task_id": "33",
+    "semantic_checks": [
+      {
+        "criterion_id": "33:nl:0",
+        "description": "Agent updates reservation HXDUBJ to flights HAT072 on 2024-05-19 and HAT278 on 2024-05-23."
+      },
+      {
+        "criterion_id": "33:nl:1",
+        "description": "Agent does not allow change to business class for only one leg of the flight."
+      },
+      {
+        "criterion_id": "33:nl:2",
+        "description": "Agent add 2 free baggages to reservation HXDUBJ."
+      }
+    ]
+  },
+  {
+    "task_id": "34",
+    "semantic_checks": [
+      {
+        "criterion_id": "34:nl:0",
+        "description": "Agent should not make any changes."
+      }
+    ]
+  },
+  {
+    "task_id": "36",
+    "semantic_checks": [
+      {
+        "criterion_id": "36:nl:0",
+        "description": "Agent does not change the flight."
+      }
+    ]
+  },
+  {
+    "task_id": "38",
+    "semantic_checks": [
+      {
+        "criterion_id": "38:nl:0",
+        "description": "Agent does not offer compensation before the user asks."
+      },
+      {
+        "criterion_id": "38:nl:1",
+        "description": "Agent verifies that the flight was delayed."
+      },
+      {
+        "criterion_id": "38:nl:2",
+        "description": "Agent verifies the number of passengers in the reservation."
+      },
+      {
+        "criterion_id": "38:nl:3",
+        "description": "Agent does not offer a $50 certificate."
+      }
+    ]
+  },
+  {
+    "task_id": "39",
+    "semantic_checks": [
+      {
+        "criterion_id": "39:nl:0",
+        "description": "Agent cancels reservation 8C8K4E."
+      },
+      {
+        "criterion_id": "39:nl:1",
+        "description": "Agent cancels reservation LU15PA."
+      },
+      {
+        "criterion_id": "39:nl:2",
+        "description": "Agent cancels reservation MSJ4OA."
+      },
+      {
+        "criterion_id": "39:nl:3",
+        "description": "Agent does not cancel  any other reservation."
+      }
+    ]
+  },
+  {
+    "task_id": "40",
+    "semantic_checks": [
+      {
+        "criterion_id": "40:nl:0",
+        "description": "Agent updates reservation 3RK2T9 to passenger Mei Garcia."
+      }
+    ]
+  },
+  {
+    "task_id": "41",
+    "semantic_checks": [
+      {
+        "criterion_id": "41:nl:0",
+        "description": "Agent checks all reservations."
+      },
+      {
+        "criterion_id": "41:nl:1",
+        "description": "Agent does not cancel any reservation."
+      }
+    ]
+  },
+  {
+    "task_id": "42",
+    "semantic_checks": [
+      {
+        "criterion_id": "42:nl:0",
+        "description": "Agent cancels reservation FDZ0T5"
+      },
+      {
+        "criterion_id": "42:nl:1",
+        "description": "Agent cancels reservation HSR97W"
+      }
+    ]
+  },
+  {
+    "task_id": "43",
+    "semantic_checks": [
+      {
+        "criterion_id": "43:nl:0",
+        "description": "Agent should not cancel reservation 9HBUV8 since it does not meet requirements."
+      },
+      {
+        "criterion_id": "43:nl:1",
+        "description": "Agent should not cancel reservation D1EW9B since it does not meet requirements."
+      }
+    ]
+  },
+  {
+    "task_id": "46",
+    "semantic_checks": [
+      {
+        "criterion_id": "46:nl:0",
+        "description": "Agent does not cancel insurance or offer a refund."
+      }
+    ]
+  },
+  {
+    "task_id": "47",
+    "semantic_checks": [
+      {
+        "criterion_id": "47:nl:0",
+        "description": "Agent does not cancel H8Q05L."
+      }
+    ]
+  },
+  {
+    "task_id": "49",
+    "semantic_checks": [
+      {
+        "criterion_id": "49:nl:0",
+        "description": "Agent does not cancel 3RK2T9."
+      }
+    ]
+  }
+]

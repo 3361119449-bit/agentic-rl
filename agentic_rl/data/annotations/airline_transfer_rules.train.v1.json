@@ -1,0 +1,272 @@
+[
+  {
+    "task_id": "0",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "1",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "3",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "4",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "5",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "7",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "9",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "10",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "11",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "12",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "14",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "15",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "17",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "20",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "21",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "23",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "27",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "28",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "33",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "34",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "36",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "38",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "39",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "40",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "41",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "42",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "43",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "46",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "47",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  },
+  {
+    "task_id": "49",
+    "allowed": false,
+    "required": false,
+    "valid_conditions": [],
+    "required_pre_transfer_action_groups": [],
+    "required_communication_checks": [],
+    "semantic_checks": []
+  }
+]

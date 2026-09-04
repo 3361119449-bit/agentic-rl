@@ -1,0 +1,3 @@
+- name: tau2_airline
+  _target_: tau2_agentic_rl.agent_loop.airline.Tau2AirlineAgentLoop
+  project_config_path: ${oc.env:AGENTIC_RL_CONFIG}

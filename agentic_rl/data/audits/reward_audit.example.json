@@ -1,0 +1,7 @@
+[
+  {
+    "trajectory": "outputs/trajectories/replace-with-trajectory-id.json",
+    "expected_train_reward": 1.0,
+    "reviewer_notes": "Manually recompute every applicable component, gate and penalty."
+  }
+]

@@ -1,0 +1,122 @@
+project:
+  domain: airline
+  tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
+  verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
+  annotation_version: v1
+  reward_version: v1
+
+model:
+  base: Qwen/Qwen3-4B-Instruct-2507
+  sft_input: ${MERGED_SFT_MODEL}
+  rl_method: lora
+
+lora:
+  rank: 32
+  alpha: 64
+  dropout: 0.0
+  target_modules: all-linear
+
+hardware:
+  gpu: 1x_A800_80GB
+  tensor_parallel_size: 1
+  gradient_checkpointing: true
+
+rollout:
+  max_context_length: 16384
+  max_soft_turns: 15
+  max_hard_turns: 24
+  reserved_observation_tokens: 1024
+  reserved_template_tokens: 128
+  min_final_response_tokens: 64
+  per_turn_max_new_tokens: 1024
+  temperature: 1.0
+  top_p: 1.0
+  top_k: -1
+  group_size: 8
+  concurrency: 2
+
+user_simulator:
+  provider: DeepSeek
+  model: ${DEEPSEEK_USER_MODEL}
+  temperature: 0.0
+  thinking: disabled
+  max_retries: 2
+  llm_args:
+    api_base: ${DEEPSEEK_BASE_URL}
+    extra_body:
+      thinking:
+        type: disabled
+
+judge:
+  provider: DeepSeek
+  model: ${DEEPSEEK_JUDGE_MODEL}
+  base_url: ${DEEPSEEK_BASE_URL}
+  calls_per_trajectory: 1
+  output_schema_version: "1.0"
+  max_retries: 2
+
+annotations:
+  required_actions: data/annotations/airline_required_actions.train.v1.json
+  semantic_checks: data/annotations/airline_semantic_checks.train.v1.json
+  transfer_rules: data/annotations/airline_transfer_rules.train.v1.json
+  policy_rules: data/annotations/airline_mandatory_policy_rules.train.v1.json
+
+reward:
+  normal_weights:
+    db: 0.30
+    official_communicate: 0.15
+    required_action: 0.30
+    judge_semantic: 0.25
+  transfer_weights:
+    transfer_call: 0.30
+    pre_transfer_actions: 0.25
+    transfer_communication: 0.20
+    transfer_semantic: 0.25
+  progress_coefficient: 0.75
+  strict_success_coefficient: 0.25
+  mandatory_policy_gate: true
+  process_penalty_cap: 0.20
+
+algorithm:
+  adv_estimator: grpo
+  norm_adv_by_std_in_grpo: true
+  clip_ratio_low: 0.20
+  clip_ratio_high: 0.28
+  clip_ratio_c: 10.0
+  loss_agg_mode: token-mean
+  entropy_coeff: 0.0
+  grad_clip: 1.0
+  use_kl_in_reward: false
+  use_kl_loss: false
+  kl_coef: 0.0
+
+ppo:
+  old_log_probs_source: vllm_rollout
+  ppo_epochs: 2
+  effective_trajectory_mini_batch_size: 32
+  verl_ppo_mini_batch_size_prompts: 4
+  ppo_micro_batch_size_per_gpu: 1
+  log_prob_micro_batch_size_per_gpu: 1
+
+optimizer:
+  lr: 5.0e-6
+
+dynamic_sampling:
+  enable: true
+  metric: train_reward
+  train_batch_size: 4
+  conceptual_gen_batch_size: 8
+  group_size: 8
+  max_num_gen_batches: 3
+  max_rollouts_per_optimizer_step: 192
+
+vllm:
+  gpu_memory_utilization: 0.40
+
+outputs:
+  trajectories: ${TRAJECTORY_OUTPUT_DIR:-outputs/trajectories}
+  checkpoints: outputs/checkpoints
+  judge_cache: ${JUDGE_CACHE_DIR:-outputs/judge_cache}
+  user_cache: ${USER_CACHE_DIR:-outputs/user_cache}
+  metrics: outputs/metrics
+  reports: outputs/reports

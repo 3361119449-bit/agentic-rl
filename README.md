@@ -70,4 +70,15 @@ The repository also includes a reproducible pipeline that:
 See
 [`training/tau2_rollout_sft/README.md`](training/tau2_rollout_sft/README.md).
 
+## Tau2 Airline Agentic RL experiments
+
+The end-to-end implementation of the training plan is in [`agentic_rl/`](agentic_rl/).
+It includes the frozen official train/test split, an internal development split,
+task annotations, isolated Tau2 environments, dual reward branches, capped
+dynamic sampling for GRPO, LoRA SFT merging, rollout profiling, reward audits,
+and `pass^1`/`pass^4` evaluation.
+
+See [`agentic_rl/README.md`](agentic_rl/README.md) for reproducible setup and
+experiment commands.
+
 No license is asserted here for upstream datasets or repositories. Users should follow the terms of the original data sources.
