@@ -10,6 +10,7 @@ model:
   sft_input: ${MERGED_SFT_MODEL}
 
 rollout:
+  tool_parser: hermes
   max_context_length: 16384
   max_soft_turns: 15
   max_hard_turns: 24
@@ -45,6 +46,7 @@ judge:
 
 annotations:
   required_actions: data/annotations/airline_required_actions.test.v1.json
+  action_dependencies: data/annotations/airline_action_dependencies.test.v1.json
   semantic_checks: data/annotations/airline_semantic_checks.test.v1.json
   transfer_rules: data/annotations/airline_transfer_rules.test.v1.json
   policy_rules: data/annotations/airline_mandatory_policy_rules.test.v1.json

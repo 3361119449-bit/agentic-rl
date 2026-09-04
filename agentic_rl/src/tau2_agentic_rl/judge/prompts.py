@@ -13,6 +13,10 @@ Return one JSON object matching the requested schema. Every criterion is binary;
 never invent a continuous score. Evidence and short reasons are audit metadata.
 """
 
+JUDGE_PROMPT_VERSION = "tau2-airline-judge-prompt-v2"
+JUDGE_RUBRIC_VERSION = "tau2-airline-rubric-v1"
+JUDGE_SCHEMA_VERSION = "1.0"
+
 
 def build_judge_messages(
     *,
@@ -29,7 +33,7 @@ def build_judge_messages(
         "mandatory_policy_checks": mandatory_policy_checks,
         "transfer_rule": transfer_rule,
         "output_schema": {
-            "schema_version": "1.0",
+            "schema_version": JUDGE_SCHEMA_VERSION,
             "semantic_checks": [
                 {
                     "criterion_id": "string",

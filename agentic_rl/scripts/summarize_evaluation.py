@@ -29,6 +29,14 @@ def summarize(records_dir: Path) -> dict[str, Any]:
 
     per_task = []
     for task_id, rows in sorted(groups.items(), key=lambda item: int(item[0])):
+        attempted = len(rows)
+        rows = [
+            row
+            for row in rows
+            if row.get("official_scores") is not None
+            and row.get("custom_reward") is not None
+        ]
+        infrastructure_failures = attempted - len(rows)
         official = sum(
             (row.get("official_scores") or {}).get("reward") == 1.0 for row in rows
         )
@@ -40,6 +48,8 @@ def summarize(records_dir: Path) -> dict[str, Any]:
             {
                 "task_id": task_id,
                 "samples": len(rows),
+                "attempted_samples": attempted,
+                "infrastructure_failures": infrastructure_failures,
                 "official_pass1": _pass_at_k(official, len(rows), 1),
                 "official_pass4": _pass_at_k(official, len(rows), 4),
                 "custom_strict_pass1": _pass_at_k(strict, len(rows), 1),
@@ -57,7 +67,14 @@ def summarize(records_dir: Path) -> dict[str, Any]:
     for key in keys:
         values = [row[key] for row in per_task if row[key] is not None]
         aggregate[key] = sum(values) / len(values) if values else None
-    return {"tasks": len(per_task), "aggregate": aggregate, "per_task": per_task}
+    return {
+        "tasks": len(per_task),
+        "infrastructure_failures": sum(
+            row["infrastructure_failures"] for row in per_task
+        ),
+        "aggregate": aggregate,
+        "per_task": per_task,
+    }
 
 
 def main() -> None:

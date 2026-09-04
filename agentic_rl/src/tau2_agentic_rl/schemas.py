@@ -14,6 +14,14 @@ TerminationReason = Literal[
     "budget_exhausted",
     "hard_turn_limit",
     "infrastructure_failure",
+    "max_steps",
+    "timeout",
+    "too_many_errors",
+    "agent_error",
+    "user_error",
+    "infrastructure_error",
+    "context_window_exceeded",
+    "unexpected_error",
 ]
 
 ToolErrorKind = Literal[
@@ -21,6 +29,8 @@ ToolErrorKind = Literal[
     "unknown_tool",
     "schema_invalid",
     "model_caused_execution_error",
+    "confirmation_required",
+    "multiple_tool_calls",
 ]
 
 
@@ -50,6 +60,10 @@ class ToolEvent(BaseModel):
     success: bool = False
     db_effect: bool | None = None
     confirmed_before: bool | None = None
+    confirmation_proposal_hash: str | None = None
+    confirmation_turn_id: int | None = None
+    confirmation_consumed: bool = False
+    observation_truncated: bool = False
     error_kind: ToolErrorKind | None = None
     unchanged_retry: bool = False
     no_progress: bool = False
@@ -145,6 +159,7 @@ class RewardResult(BaseModel):
     strict_success: float = Field(ge=0.0, le=1.0)
     progress: float = Field(ge=0.0, le=1.0)
     policy_gate: bool
+    task_safety_gate: bool = True
     process_penalty: float = Field(ge=0.0, le=1.0)
     components: dict[str, ComponentScore] = Field(default_factory=dict)
     details: dict[str, Any] = Field(default_factory=dict)

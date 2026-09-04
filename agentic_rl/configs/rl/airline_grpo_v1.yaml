@@ -22,6 +22,7 @@ hardware:
   gradient_checkpointing: true
 
 rollout:
+  tool_parser: hermes
   max_context_length: 16384
   max_soft_turns: 15
   max_hard_turns: 24
@@ -57,6 +58,7 @@ judge:
 
 annotations:
   required_actions: data/annotations/airline_required_actions.train.v1.json
+  action_dependencies: data/annotations/airline_action_dependencies.train.v1.json
   semantic_checks: data/annotations/airline_semantic_checks.train.v1.json
   transfer_rules: data/annotations/airline_transfer_rules.train.v1.json
   policy_rules: data/annotations/airline_mandatory_policy_rules.train.v1.json
@@ -75,7 +77,19 @@ reward:
   progress_coefficient: 0.75
   strict_success_coefficient: 0.25
   mandatory_policy_gate: true
+  task_safety_gate: true
   process_penalty_cap: 0.20
+  over_turn_penalty_cap: 0.08
+  process_penalties:
+    parse_error: 0.10
+    unknown_tool: 0.10
+    schema_invalid: 0.08
+    model_caused_execution_error: 0.08
+    confirmation_required: 0.08
+    multiple_tool_calls: 0.10
+    unchanged_retry: 0.06
+    duplicate_no_progress: 0.03
+    extra_assistant_turn: 0.02
 
 algorithm:
   adv_estimator: grpo
@@ -114,9 +128,9 @@ vllm:
   gpu_memory_utilization: 0.40
 
 outputs:
-  trajectories: ${TRAJECTORY_OUTPUT_DIR:-outputs/trajectories}
-  checkpoints: outputs/checkpoints
-  judge_cache: ${JUDGE_CACHE_DIR:-outputs/judge_cache}
-  user_cache: ${USER_CACHE_DIR:-outputs/user_cache}
-  metrics: outputs/metrics
-  reports: outputs/reports
+  trajectories: ${TRAJECTORY_OUTPUT_DIR:-outputs/runs/unset/trajectories}
+  checkpoints: ${CHECKPOINT_OUTPUT_DIR:-outputs/runs/unset/checkpoints}
+  judge_cache: ${JUDGE_CACHE_DIR:-outputs/runs/unset/judge_cache}
+  user_cache: ${USER_CACHE_DIR:-outputs/runs/unset/user_cache}
+  metrics: ${METRICS_OUTPUT_DIR:-outputs/runs/unset/metrics}
+  reports: ${REPORTS_OUTPUT_DIR:-outputs/runs/unset/reports}

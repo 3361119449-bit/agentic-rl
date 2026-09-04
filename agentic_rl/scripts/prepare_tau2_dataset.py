@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-SMOKE_IDS = ["0", "7", "11", "14", "23", "39", "42", "43"]
+SMOKE_IDS = ["0", "4", "11", "14", "20", "28", "40", "46"]
 
 
 def _read(path: Path) -> Any:
@@ -51,6 +51,8 @@ def prepare(split_file: Path, output_dir: Path) -> dict[str, int]:
     split = _read(split_file)
     if set(split["rl_train"]) & set(split["internal_dev"]):
         raise ValueError("RL train and internal dev overlap")
+    if set(SMOKE_IDS) - set(split["rl_train"]):
+        raise ValueError("smoke tasks must be a strict subset of RL train")
     official_train = sorted(
         set(split["rl_train"]) | set(split["internal_dev"]), key=int
     )

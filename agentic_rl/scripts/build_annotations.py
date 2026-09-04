@@ -53,12 +53,47 @@ def _policy_rows(ids: set[str]) -> list[dict[str, Any]]:
             "deterministic_rules": [
                 "confirmation_before_database_write",
                 "one_tool_call_per_assistant_turn",
-                "no_unannotated_database_mutation",
             ],
-            "judge_checks": [],
+            "judge_checks": [
+                {
+                    "criterion_id": f"{task_id}:official_policy_hard_constraints",
+                    "description": (
+                        "Considering the fixed task and trajectory, every applicable "
+                        "Airline Policy rule expressed as must, cannot, or only-if was "
+                        "obeyed. Judge policy compliance only, not task completion."
+                    ),
+                }
+            ],
         }
         for task_id in sorted(ids, key=int)
     ]
+
+
+def _action_dependency_rows(
+    actions_by_id: dict[str, list[dict[str, Any]]], ids: set[str]
+) -> list[dict[str, Any]]:
+    """Declare only dependencies implied by cancel-and-rebook workflows."""
+    rows = []
+    for task_id in sorted(ids, key=int):
+        actions = actions_by_id[task_id]
+        cancellation_ids = [
+            str(action["action_id"])
+            for action in actions
+            if action.get("name") == "cancel_reservation"
+        ]
+        booking_ids = [
+            str(action["action_id"])
+            for action in actions
+            if action.get("name") == "book_reservation"
+        ]
+        dependencies = [
+            [cancellation_id, booking_id]
+            for cancellation_id in cancellation_ids
+            for booking_id in booking_ids
+        ]
+        if dependencies:
+            rows.append({"task_id": task_id, "dependencies": dependencies})
+    return rows
 
 
 def _transfer_rows(
@@ -138,6 +173,10 @@ def build(source_dir: Path, output_dir: Path, split_output: Path) -> None:
         _write(
             output_dir / f"airline_mandatory_policy_rules.{split_name}.v1.json",
             _policy_rows(ids),
+        )
+        _write(
+            output_dir / f"airline_action_dependencies.{split_name}.v1.json",
+            _action_dependency_rows(actions_by_id, ids),
         )
 
     train_ids = set(map(str, split["train"]))

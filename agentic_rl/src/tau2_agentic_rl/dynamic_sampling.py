@@ -16,6 +16,23 @@ class ScoredRollout:
     reward: float
 
 
+@dataclass
+class TrainingStepClock:
+    """Keep candidate attempts separate from successful optimizer updates."""
+
+    attempt_step: int = 0
+    optimizer_step: int = 0
+    consecutive_skips: int = 0
+
+    def record_attempt(self, *, updated: bool) -> None:
+        self.attempt_step += 1
+        if updated:
+            self.optimizer_step += 1
+            self.consecutive_skips = 0
+        else:
+            self.consecutive_skips += 1
+
+
 def is_mixed_reward_group(group: list[ScoredRollout], epsilon: float = 1e-12) -> bool:
     """Return true when a group contains usable reward variance."""
     return (

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -46,10 +47,22 @@ def build_command(
     val_file: Path,
     total_epochs: int,
     extra: list[str],
+    run_name: str = "qwen3_4b_airline_grpo_v1",
+    run_root: Path | None = None,
+    resume_from_path: Path | None = None,
+    seed: int = 42,
 ) -> list[str]:
     """Translate the plan to veRL v0.9.0 Hydra overrides."""
     agent_config = project_root / "configs" / "rl" / "agent_loop_v1.yaml"
-    output_root = project_root / "outputs"
+    run_root = run_root or project_root / "outputs" / "runs" / run_name
+    resume_overrides = (
+        [
+            "trainer.resume_mode=resume_path",
+            f"trainer.resume_from_path={resume_from_path}",
+        ]
+        if resume_from_path is not None
+        else ["trainer.resume_mode=disable"]
+    )
     return [
         sys.executable,
         "-m",
@@ -73,6 +86,7 @@ def build_command(
         "data.filter_overlong_prompts=true",
         "data.truncation=error",
         "data.continuous_token.enable=false",
+        f"data.seed={seed}",
         f"actor_rollout_ref.model.path={model_path}",
         "actor_rollout_ref.model.lora_rank=32",
         "actor_rollout_ref.model.lora_alpha=64",
@@ -93,6 +107,7 @@ def build_command(
         "actor_rollout_ref.actor.loss_agg_mode=token-mean",
         "actor_rollout_ref.actor.entropy_coeff=0.0",
         "actor_rollout_ref.actor.grad_clip=1.0",
+        f"actor_rollout_ref.actor.data_loader_seed={seed}",
         "actor_rollout_ref.actor.use_kl_loss=false",
         "actor_rollout_ref.actor.kl_loss_coef=0.0",
         "actor_rollout_ref.actor.fsdp_config.param_offload=false",
@@ -110,6 +125,7 @@ def build_command(
         "actor_rollout_ref.rollout.max_model_len=16384",
         "actor_rollout_ref.rollout.load_format=safetensors",
         "actor_rollout_ref.rollout.layered_summon=true",
+        f"actor_rollout_ref.rollout.seed={seed}",
         "actor_rollout_ref.rollout.agent.num_workers=2",
         "actor_rollout_ref.rollout.agent.default_agent_loop=tau2_airline",
         f"actor_rollout_ref.rollout.agent.agent_loop_config_path={agent_config}",
@@ -121,14 +137,31 @@ def build_command(
         "trainer.val_before_train=true",
         "trainer.logger=[console,wandb]",
         "trainer.project_name=tau2_airline_agentic_rl",
-        "trainer.experiment_name=qwen3_4b_airline_grpo_v1",
-        f"trainer.default_local_dir={output_root / 'checkpoints'}",
-        f"trainer.rollout_data_dir={output_root / 'verl_rollouts'}",
+        f"trainer.experiment_name={run_name}",
+        f"trainer.default_local_dir={run_root / 'checkpoints'}",
+        f"trainer.rollout_data_dir={run_root / 'verl_rollouts'}",
+        "+trainer.max_attempts_without_update=50",
+        *resume_overrides,
         "trainer.save_freq=10",
         "trainer.test_freq=10",
         f"trainer.total_epochs={total_epochs}",
         *extra,
     ]
+
+
+def _safe_run_name(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-.")
+    if not normalized:
+        raise ValueError("run name is empty after normalization")
+    return normalized
+
+
+def _learning_rate_label(extra: list[str]) -> str:
+    key = "actor_rollout_ref.actor.optim.lr="
+    value = next(
+        (item[len(key) :] for item in reversed(extra) if item.startswith(key)), "5e-6"
+    )
+    return _safe_run_name(value)
 
 
 def main() -> None:
@@ -141,6 +174,9 @@ def main() -> None:
         default="internal_dev",
     )
     parser.add_argument("--epochs", type=int, default=15)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--run-name")
+    parser.add_argument("--resume-from-path", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--extra", action="append", default=[])
     args = parser.parse_args()
@@ -168,6 +204,27 @@ def main() -> None:
         raise FileNotFoundError("run scripts/prepare_tau2_dataset.py first")
 
     config_path = project_root / "configs" / "rl" / "airline_grpo_v1.yaml"
+    generated_run_name = (
+        f"{args.stage}_lr{_learning_rate_label(args.extra)}_seed{args.seed}"
+    )
+    run_name = _safe_run_name(args.run_name or generated_run_name)
+    run_root = project_root / "outputs" / "runs" / run_name
+    if not args.dry_run and args.resume_from_path is None and run_root.exists():
+        if any(run_root.iterdir()):
+            raise FileExistsError(
+                f"run directory is not empty: {run_root}; choose --run-name or "
+                "explicitly pass --resume-from-path"
+            )
+    output_env = {
+        "TRAJECTORY_OUTPUT_DIR": run_root / "trajectories",
+        "CHECKPOINT_OUTPUT_DIR": run_root / "checkpoints",
+        "JUDGE_CACHE_DIR": run_root / "judge_cache",
+        "USER_CACHE_DIR": run_root / "user_cache",
+        "METRICS_OUTPUT_DIR": run_root / "metrics",
+        "REPORTS_OUTPUT_DIR": run_root / "reports",
+    }
+    for name, path in output_env.items():
+        os.environ[name] = str(path)
     os.environ["AGENTIC_RL_CONFIG"] = str(config_path)
     pythonpath = [
         str(project_root / "src"),
@@ -186,6 +243,10 @@ def main() -> None:
         val_file=val_file,
         total_epochs=(1 if args.stage == "smoke" else args.epochs),
         extra=args.extra,
+        run_name=run_name,
+        run_root=run_root,
+        resume_from_path=args.resume_from_path,
+        seed=args.seed,
     )
     print(shlex.join(command))
     if not args.dry_run:

@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from jsonschema import ValidationError, validate
 from verl.experimental.agent_loop.agent_loop import (
     AgentLoopBase,
     AgentLoopMetrics,
@@ -21,26 +20,26 @@ from verl.tools.base_tool import OpenAIFunctionToolSchema
 from tau2_agentic_rl.annotations import load_task_mapping
 from tau2_agentic_rl.budget import ContextBudget
 from tau2_agentic_rl.config import load_runtime_config
-from tau2_agentic_rl.environment.tau2_gym import Tau2GymAdapter
+from tau2_agentic_rl.environment.tau2_gym import GymStep, Tau2GymAdapter
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
 from tau2_agentic_rl.reward.official_tau2 import parse_official_reward_info
 from tau2_agentic_rl.reward.required_actions import (
     arguments_equal,
+    load_action_dependencies,
     load_required_actions,
 )
-from tau2_agentic_rl.reward.score import score_trajectory
+from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
 from tau2_agentic_rl.schemas import TokenTurn, ToolEvent, TrajectoryRecord
 from tau2_agentic_rl.storage import TrajectoryStore
 from tau2_agentic_rl.token_alignment import validate_aligned_response
-
-
-def _confirmed_by_latest_user(messages: list[dict[str, Any]]) -> bool:
-    for message in reversed(messages):
-        if message.get("role") != "user":
-            continue
-        content = str(message.get("content", "")).strip().lower()
-        return content == "yes" or content.startswith(("yes,", "yes "))
-    return False
+from tau2_agentic_rl.tooling import (
+    CONFIRMATION_PROTOCOL,
+    ConfirmationTracker,
+    execute_validated_tool_call,
+    synthetic_tool_error,
+    truncate_message_contents,
+    validate_tool_call,
+)
 
 
 def _split(kwargs: dict[str, Any]) -> tuple[str, str, int]:
@@ -85,6 +84,36 @@ def _mark_repetition(event: ToolEvent, earlier: list[ToolEvent]) -> None:
         return
 
 
+def _local_step(environment: Tau2GymAdapter, message: dict[str, Any]) -> GymStep:
+    """Return a synthetic observation without advancing the Tau2 backend."""
+    return GymStep(
+        messages=[message],
+        reward=environment.last_reward,
+        terminated=False,
+        info=environment.info,
+        db_changed=False,
+        tool_success=False,
+        tool_result=str(message.get("content", "")),
+    )
+
+
+def _termination_reason(tau_reason: str | None) -> str:
+    """Preserve Tau2's specific termination reason for auditability."""
+    known = {
+        "user_stop",
+        "agent_stop",
+        "max_steps",
+        "timeout",
+        "too_many_errors",
+        "agent_error",
+        "user_error",
+        "infrastructure_error",
+        "context_window_exceeded",
+        "unexpected_error",
+    }
+    return tau_reason if tau_reason in known else "environment_terminated"
+
+
 @register("tau2_airline")
 class Tau2AirlineAgentLoop(AgentLoopBase):
     """Run one isolated Tau2 trajectory and return aligned veRL tokens."""
@@ -98,14 +127,21 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         self.required_actions = load_required_actions(
             self.root / annotations["required_actions"]
         )
+        self.action_dependencies = load_action_dependencies(
+            self.root / annotations["action_dependencies"]
+        )
         self.semantic = load_task_mapping(self.root / annotations["semantic_checks"])
         self.transfer = load_task_mapping(self.root / annotations["transfer_rules"])
         self.policy_rules = load_task_mapping(self.root / annotations["policy_rules"])
         self.store = TrajectoryStore(
             self.root / self.project["outputs"]["trajectories"]
         )
-        self.tool_parser = ToolParser.get_tool_parser("qwen3_coder", self.tokenizer)
         rollout = self.project["rollout"]
+        parser_name = str(rollout.get("tool_parser", "hermes"))
+        if parser_name != "hermes":
+            raise ValueError("Qwen3-4B-Instruct-2507 requires the hermes JSON parser")
+        self.tool_parser = ToolParser.get_tool_parser(parser_name, self.tokenizer)
+        self.reward_config = build_reward_config(self.project)
         self.budget = ContextBudget(
             max_context_tokens=int(rollout["max_context_length"]),
             reserved_observation_tokens=int(rollout["reserved_observation_tokens"]),
@@ -117,6 +153,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         self.judge = DeepSeekJudge(
             JudgeConfig(
                 model=judge_config["model"],
+                provider=judge_config.get("provider", "DeepSeek"),
                 base_url=judge_config["base_url"],
                 cache_dir=str(self.root / self.project["outputs"]["judge_cache"]),
                 max_retries=int(judge_config["max_retries"]),
@@ -124,6 +161,38 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         )
         self.hard_turn_limit = int(rollout["max_hard_turns"])
         self.response_length = int(self.rollout_config.response_length)
+
+    async def _bounded_environment_messages(
+        self,
+        raw_messages: list[dict[str, Any]],
+        prompt_ids: list[int],
+        response_mask: list[int],
+    ) -> tuple[list[dict[str, Any]], list[int], bool]:
+        """Always append a bounded observation after a side effect has occurred."""
+        allowed = min(
+            self.budget.max_context_tokens - len(prompt_ids),
+            self.response_length - len(response_mask),
+        )
+        if allowed <= 0:
+            raise RuntimeError("no token budget remains for environment observation")
+        low, high = 0, self.budget.reserved_observation_tokens
+        best: tuple[list[dict[str, Any]], list[int], bool] | None = None
+        while low <= high:
+            middle = (low + high) // 2
+            bounded, truncated = truncate_message_contents(
+                raw_messages, self.tokenizer, middle
+            )
+            environment_ids = await self.apply_chat_template(
+                bounded, remove_system_prompt=True
+            )
+            if len(environment_ids) <= allowed:
+                best = bounded, environment_ids, truncated
+                low = middle + 1
+            else:
+                high = middle - 1
+        if best is None:
+            raise RuntimeError("environment template exceeds reserved token budget")
+        return best
 
     async def run(
         self, sampling_params: dict[str, Any], **kwargs: Any
@@ -141,17 +210,77 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             user_max_retries=int(user.get("max_retries", 2)),
             max_steps=self.hard_turn_limit * 3,
         )
-        incoming = await environment.reset(seed=seed)
+        try:
+            incoming = await environment.reset(seed=seed)
+        except Exception as exc:
+            await environment.force_cleanup_stop()
+            self.store.save(
+                TrajectoryRecord(
+                    trajectory_id=trajectory_id,
+                    task_id=task_id,
+                    split=split,
+                    policy_version=policy_version,
+                    annotation_version=self.project["project"]["annotation_version"],
+                    reward_version=self.project["project"]["reward_version"],
+                    environment_seed=seed,
+                    termination_reason="infrastructure_error",
+                    assistant_turns=0,
+                    trajectory_tokens=0,
+                    initial_db_hash=environment.initial_db_hash(),
+                    final_db_hash=environment.safe_db_hash(),
+                    metadata={
+                        "failure_phase": "environment_reset",
+                        "failure_type": type(exc).__name__,
+                        "failure_message": str(exc),
+                    },
+                )
+            )
+            raise RuntimeError(
+                "Tau2 environment reset failed; audit record saved"
+            ) from exc
         messages: list[dict[str, Any]] = [
-            {"role": "system", "content": environment.policy},
+            {
+                "role": "system",
+                "content": f"{environment.policy}\n\n{CONFIRMATION_PROTOCOL}",
+            },
             *incoming,
         ]
-        schemas = environment.tool_schemas
-        schemas_by_name = {
-            item["function"]["name"]: item["function"]["parameters"] for item in schemas
-        }
-        parser_schemas = [OpenAIFunctionToolSchema(**item) for item in schemas]
-        prompt_ids = await self.apply_chat_template(messages, tools=schemas)
+        confirmation = ConfirmationTracker()
+        try:
+            schemas = environment.tool_schemas
+            schemas_by_name = {
+                item["function"]["name"]: item["function"]["parameters"]
+                for item in schemas
+            }
+            parser_schemas = [OpenAIFunctionToolSchema(**item) for item in schemas]
+            prompt_ids = await self.apply_chat_template(messages, tools=schemas)
+        except Exception as exc:
+            await environment.force_cleanup_stop()
+            self.store.save(
+                TrajectoryRecord(
+                    trajectory_id=trajectory_id,
+                    task_id=task_id,
+                    split=split,
+                    policy_version=policy_version,
+                    annotation_version=self.project["project"]["annotation_version"],
+                    reward_version=self.project["project"]["reward_version"],
+                    environment_seed=seed,
+                    termination_reason="infrastructure_error",
+                    assistant_turns=0,
+                    trajectory_tokens=0,
+                    messages=messages,
+                    initial_db_hash=environment.initial_db_hash(),
+                    final_db_hash=environment.safe_db_hash(),
+                    metadata={
+                        "failure_phase": "prompt_initialization",
+                        "failure_type": type(exc).__name__,
+                        "failure_message": str(exc),
+                    },
+                )
+            )
+            raise RuntimeError(
+                "rollout prompt initialization failed; audit saved"
+            ) from exc
         initial_prompt_ids = list(prompt_ids)
         response_mask: list[int] = []
         aligned_log_probs: list[float] = []
@@ -162,6 +291,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         metrics = AgentLoopMetrics()
         request_id = trajectory_id
         terminated = False
+        infrastructure_error: tuple[str, Exception] | None = None
         observed_policy_versions: set[int] = {policy_version}
 
         while not terminated:
@@ -175,25 +305,40 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
 
             turn_sampling = dict(sampling_params)
             turn_sampling["max_tokens"] = decision.max_new_tokens
-            output = await self.server_manager.generate(
-                request_id=request_id,
-                prompt_ids=prompt_ids,
-                sampling_params=turn_sampling,
-            )
+            try:
+                output = await self.server_manager.generate(
+                    request_id=request_id,
+                    prompt_ids=prompt_ids,
+                    sampling_params=turn_sampling,
+                )
+            except Exception as exc:
+                infrastructure_error = ("model_generation", exc)
+                termination_reason = "infrastructure_error"
+                break
             rollout_step = (output.extra_fields or {}).get("max_global_steps")
             if rollout_step is not None:
                 observed_policy_versions.add(int(rollout_step))
                 policy_version = int(rollout_step)
             if len(observed_policy_versions - {0}) > 1:
-                raise RuntimeError(
-                    "one trajectory was generated by multiple policy versions"
+                infrastructure_error = (
+                    "policy_version_alignment",
+                    RuntimeError(
+                        "one trajectory was generated by multiple policy versions"
+                    ),
                 )
+                termination_reason = "infrastructure_error"
+                break
             if output.log_probs is None or len(output.token_ids) != len(
                 output.log_probs
             ):
-                raise RuntimeError(
-                    "vLLM did not return aligned token-level old log-probs"
+                infrastructure_error = (
+                    "rollout_log_probs",
+                    RuntimeError(
+                        "vLLM did not return aligned token-level old log-probs"
+                    ),
                 )
+                termination_reason = "infrastructure_error"
+                break
             token_turns.append(
                 TokenTurn(
                     assistant_turn_index=assistant_turns,
@@ -207,11 +352,16 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             aligned_log_probs.extend(output.log_probs)
             assistant_turns += 1
 
-            content, calls = await self.tool_parser.extract_tool_calls(
-                output.token_ids,
-                parser_schemas,
-            )
             decoded = self.tokenizer.decode(output.token_ids)
+            try:
+                content, calls = await self.tool_parser.extract_tool_calls(
+                    output.token_ids,
+                    parser_schemas,
+                )
+            except Exception as exc:
+                infrastructure_error = ("tool_parser", exc)
+                termination_reason = "infrastructure_error"
+                break
             assistant_message: dict[str, Any] = {
                 "role": "assistant",
                 "content": content if calls else decoded,
@@ -228,152 +378,269 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             messages.append(assistant_message)
 
             if "<tool_call>" in decoded and not calls:
-                tool_events.append(
-                    ToolEvent(
-                        event_id=f"{trajectory_id}:{len(tool_events)}",
-                        sequence=len(tool_events),
-                        turn_id=assistant_turns,
-                        error_kind="parse_error",
-                        result=decoded,
-                    )
+                event = ToolEvent(
+                    event_id=f"{trajectory_id}:{len(tool_events)}",
+                    sequence=len(tool_events),
+                    turn_id=assistant_turns,
+                    error_kind="parse_error",
+                    result=decoded,
                 )
+                tool_events.append(event)
 
-            if calls:
-                for extra_call in calls[1:]:
-                    extra_arguments, extra_error = _safe_arguments(extra_call.arguments)
+            if len(calls) > 1:
+                for call in calls:
+                    arguments, _ = _safe_arguments(call.arguments)
                     tool_events.append(
                         ToolEvent(
                             event_id=f"{trajectory_id}:{len(tool_events)}",
                             sequence=len(tool_events),
                             turn_id=assistant_turns,
-                            name=extra_call.name,
-                            arguments=extra_arguments,
+                            name=call.name,
+                            arguments=arguments,
                             success=False,
-                            error_kind=("schema_invalid" if extra_error else None),
-                            result="not executed: Tau2 policy permits one call per turn",
+                            error_kind="multiple_tool_calls",
+                            result="not executed: exactly one tool call is permitted",
                         )
                     )
+                step = _local_step(
+                    environment,
+                    synthetic_tool_error(
+                        "multiple_tool_calls",
+                        "multiple_tool_calls",
+                        "No call was executed; emit exactly one tool call.",
+                    ),
+                )
+            elif calls:
                 call = calls[0]
-                try:
-                    arguments = json.loads(call.arguments)
-                    if not isinstance(arguments, dict):
-                        raise TypeError("tool arguments are not an object")
-                    schema_error = False
-                    if call.name in schemas_by_name:
-                        try:
-                            validate(arguments, schemas_by_name[call.name])
-                        except ValidationError:
-                            schema_error = True
-                    step = await environment.step_tool(call.name, arguments)
-                    unknown_tool = call.name not in environment.tool_names
-                    event = ToolEvent(
-                        event_id=f"{trajectory_id}:{len(tool_events)}",
-                        sequence=len(tool_events),
-                        turn_id=assistant_turns,
-                        name=call.name,
-                        arguments=arguments,
-                        success=step.tool_success is True,
-                        db_effect=step.db_changed,
-                        confirmed_before=_confirmed_by_latest_user(messages),
-                        error_kind=(
-                            "unknown_tool"
-                            if unknown_tool
-                            else (
-                                "schema_invalid"
-                                if schema_error
-                                else (
-                                    None
-                                    if step.tool_success is not False
-                                    else "model_caused_execution_error"
-                                )
-                            )
+                checked = validate_tool_call(
+                    call.name,
+                    call.arguments,
+                    schemas_by_name,
+                    environment.tool_names,
+                )
+                if not checked.valid:
+                    step = _local_step(
+                        environment,
+                        synthetic_tool_error(
+                            call.name,
+                            str(checked.error_kind),
+                            str(checked.detail),
                         ),
-                        result=step.tool_result,
                     )
-                except (json.JSONDecodeError, TypeError) as exc:
-                    step = await environment.step_text(decoded)
                     event = ToolEvent(
                         event_id=f"{trajectory_id}:{len(tool_events)}",
                         sequence=len(tool_events),
                         turn_id=assistant_turns,
                         name=call.name,
-                        error_kind="schema_invalid",
-                        result=str(exc),
+                        arguments=checked.arguments,
+                        error_kind=checked.error_kind,
+                        result=checked.detail,
                     )
+                else:
+                    proposal = None
+                    authorized = True
+                    if call.name in {
+                        "book_reservation",
+                        "cancel_reservation",
+                        "send_certificate",
+                        "update_reservation_baggages",
+                        "update_reservation_flights",
+                        "update_reservation_passengers",
+                    }:
+                        authorized, proposal = confirmation.authorize(
+                            call.name,
+                            checked.arguments,
+                            assistant_turns,
+                            messages,
+                        )
+                    if not authorized:
+                        assert proposal is not None
+                        detail = (
+                            "Database write blocked. Present this exact action to the "
+                            "user, obtain a new explicit confirmation, then retry it "
+                            "without changing any argument."
+                        )
+                        step = _local_step(
+                            environment,
+                            synthetic_tool_error(
+                                call.name, "confirmation_required", detail
+                            ),
+                        )
+                        event = ToolEvent(
+                            event_id=f"{trajectory_id}:{len(tool_events)}",
+                            sequence=len(tool_events),
+                            turn_id=assistant_turns,
+                            name=call.name,
+                            arguments=checked.arguments,
+                            confirmed_before=False,
+                            confirmation_proposal_hash=proposal.proposal_hash,
+                            confirmation_turn_id=proposal.confirmation_turn_id,
+                            error_kind="confirmation_required",
+                            result=detail,
+                        )
+                    else:
+                        try:
+                            step = await execute_validated_tool_call(
+                                checked, environment.step_tool
+                            )
+                        except Exception as exc:
+                            infrastructure_error = ("tau2_tool_step", exc)
+                            termination_reason = "infrastructure_error"
+                            break
+                        event = ToolEvent(
+                            event_id=f"{trajectory_id}:{len(tool_events)}",
+                            sequence=len(tool_events),
+                            turn_id=assistant_turns,
+                            name=call.name,
+                            arguments=checked.arguments,
+                            success=step.tool_success is True,
+                            db_effect=step.db_changed,
+                            confirmed_before=(True if proposal is not None else None),
+                            confirmation_proposal_hash=(
+                                proposal.proposal_hash if proposal is not None else None
+                            ),
+                            confirmation_turn_id=(
+                                proposal.confirmation_turn_id
+                                if proposal is not None
+                                else None
+                            ),
+                            error_kind=(
+                                None
+                                if step.tool_success is not False
+                                else "model_caused_execution_error"
+                            ),
+                            result=step.tool_result,
+                        )
+                        if proposal is not None and event.success:
+                            confirmation.consume(proposal.proposal_hash)
+                            event.confirmation_consumed = True
                 _mark_repetition(event, tool_events)
                 tool_events.append(event)
-            else:
-                step = await environment.step_text(decoded)
-
-            messages.extend(step.messages)
-            if step.messages:
-                environment_ids = await self.apply_chat_template(
-                    step.messages,
-                    remove_system_prompt=True,
+            elif "<tool_call>" in decoded:
+                step = _local_step(
+                    environment,
+                    synthetic_tool_error(
+                        "unparsed_tool_call",
+                        "parse_error",
+                        "Malformed Qwen JSON tool call; no backend call was made.",
+                    ),
                 )
-                if (
-                    len(prompt_ids) + len(environment_ids)
-                    >= self.budget.max_context_tokens
-                    or len(response_mask) + len(environment_ids) >= self.response_length
-                ):
-                    termination_reason = "budget_exhausted"
+            else:
+                confirmation.observe_messages(messages)
+                try:
+                    step = await environment.step_text(decoded)
+                except Exception as exc:
+                    infrastructure_error = ("tau2_text_step", exc)
+                    termination_reason = "infrastructure_error"
                     break
+
+            if step.messages:
+                try:
+                    (
+                        bounded_messages,
+                        environment_ids,
+                        observation_truncated,
+                    ) = await self._bounded_environment_messages(
+                        step.messages, prompt_ids, response_mask
+                    )
+                except Exception as exc:
+                    infrastructure_error = ("observation_tokenization", exc)
+                    termination_reason = "infrastructure_error"
+                    break
+                messages.extend(bounded_messages)
+                if observation_truncated and calls and tool_events:
+                    tool_events[-1].observation_truncated = True
                 prompt_ids.extend(environment_ids)
                 response_mask.extend([0] * len(environment_ids))
                 aligned_log_probs.extend([0.0] * len(environment_ids))
             terminated = step.terminated
             if terminated:
                 tau_reason = environment.tau2_termination_reason()
-                termination_reason = (
-                    "user_stop" if tau_reason == "user_stop" else "agent_stop"
-                )
+                termination_reason = _termination_reason(tau_reason)
                 if any(
                     event.name == "transfer_to_human_agents" and event.success
                     for event in tool_events
                 ):
                     termination_reason = "human_transfer"
 
-        trajectory_for_judge = environment.full_trajectory()
-        if not terminated:
-            await environment.force_cleanup_stop()
-        official_reward, official_payload = environment.official_reward_payload()
-        if termination_reason in {"budget_exhausted", "hard_turn_limit"}:
-            official_reward = 0.0
-        official = parse_official_reward_info(official_reward, official_payload)
+        trajectory_for_judge = messages
+        await environment.force_cleanup_stop()
+        official = None
+        try:
+            official_reward, official_payload = environment.official_reward_payload()
+            if termination_reason in {"budget_exhausted", "hard_turn_limit"}:
+                official_reward = 0.0
+            official = parse_official_reward_info(official_reward, official_payload)
+        except Exception as exc:
+            if infrastructure_error is None:
+                infrastructure_error = ("official_reward", exc)
+                termination_reason = "infrastructure_error"
 
         semantic_row = self.semantic[task_id]
         transfer_rule = self.transfer[task_id]
         policy_row = self.policy_rules[task_id]
-        judge_result, judge_raw, judge_prompt_hash = await self.judge.evaluate(
-            task=environment.task,
-            policy=environment.policy,
-            trajectory={
-                "messages": trajectory_for_judge,
-                "tool_events": [event.model_dump() for event in tool_events],
-                "termination_reason": termination_reason,
-            },
-            semantic_checks=semantic_row.get("semantic_checks", []),
-            mandatory_policy_checks=policy_row.get("judge_checks", []),
-            transfer_rule=transfer_rule,
-        )
+        judge_result = None
+        judge_raw = None
+        judge_prompt_hash = None
+        judge_cache_key = None
+        if infrastructure_error is None:
+            try:
+                (
+                    judge_result,
+                    judge_raw,
+                    judge_prompt_hash,
+                    judge_cache_key,
+                ) = await self.judge.evaluate(
+                    task=environment.task,
+                    policy=environment.policy,
+                    trajectory={
+                        "messages": trajectory_for_judge,
+                        "tool_events": [event.model_dump() for event in tool_events],
+                        "termination_reason": termination_reason,
+                    },
+                    semantic_checks=semantic_row.get("semantic_checks", []),
+                    mandatory_policy_checks=policy_row.get("judge_checks", []),
+                    transfer_rule=transfer_rule,
+                )
+            except Exception as exc:
+                infrastructure_error = ("judge", exc)
+                termination_reason = "infrastructure_error"
+
         required = self.required_actions[task_id]
-        custom_reward = score_trajectory(
-            events=tool_events,
-            messages=messages,
-            assistant_turns=assistant_turns,
-            required_actions=required,
-            official=official,
-            judge=judge_result,
-            transfer_rule=transfer_rule,
-        )
+        custom_reward = None
+        if infrastructure_error is None:
+            try:
+                if official is None or judge_result is None:
+                    raise RuntimeError("successful rollout lacks scorer inputs")
+                custom_reward = score_trajectory(
+                    events=tool_events,
+                    messages=messages,
+                    assistant_turns=assistant_turns,
+                    required_actions=required,
+                    official=official,
+                    judge=judge_result,
+                    transfer_rule=transfer_rule,
+                    action_dependencies=self.action_dependencies.get(task_id, []),
+                    config=self.reward_config,
+                )
+            except Exception as exc:
+                infrastructure_error = ("reward_scoring", exc)
+                termination_reason = "infrastructure_error"
 
         response_ids = prompt_ids[len(initial_prompt_ids) :]
-        validate_aligned_response(
-            response_ids,
-            response_mask,
-            aligned_log_probs,
-            token_turns,
-        )
+        try:
+            validate_aligned_response(
+                response_ids,
+                response_mask,
+                aligned_log_probs,
+                token_turns,
+            )
+        except Exception as exc:
+            if infrastructure_error is None:
+                infrastructure_error = ("token_alignment", exc)
+                termination_reason = "infrastructure_error"
+                custom_reward = None
+                judge_result = None
         record = TrajectoryRecord(
             trajectory_id=trajectory_id,
             task_id=task_id,
@@ -389,20 +656,39 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             tool_events=tool_events,
             token_turns=token_turns,
             initial_db_hash=environment.initial_db_hash(),
-            final_db_hash=environment.db_hash(),
+            final_db_hash=environment.safe_db_hash(),
             official_scores=official,
             judge_result=judge_result,
             custom_reward=custom_reward,
             metadata={
                 "judge_raw": judge_raw,
                 "judge_prompt_hash": judge_prompt_hash,
+                "judge_cache_key": judge_cache_key,
                 "user_prompt_hashes": environment.user_prompt_hashes(),
                 "tau2_commit": self.project["project"]["tau2_commit"],
                 "verl_commit": self.project["project"]["verl_commit"],
                 "rollout_engine_version": os.environ.get("VLLM_VERSION", "unknown"),
+                "failure_phase": (
+                    infrastructure_error[0] if infrastructure_error else None
+                ),
+                "failure_type": (
+                    type(infrastructure_error[1]).__name__
+                    if infrastructure_error
+                    else None
+                ),
+                "failure_message": (
+                    str(infrastructure_error[1]) if infrastructure_error else None
+                ),
             },
         )
         self.store.save(record)
+        if infrastructure_error is not None:
+            phase, error = infrastructure_error
+            raise RuntimeError(
+                f"rollout infrastructure failure during {phase}; audit record saved"
+            ) from error
+        assert custom_reward is not None
+        assert official is not None
         return AgentLoopOutput(
             prompt_ids=initial_prompt_ids,
             response_ids=response_ids,

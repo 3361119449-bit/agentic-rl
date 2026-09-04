@@ -1,5 +1,6 @@
 from tau2_agentic_rl.dynamic_sampling import (
     ScoredRollout,
+    TrainingStepClock,
     grpo_advantages,
     select_valid_groups,
 )
@@ -26,3 +27,14 @@ def test_insufficient_valid_groups_returns_no_optimizer_batch() -> None:
 def test_grpo_advantages_are_centered() -> None:
     values = grpo_advantages([rollout("a", 0, 0.0), rollout("a", 1, 1.0)])
     assert abs(sum(values.values())) < 1e-12
+
+
+def test_skipped_attempt_does_not_increment_optimizer_step() -> None:
+    clock = TrainingStepClock()
+    clock.record_attempt(updated=False)
+    assert clock.attempt_step == 1
+    assert clock.optimizer_step == 0
+    clock.record_attempt(updated=True)
+    assert clock.attempt_step == 2
+    assert clock.optimizer_step == 1
+    assert clock.consecutive_skips == 0

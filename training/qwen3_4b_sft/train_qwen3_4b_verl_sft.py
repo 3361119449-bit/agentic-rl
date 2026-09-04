@@ -32,7 +32,7 @@ except ModuleNotFoundError as exc:
     MultiTurnSFTDataset = object  # type: ignore[assignment,misc]
 
 
-SCRIPT_VERSION = 2
+SCRIPT_VERSION = 3
 DEFAULT_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 DATA_RELATIVE_PATH = Path(
     "datasets/tau2_airline_sft_strict_cleaned/data/"
@@ -164,6 +164,59 @@ def repository_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def tokenizer_identity(model: str, revision: str, max_length: int) -> dict[str, Any]:
+    """Fingerprint tokenizer/template inputs that affect final SFT tokenization."""
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        model, revision=revision, trust_remote_code=False
+    )
+    chat_template = str(tokenizer.chat_template or "")
+    return {
+        "model": model,
+        "requested_revision": revision,
+        "resolved_revision": tokenizer.init_kwargs.get("_commit_hash", revision),
+        "chat_template_sha256": hashlib.sha256(chat_template.encode()).hexdigest(),
+        "transformers_version": importlib.metadata.version("transformers"),
+        "max_length": max_length,
+        "truncation": "error",
+        "loss_scope": "last_assistant_answer_only",
+        "thinking_reasoning_rejected": True,
+        "normalization_version": SCRIPT_VERSION,
+    }
+
+
+def prepared_cache_matches(
+    manifest: dict[str, Any],
+    *,
+    source: Path,
+    source_sha256: str,
+    val_ratio: float,
+    seed: int,
+    preprocessing_identity: dict[str, Any],
+    val_path: Path | None,
+) -> bool:
+    """Require content and tokenizer identity, not only source file size."""
+    return bool(
+        manifest.get("script_version") == SCRIPT_VERSION
+        and manifest.get("input") == str(source)
+        and manifest.get("input_size") == source.stat().st_size
+        and manifest.get("input_sha256") == source_sha256
+        and manifest.get("val_ratio") == val_ratio
+        and manifest.get("seed") == seed
+        and manifest.get("preprocessing_identity") == preprocessing_identity
+        and (val_path is None or val_path.exists())
+    )
+
+
 def reject_thinking(value: Any, path: str = "root") -> None:
     if isinstance(value, dict):
         for key, child in value.items():
@@ -184,7 +237,9 @@ def normalize_tool_calls(tool_calls: Any) -> list[dict[str, str]] | None:
     for call in tool_calls:
         if not isinstance(call, dict):
             raise ValueError("tool_calls entries must be JSON objects")
-        function = call.get("function") if isinstance(call.get("function"), dict) else call
+        function = (
+            call.get("function") if isinstance(call.get("function"), dict) else call
+        )
         name = function.get("name")
         if not isinstance(name, str) or not name:
             raise ValueError("Every tool call must have a non-empty name")
@@ -229,7 +284,9 @@ def read_jsonl(path: Path) -> Iterable[tuple[int, dict[str, Any], bytes]]:
             except json.JSONDecodeError as exc:
                 raise ValueError(f"Invalid JSON on line {line_number}: {exc}") from exc
             if not isinstance(record, dict):
-                raise ValueError(f"Line {line_number}: top-level value must be an object")
+                raise ValueError(
+                    f"Line {line_number}: top-level value must be an object"
+                )
             yield line_number, record, raw_line
 
 
@@ -271,7 +328,10 @@ def scan_source(path: Path) -> dict[str, Any]:
         if messages[-1].get("role") not in {"user", "tool"}:
             raise ValueError(f"Line {line_number}: history must end in user/tool")
         normalized_answer = normalize_message(answer)
-        if not normalized_answer["content"].strip() and not normalized_answer["tool_calls"]:
+        if (
+            not normalized_answer["content"].strip()
+            and not normalized_answer["tool_calls"]
+        ):
             raise ValueError(f"Line {line_number}: empty supervised answer")
         target_kind = "tool_call" if normalized_answer["tool_calls"] else "text"
         targets[target_kind] += 1
@@ -299,6 +359,7 @@ def prepare_dataset(
     val_ratio: float,
     seed: int,
     force: bool,
+    preprocessing_identity: dict[str, Any] | None = None,
 ) -> tuple[Path, Path | None, dict[str, Any]]:
     try:
         import pyarrow as arrow
@@ -316,15 +377,19 @@ def prepare_dataset(
     train_path = work_dir / "train.parquet"
     val_path = work_dir / "validation.parquet" if val_ratio > 0 else None
     manifest_path = work_dir / "prepare_manifest.json"
+    source_sha256 = sha256_file(source)
+    expected_identity = dict(preprocessing_identity or {})
 
     if not force and train_path.exists() and manifest_path.exists():
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        reusable = (
-            manifest.get("script_version") == SCRIPT_VERSION
-            and manifest.get("input_size") == source.stat().st_size
-            and manifest.get("val_ratio") == val_ratio
-            and manifest.get("seed") == seed
-            and (val_path is None or val_path.exists())
+        reusable = prepared_cache_matches(
+            manifest,
+            source=source,
+            source_sha256=source_sha256,
+            val_ratio=val_ratio,
+            seed=seed,
+            preprocessing_identity=expected_identity,
+            val_path=val_path,
         )
         if reusable:
             print(f"Reusing prepared dataset in {work_dir}")
@@ -373,7 +438,9 @@ def prepare_dataset(
 
     def flush(split: str) -> None:
         if buffers[split]:
-            writers[split].write_table(arrow.Table.from_pylist(buffers[split], schema=schema))
+            writers[split].write_table(
+                arrow.Table.from_pylist(buffers[split], schema=schema)
+            )
             buffers[split].clear()
 
     try:
@@ -416,6 +483,7 @@ def prepare_dataset(
         "input": str(source),
         "input_size": source.stat().st_size,
         "input_sha256": scan["sha256"],
+        "preprocessing_identity": expected_identity,
         "source_rows": scan["rows"],
         "source_dialogs": len(scan["dialogs"]),
         "target_types": scan["targets"],
@@ -449,7 +517,9 @@ def validate_training_runtime() -> None:
         try:
             installed = numeric_version(package)
         except importlib.metadata.PackageNotFoundError as exc:
-            raise RuntimeError(f"Missing package {package}; see the training README") from exc
+            raise RuntimeError(
+                f"Missing package {package}; see the training README"
+            ) from exc
         if installed < minimum:
             raise RuntimeError(
                 f"{package}>={'.'.join(map(str, minimum))} is required; found "
@@ -472,7 +542,9 @@ def build_training_command(
         raise ValueError("--ulysses-size must divide --num-gpus")
     data_parallel_size = args.num_gpus // args.ulysses_size
     if args.global_batch_size % data_parallel_size:
-        raise ValueError("--global-batch-size must divide evenly across data-parallel ranks")
+        raise ValueError(
+            "--global-batch-size must divide evenly across data-parallel ranks"
+        )
     if args.max_token_len_per_gpu < args.max_length and args.ulysses_size == 1:
         raise ValueError(
             "--max-token-len-per-gpu must be >= --max-length without sequence parallelism"
@@ -539,21 +611,48 @@ def build_training_command(
     ]
     if args.resume_mode == "resume_path":
         if args.resume_from_path is None:
-            raise ValueError("--resume-from-path is required with --resume-mode resume_path")
+            raise ValueError(
+                "--resume-from-path is required with --resume-mode resume_path"
+            )
         command.append(f"trainer.resume_from_path={args.resume_from_path.resolve()}")
     command.extend(args.extra_config)
     return command
 
 
+def _safe_run_name(value: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-.")
+    if not normalized:
+        raise ValueError("run name is empty after normalization")
+    return normalized
+
+
+def resolve_sft_run(args: argparse.Namespace) -> tuple[str, Path]:
+    learning_rate = args.learning_rate
+    if learning_rate is None:
+        learning_rate = 1e-4 if args.lora_rank > 0 else 2e-5
+    mode = f"lora-r{args.lora_rank}" if args.lora_rank else "full"
+    generated = (
+        f"{args.experiment_name}-{mode}-lr{learning_rate:g}-"
+        f"ep{args.epochs}-seed{args.seed}"
+    )
+    run_name = _safe_run_name(args.run_name or generated)
+    output_dir = args.output_dir
+    if output_dir is None:
+        output_dir = (
+            repository_root() / "training/qwen3_4b_sft/runs" / run_name / "checkpoints"
+        )
+    return run_name, output_dir
+
+
 def parse_args() -> argparse.Namespace:
     root = repository_root()
     default_work = root / "training/qwen3_4b_sft/work"
-    default_output = root / "training/qwen3_4b_sft/checkpoints/qwen3-4b-airline-sft"
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-jsonl", type=Path, default=root / DATA_RELATIVE_PATH)
     parser.add_argument("--work-dir", type=Path, default=default_work)
-    parser.add_argument("--output-dir", type=Path, default=default_output)
+    parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--model", default=DEFAULT_MODEL)
+    parser.add_argument("--model-revision", default="main")
     parser.add_argument("--num-gpus", type=int, default=int(os.getenv("NUM_GPUS", "1")))
     parser.add_argument("--global-batch-size", type=int, default=32)
     parser.add_argument("--micro-batch-size", type=int, default=1)
@@ -573,8 +672,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--val-ratio", type=float, default=0.02)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--experiment-name", default="qwen3-4b-instruct-2507-full-sft")
+    parser.add_argument("--run-name")
     parser.add_argument(
-        "--resume-mode", choices=("auto", "disable", "resume_path"), default="auto"
+        "--resume-mode", choices=("disable", "resume_path"), default="disable"
     )
     parser.add_argument("--resume-from-path", type=Path)
     parser.add_argument("--force-prepare", action="store_true")
@@ -592,12 +692,28 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    run_name, output_dir = resolve_sft_run(args)
+    args.experiment_name = run_name
+    args.output_dir = output_dir
+    if (
+        not args.prepare_only
+        and not args.dry_run
+        and args.resume_mode == "disable"
+        and output_dir.exists()
+        and any(output_dir.iterdir())
+    ):
+        raise FileExistsError(
+            f"output directory is not empty: {output_dir}; choose --run-name or "
+            "use --resume-mode resume_path --resume-from-path ..."
+        )
+    identity = tokenizer_identity(args.model, args.model_revision, args.max_length)
     train_path, val_path, _ = prepare_dataset(
         source=args.data_jsonl,
         work_dir=args.work_dir,
         val_ratio=args.val_ratio,
         seed=args.seed,
         force=args.force_prepare,
+        preprocessing_identity=identity,
     )
     if args.prepare_only:
         return

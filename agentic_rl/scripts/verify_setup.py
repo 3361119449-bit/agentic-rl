@@ -9,6 +9,11 @@ from typing import Any
 
 import yaml
 
+try:
+    from scripts.prepare_tau2_dataset import SMOKE_IDS
+except ModuleNotFoundError:  # Direct ``python scripts/verify_setup.py`` execution.
+    from prepare_tau2_dataset import SMOKE_IDS
+
 TAU2_COMMIT = "a2c024725189473d2d7cea3a5cfdbcc67478e41f"
 VERL_COMMIT = "483b8a009ba3a97563edee3a19887e4862b8094a"
 
@@ -32,6 +37,8 @@ def verify(project_root: Path, tau2_data: Path) -> dict[str, Any]:
     assert set(split_local["rl_train"]) | set(split_local["internal_dev"]) == train_ids
     assert set(split_local["official_test"]) == test_ids
     assert not set(split_local["rl_train"]) & set(split_local["internal_dev"])
+    assert set(SMOKE_IDS) <= set(split_local["rl_train"])
+    assert not set(SMOKE_IDS) & set(split_local["internal_dev"])
 
     official_actions = {
         str(task["id"]): {
@@ -41,15 +48,43 @@ def verify(project_root: Path, tau2_data: Path) -> dict[str, Any]:
         for task in tasks
     }
     selected_count = 0
+    action_ids: dict[str, set[str]] = {}
     for name, expected_ids in (("train", train_ids), ("test", test_ids)):
         rows = _read(
             project_root / f"data/annotations/airline_required_actions.{name}.v1.json"
         )
         assert {str(row["id"]) for row in rows} == expected_ids
         for row in rows:
+            action_ids[str(row["id"])] = {
+                str(action["action_id"]) for action in row["actions"]
+            }
             for action in row["actions"]:
                 assert _canonical(action) in official_actions[str(row["id"])]
                 selected_count += 1
+
+        dependencies = _read(
+            project_root
+            / f"data/annotations/airline_action_dependencies.{name}.v1.json"
+        )
+        for row in dependencies:
+            task_id = str(row["task_id"])
+            assert task_id in expected_ids
+            for predecessor, successor in row["dependencies"]:
+                assert predecessor in action_ids[task_id]
+                assert successor in action_ids[task_id]
+                assert predecessor != successor
+
+        policy_rows = _read(
+            project_root
+            / f"data/annotations/airline_mandatory_policy_rules.{name}.v1.json"
+        )
+        assert {str(row["task_id"]) for row in policy_rows} == expected_ids
+        for row in policy_rows:
+            assert row["deterministic_rules"] == [
+                "confirmation_before_database_write",
+                "one_tool_call_per_assistant_turn",
+            ]
+            assert len(row["judge_checks"]) == 1
 
     config = yaml.safe_load(
         (project_root / "configs/rl/airline_grpo_v1.yaml").read_text(encoding="utf-8")

@@ -7,8 +7,11 @@ from pathlib import Path
 
 from tau2_agentic_rl.annotations import load_task_mapping
 from tau2_agentic_rl.config import load_yaml
-from tau2_agentic_rl.reward.required_actions import load_required_actions
-from tau2_agentic_rl.reward.score import score_trajectory
+from tau2_agentic_rl.reward.required_actions import (
+    load_action_dependencies,
+    load_required_actions,
+)
+from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
 from tau2_agentic_rl.schemas import TrajectoryRecord
 from tau2_agentic_rl.storage import TrajectoryStore
 
@@ -25,7 +28,9 @@ def main() -> None:
     root = args.config.resolve().parents[2]
     annotations = config["annotations"]
     required = load_required_actions(root / annotations["required_actions"])
+    dependencies = load_action_dependencies(root / annotations["action_dependencies"])
     transfer = load_task_mapping(root / annotations["transfer_rules"])
+    reward_config = build_reward_config(config)
     store = TrajectoryStore(args.output_dir)
 
     count = 0
@@ -41,6 +46,8 @@ def main() -> None:
             official=record.official_scores,
             judge=record.judge_result,
             transfer_rule=transfer[record.task_id],
+            action_dependencies=dependencies.get(record.task_id, []),
+            config=reward_config,
         )
         updated = record.model_copy(
             update={"reward_version": args.reward_version, "custom_reward": reward}

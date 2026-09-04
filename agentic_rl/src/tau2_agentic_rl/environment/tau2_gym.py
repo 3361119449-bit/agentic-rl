@@ -101,6 +101,13 @@ class Tau2GymAdapter:
         value = environment.get_db_hash()
         return str(value) if value is not None else None
 
+    def safe_db_hash(self) -> str | None:
+        """Best-effort hash for failure-path audit records."""
+        try:
+            return self.db_hash()
+        except Exception:
+            return None
+
     async def step_text(self, content: str) -> GymStep:
         """Send one assistant text message to the Tau2 user simulator."""
         return await self._step(content)

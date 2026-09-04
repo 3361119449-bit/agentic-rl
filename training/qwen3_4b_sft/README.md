@@ -10,6 +10,9 @@ It is designed for `verl v0.7.1` and defaults to
 `Qwen/Qwen3-4B-Instruct-2507`, Qwen's 4B instruction model that supports only
 non-thinking output.
 
+The exact tested veRL v0.7.1 commit is
+`bec9ef74768dd201881cd4e54cd0385e87caae27`.
+
 ## What the script does
 
 1. Verifies that the JSONL contains no `thinking`, `reasoning`,
@@ -45,7 +48,8 @@ when available because CUDA, PyTorch, FlashAttention, and NCCL versions must be
 compatible.
 
 ```bash
-git clone --branch v0.7.1 https://github.com/verl-project/verl.git ~/verl
+git clone https://github.com/verl-project/verl.git ~/verl
+git -C ~/verl checkout bec9ef74768dd201881cd4e54cd0385e87caae27
 python -m pip install -e ~/verl
 python -m pip install "transformers>=4.51.0" pyarrow
 ```
@@ -85,11 +89,50 @@ python training/qwen3_4b_sft/train_qwen3_4b_verl_sft.py \
   --lora-rank 64 \
   --lora-alpha 128 \
   --optimizer-offload \
-  --experiment-name qwen3-4b-airline-lora
+  --experiment-name qwen3-4b-airline-lora \
+  --run-name qwen3-4b-airline-lora-r64-lr1e-4-seed42
 ```
 
 LoRA automatically uses a default learning rate of `1e-4`. Use
 `--learning-rate` to override either default.
+
+Every run uses `training/qwen3_4b_sft/runs/<run-name>/checkpoints` and
+`resume_mode=disable` by default. The generated default run name includes the
+training mode, learning rate, epochs, and seed. Reusing a non-empty output
+directory is rejected. Resume only an intentionally selected run:
+
+```bash
+python training/qwen3_4b_sft/train_qwen3_4b_verl_sft.py \
+  --run-name qwen3-4b-airline-lora-r64-lr1e-4-seed42 \
+  --resume-mode resume_path \
+  --resume-from-path /path/to/global_step_N
+```
+
+## Export and merge a LoRA checkpoint
+
+The veRL/FSDP checkpoint is not itself a PEFT adapter. Export the selected SFT
+`global_step_N` with the pinned veRL v0.7.1 merger:
+
+```bash
+python agentic_rl/scripts/export_verl_lora.py \
+  --stage sft --verl-root ~/verl \
+  --local-dir training/qwen3_4b_sft/runs/RUN_NAME/checkpoints/global_step_N \
+  --target-dir /root/models/qwen3_4b_sft_export
+
+python agentic_rl/scripts/merge_sft_lora.py \
+  --base-model Qwen/Qwen3-4B-Instruct-2507 \
+  --sft-adapter /root/models/qwen3_4b_sft_export/lora_adapter \
+  --output /root/models/qwen3_4b_airline_sft_merged
+
+python agentic_rl/scripts/verify_adapter_equivalence.py \
+  --base-model Qwen/Qwen3-4B-Instruct-2507 \
+  --adapter /root/models/qwen3_4b_sft_export/lora_adapter \
+  --merged-model /root/models/qwen3_4b_airline_sft_merged
+```
+
+The second command refuses an incomplete adapter directory and verifies the
+merged model/tokenizer output. The final GPU check compares adapter and merged
+model logits on exactly the same fixed input and fails outside its tolerance.
 
 ## Useful checks and overrides
 
@@ -105,6 +148,11 @@ Rebuild Parquet after changing preprocessing options:
 python training/qwen3_4b_sft/train_qwen3_4b_verl_sft.py \
   --prepare-only --force-prepare
 ```
+
+The preparation cache is reusable only when the resolved source path and
+SHA-256, split parameters, model/tokenizer revision, chat-template SHA-256,
+Transformers version, context limit, and normalization version all match the
+manifest. Equal file size alone is never accepted.
 
 Raw Hydra overrides can be appended when needed:
 

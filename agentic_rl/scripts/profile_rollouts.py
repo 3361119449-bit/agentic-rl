@@ -35,6 +35,16 @@ def profile_records(rows: list[dict[str, Any]], group_size: int = 8) -> dict[str
     """Compute pre-training variance, quality, error and length diagnostics."""
     if not rows:
         raise ValueError("no trajectory records supplied")
+    all_rows = rows
+    rows = [
+        row
+        for row in all_rows
+        if row.get("custom_reward") is not None
+        and row.get("official_scores") is not None
+    ]
+    infrastructure_failures = len(all_rows) - len(rows)
+    if not rows:
+        raise ValueError("all supplied trajectories are infrastructure failures")
     by_task: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         by_task[str(row["task_id"])].append(row)
@@ -104,6 +114,8 @@ def profile_records(rows: list[dict[str, Any]], group_size: int = 8) -> dict[str
 
     return {
         "trajectory_count": len(rows),
+        "attempted_trajectory_count": len(all_rows),
+        "infrastructure_failure_count": infrastructure_failures,
         "task_count": len(by_task),
         "complete_group_count": len(complete_groups),
         "mean_train_reward": mean(train_rewards),

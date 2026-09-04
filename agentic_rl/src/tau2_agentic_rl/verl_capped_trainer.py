@@ -10,9 +10,13 @@ launcher.
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import tempfile
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from pprint import pprint
 
 import transfer_queue as tq
@@ -32,6 +36,8 @@ from verl.utils.tracking import (
     Tracking,
     ValidationGenerationsLogger,
 )
+
+from tau2_agentic_rl.dynamic_sampling import TrainingStepClock
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +206,39 @@ class CappedPPOTrainerSync(PPOTrainerSync):
     max_num_gen_batches = 3
     rollout_group_size = 8
 
+    def _write_step_counters(self, clock: TrainingStepClock) -> None:
+        path = Path(self.config.trainer.default_local_dir).parent / "step_counters.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=".step-counters.", suffix=".tmp", dir=path.parent, text=True
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                json.dump(
+                    {
+                        "attempt_step": clock.attempt_step,
+                        "optimizer_step": clock.optimizer_step,
+                        "consecutive_skips": clock.consecutive_skips,
+                    },
+                    handle,
+                    indent=2,
+                )
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_name, path)
+        finally:
+            if os.path.exists(temporary_name):
+                os.unlink(temporary_name)
+
+    def _save_last_valid_checkpoint(self, optimizer_step: int) -> None:
+        """Save the unchanged latest model under its true optimizer step."""
+        current_step = self.global_steps
+        try:
+            self.global_steps = optimizer_step
+            self._save_checkpoint()
+        finally:
+            self.global_steps = current_step
+
     def _build_replay_buffer(self) -> CappedDynamicReplayBuffer:
         sampler = self.config.trainer.v1.sampler
         filter_groups = self.config.algorithm.filter_groups
@@ -276,6 +315,13 @@ class CappedPPOTrainerSync(PPOTrainerSync):
                 return
 
         current_epoch = self.global_steps // self.steps_per_epoch
+        clock = TrainingStepClock(
+            attempt_step=self.global_steps,
+            optimizer_step=self.global_steps,
+        )
+        max_attempts_without_update = int(
+            self.config.trainer.get("max_attempts_without_update", 50)
+        )
         progress = tqdm(
             total=self.total_training_steps,
             initial=self.global_steps,
@@ -319,6 +365,12 @@ class CappedPPOTrainerSync(PPOTrainerSync):
                 finally:
                     self._stop_profiling()
 
+                clock.record_attempt(updated=not skipped)
+                metrics["training/steps/attempt_step"] = clock.attempt_step
+                metrics["training/steps/optimizer_step"] = clock.optimizer_step
+                metrics["training/steps/consecutive_skips"] = clock.consecutive_skips
+                self._write_step_counters(clock)
+
                 if (
                     not skipped
                     and self.config.trainer.save_freq > 0
@@ -335,8 +387,13 @@ class CappedPPOTrainerSync(PPOTrainerSync):
                 self.on_step_end()
                 metrics.update(self._consume_sync_metrics())
 
-            if self.config.trainer.test_freq > 0 and (
-                is_last_step or self.global_steps % self.config.trainer.test_freq == 0
+            if (
+                not skipped
+                and self.config.trainer.test_freq > 0
+                and (
+                    is_last_step
+                    or self.global_steps % self.config.trainer.test_freq == 0
+                )
             ):
                 with marked_timer("testing", self.timing_raw, color="green"):
                     self.on_validate_begin()
@@ -372,19 +429,35 @@ class CappedPPOTrainerSync(PPOTrainerSync):
                 )
 
             filtered_counts = metrics.pop(DAPO_FILTERED_REWARD_COUNTS_KEY, None)
-            self.logger.log(data=metrics, step=self.global_steps)
+            self.logger.log(data=metrics, step=clock.attempt_step)
             if filtered_counts:
                 self.dapo_filtered_reward_logger.log(
                     self.config.trainer.logger,
                     filtered_counts,
-                    self.global_steps,
+                    clock.attempt_step,
                 )
 
+            if skipped:
+                if clock.consecutive_skips >= max_attempts_without_update:
+                    if clock.optimizer_step > 0:
+                        self._save_last_valid_checkpoint(clock.optimizer_step)
+                    self.on_train_end()
+                    self._shutdown_dump_executor()
+                    progress.close()
+                    raise RuntimeError(
+                        "dynamic sampling produced no optimizer batch for "
+                        f"{clock.consecutive_skips} consecutive attempts"
+                    )
+                continue
+
+            if clock.optimizer_step != self.global_steps:
+                raise RuntimeError("optimizer-step accounting diverged from veRL")
             progress.update(1)
             self.global_steps += 1
             SkipManager.set_step(self.global_steps)
             current_epoch = (self.global_steps - 1) // self.steps_per_epoch
             if is_last_step:
+                self.on_train_end()
                 self._shutdown_dump_executor()
                 pprint(f"Final validation metrics: {last_val_metrics}")
                 progress.close()

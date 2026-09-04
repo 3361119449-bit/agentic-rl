@@ -15,6 +15,9 @@
 - Tau2 固定提交：`a2c024725189473d2d7cea3a5cfdbcc67478e41f`；
 - veRL 固定提交：`483b8a009ba3a97563edee3a19887e4862b8094a`（v0.9.0）；
 - 每条 rollout 创建独立 `AgentGymEnv` 和 Airline DB；
+- Qwen3-4B-Instruct 的 JSON `<tool_call>` 固定使用 veRL `hermes` 解析器；
+- 未知工具、非法 JSON/Schema 和多工具调用在进入 Tau2 前被确定性阻断；
+- 写操作确认绑定到精确工具名与参数，只能消费一次；
 - Qwen 原始生成 token ID、vLLM old log-prob 和 turn 边界原样保存；
 - 只有 Qwen 输出 token 的 `response_mask=1`，工具、用户、模板 token 均为 0；
 - 16,384 token 生成前预算检查，15 轮软阈值、24 轮硬终止；
@@ -27,6 +30,8 @@
 - 自定义有界动态采样：每个候选批 8 个任务组，每组 8 条轨迹，最多 3 批（192 条）；若不足 4 个混合奖励组，该候选优化步不更新参数，清空后换一批任务；
 - train/internal-dev/test 物理分离，test 标注与训练配置分开；
 - 每条轨迹原子化保存，可离线重新打分。
+- 每个实验使用独立 run 目录且默认禁用自动续训；
+- 基础设施失败单独落盘，不计作模型失败或 pass@k 样本。
 
 ## 目录
 
@@ -41,21 +46,45 @@ tests/                   CPU 单元测试
 
 ## AutoDL 安装
 
-建议把本项目放在 Tau2 仓库的 `agentic_rl/` 目录；下面假定 Tau2 仓库为 `/root/tau2-bench-data`。
+下面从一台新的 AutoDL 实例开始，分别保留本仓库、Tau2、SFT veRL
+和 RL veRL，避免两个 veRL 版本相互覆盖：
 
 ```bash
+git lfs install
+git clone https://github.com/3361119449-bit/agentic-rl.git /root/agentic-rl
+git -C /root/agentic-rl lfs pull
+
+git clone https://github.com/sierra-research/tau2-bench.git /root/tau2-bench-data
+git -C /root/tau2-bench-data checkout a2c024725189473d2d7cea3a5cfdbcc67478e41f
+
+git clone https://github.com/verl-project/verl.git /root/verl-sft-v071
+git -C /root/verl-sft-v071 checkout bec9ef74768dd201881cd4e54cd0385e87caae27
+
+git clone https://github.com/verl-project/verl.git /root/verl-rl-v090
+git -C /root/verl-rl-v090 checkout 483b8a009ba3a97563edee3a19887e4862b8094a
+
+export AGENTIC_REPO_ROOT=/root/agentic-rl
 export TAU2_ROOT=/root/tau2-bench-data
-export AGENTIC_RL_ROOT=$TAU2_ROOT/agentic_rl
-export VERL_ROOT=/root/verl
+export AGENTIC_RL_ROOT=$AGENTIC_REPO_ROOT/agentic_rl
+export SFT_VERL_ROOT=/root/verl-sft-v071
+export VERL_ROOT=/root/verl-rl-v090
 
-git -C "$TAU2_ROOT" checkout a2c024725189473d2d7cea3a5cfdbcc67478e41f
-git clone https://github.com/verl-project/verl.git "$VERL_ROOT"
-git -C "$VERL_ROOT" checkout 483b8a009ba3a97563edee3a19887e4862b8094a
+python -m venv --system-site-packages /root/venvs/airline-sft
+source /root/venvs/airline-sft/bin/activate
+python -m pip install -e "$SFT_VERL_ROOT"
+python -m pip install "transformers>=4.51.0" pyarrow peft
+deactivate
 
+python -m venv --system-site-packages /root/venvs/airline-rl
+source /root/venvs/airline-rl/bin/activate
 python -m pip install -e "$TAU2_ROOT[gym]"
 python -m pip install -e "$VERL_ROOT"
 python -m pip install -e "$AGENTIC_RL_ROOT[data,test]"
 ```
+
+不要把 v0.7.1 和 v0.9.0 依次 editable-install 到同一个 Python 环境；后装的
+版本会覆盖前一个。下面 RL 命令默认已激活 `airline-rl`，SFT 训练和 SFT
+adapter 导出则使用 `airline-sft`。
 
 请优先使用与 veRL v0.9.0、vLLM 和本机 CUDA 匹配的 AutoDL 镜像。正式运行前通过 `capture_versions.py` 固化实际软件版本。
 
@@ -101,14 +130,34 @@ python scripts/capture_versions.py \
 
 ## SFT LoRA 合并
 
-如果手里仍是 SFT adapter，先合并；RL 阶段会在合并模型上新挂一份 LoRA：
+SFT 脚本保存的是 veRL/FSDP 检查点，不能直接传给 PEFT。先用固定的
+veRL v0.7.1 导出标准 adapter；SFT 的 `--local-dir` 指向实际的
+`global_step_N` 目录：
 
 ```bash
-python scripts/merge_sft_lora.py \
-  --sft-adapter /root/models/airline_sft_adapter \
+/root/venvs/airline-sft/bin/python "$AGENTIC_RL_ROOT/scripts/export_verl_lora.py" \
+  --stage sft --verl-root "$SFT_VERL_ROOT" \
+  --local-dir "$AGENTIC_REPO_ROOT/training/qwen3_4b_sft/runs/RUN_NAME/checkpoints/global_step_N" \
+  --target-dir /root/models/qwen3_4b_sft_export
+```
+
+然后把导出的 SFT LoRA 合并到基础模型；RL 阶段会在该完整模型上新挂
+一份 LoRA：
+
+```bash
+/root/venvs/airline-sft/bin/python scripts/merge_sft_lora.py \
+  --base-model Qwen/Qwen3-4B-Instruct-2507 \
+  --sft-adapter /root/models/qwen3_4b_sft_export/lora_adapter \
   --output /root/models/qwen3_4b_airline_sft_merged
+/root/venvs/airline-sft/bin/python scripts/verify_adapter_equivalence.py \
+  --base-model Qwen/Qwen3-4B-Instruct-2507 \
+  --adapter /root/models/qwen3_4b_sft_export/lora_adapter \
+  --merged-model /root/models/qwen3_4b_airline_sft_merged
 export MERGED_SFT_MODEL=/root/models/qwen3_4b_airline_sft_merged
 ```
+
+最后一条命令在 GPU 上顺序加载 adapter 版和合并版模型，比较同一固定输入
+的末位 logits；超出给定数值误差时直接失败。
 
 ## 分阶段运行
 
@@ -125,21 +174,28 @@ Stage 0/1，先运行 CPU 不变量测试，再做真实 API/GPU 轨迹和人工
 
 ```bash
 python -m pytest
+python scripts/verify_qwen_tool_roundtrip.py
 python scripts/run_reward_audit.py data/audits/reward_audit.v1.json
 ```
+
+第二条命令使用真实 Qwen tokenizer/chat template、veRL `hermes` parser 和
+Tau2 的只读 `list_all_airports` 工具，必须得到恰好一个调用、执行成功且
+数据库哈希不变。
 
 Stage 2，小规模 smoke：
 
 ```bash
 python scripts/train_airline_grpo.py \
-  --stage smoke --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
+  --stage smoke --run-name smoke_lr5e-6_seed42 \
+  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
 ```
 
 先用默认 `lr=5e-6`，只在单独 run 中比较 `1e-5`：
 
 ```bash
 python scripts/train_airline_grpo.py \
-  --stage smoke --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT" \
+  --stage smoke --run-name smoke_lr1e-5_seed42 \
+  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT" \
   --extra actor_rollout_ref.actor.optim.lr=1e-5
 ```
 
@@ -148,6 +204,7 @@ Stage 3，24 条任务训练并只看 6 条 internal dev：
 ```bash
 python scripts/train_airline_grpo.py \
   --stage internal_dev --epochs 15 \
+  --run-name internal_dev_frozen_v1_seed42 \
   --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
 ```
 
@@ -156,10 +213,32 @@ Stage 4，冻结配置后使用全部官方 train：
 ```bash
 python scripts/train_airline_grpo.py \
   --stage full_train --epochs 15 \
+  --run-name full_train_frozen_v1_seed42 \
   --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
 ```
 
-Stage 5，只在最终冻结后运行 test；不做动态采样或参数更新：
+`full_train` 已包含原先 6 条 internal-dev，因此这时出现的 internal-dev
+数值只能叫训练集监控指标，不能再叫独立验证结果。
+
+如需继续中断的同一个实验，必须显式指定其 run name 和 checkpoint：
+
+```bash
+python scripts/train_airline_grpo.py \
+  --stage internal_dev --run-name internal_dev_frozen_v1_seed42 \
+  --resume-from-path outputs/runs/internal_dev_frozen_v1_seed42/checkpoints/global_step_N \
+  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
+```
+
+Stage 5 前，先从 RL 检查点的 `actor/` 子目录导出标准 PEFT adapter：
+
+```bash
+python scripts/export_verl_lora.py \
+  --stage rl --verl-root "$VERL_ROOT" \
+  --local-dir outputs/runs/full_train_frozen_v1_seed42/checkpoints/global_step_N/actor \
+  --target-dir /root/models/qwen3_4b_airline_rl_export
+```
+
+然后只在最终冻结后运行 test；不做动态采样或参数更新：
 
 ```bash
 python scripts/evaluate_airline.py \
@@ -170,7 +249,7 @@ python scripts/evaluate_airline.py \
 python scripts/evaluate_airline.py \
   --split official_test --samples 4 --tag sft_grpo \
   --model-path "$MERGED_SFT_MODEL" \
-  --lora-adapter outputs/checkpoints/FINAL_ADAPTER \
+  --lora-adapter /root/models/qwen3_4b_airline_rl_export/lora_adapter \
   --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
 ```
 
@@ -198,11 +277,17 @@ veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num
 6. 仍不足时清掉该候选批，不执行 backward/optimizer step，重新取任务；
 7. 收满 4 组后用 32 条 trajectory 做两个 PPO epoch，再同步 vLLM 权重。
 
+候选尝试使用 `attempt_step`，真正更新使用 `optimizer_step`。跳过候选批时
+只增加前者；学习率、epoch、终止条件和 checkpoint 仍绑定
+`optimizer_step`。两者会原子写入每个 run 的 `step_counters.json`。
+
 这段扩展依赖 veRL v0.9.0 的受保护接口，因此训练启动器会先检查完整 commit SHA；版本不符会直接终止。
 
 ## 离线重新打分
 
-当只调整 reward 权重、过程扣分或必须动作标注，而且 Judge rubric 未变时，不必重新请求 DeepSeek：
+当只调整 reward 权重、过程扣分或必须动作标注，而且 Judge rubric 未变时，
+不必重新请求 DeepSeek。`reward`、`process_penalties`、软轮数和扣分上限会
+从指定 YAML 显式构造成 `RewardConfig`，不会退回代码默认值：
 
 ```bash
 python scripts/rescore_saved_trajectories.py \
@@ -221,3 +306,10 @@ python scripts/rescore_saved_trajectories.py \
 - 在看任何 test reward 前冻结 reward、标注、prompt、训练步数和评估参数。
 
 本地 CPU 测试不能替代上述 API、GPU 和人工验收。
+
+Judge 缓存键包含模型、provider/base URL、完整消息、rubric/prompt/schema
+版本、解码参数和 scorer 版本；缓存及轨迹均使用临时文件加原子替换。
+未知工具与非法 Schema 不进入 Tau2，超长 observation 会在进入训练上下文
+前确定性截断并记录。Tau2 的 timeout、max_steps、agent/user/infra error 等
+终止原因会原样区分；基础设施失败轨迹保存审计信息后抛出，不进入 pass@k
+分母。

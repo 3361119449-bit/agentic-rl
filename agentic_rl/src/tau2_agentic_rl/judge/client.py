@@ -5,13 +5,19 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import httpx
 
-from tau2_agentic_rl.judge.prompts import build_judge_messages
+from tau2_agentic_rl.judge.prompts import (
+    JUDGE_PROMPT_VERSION,
+    JUDGE_RUBRIC_VERSION,
+    JUDGE_SCHEMA_VERSION,
+    build_judge_messages,
+)
 from tau2_agentic_rl.schemas import JudgeResult
 from tau2_agentic_rl.versions import sha256_json
 
@@ -21,11 +27,17 @@ class JudgeConfig:
     """External judge endpoint configuration."""
 
     model: str
+    provider: str = "DeepSeek"
     base_url: str = "https://api.deepseek.com"
     api_key_env: str = "DEEPSEEK_API_KEY"
     timeout_seconds: float = 120.0
     max_retries: int = 2
     cache_dir: str = "outputs/judge_cache"
+    temperature: float = 0.0
+    prompt_version: str = JUDGE_PROMPT_VERSION
+    rubric_version: str = JUDGE_RUBRIC_VERSION
+    schema_version: str = JUDGE_SCHEMA_VERSION
+    scorer_code_version: str = "tau2-agentic-rl-scorer-v2"
 
 
 class DeepSeekJudge:
@@ -37,6 +49,38 @@ class DeepSeekJudge:
         self.config = config
         self.cache_dir = Path(config.cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def cache_identity(self, messages: list[dict[str, str]]) -> dict[str, Any]:
+        """Return every field that can change a cached judge decision."""
+        return {
+            "provider": self.config.provider,
+            "base_url": self.config.base_url.rstrip("/"),
+            "model_id": self.config.model,
+            "messages": messages,
+            "schema_version": self.config.schema_version,
+            "rubric_version": self.config.rubric_version,
+            "prompt_version": self.config.prompt_version,
+            "decoding_config": {
+                "temperature": self.config.temperature,
+                "response_format": {"type": "json_object"},
+            },
+            "scorer_code_version": self.config.scorer_code_version,
+        }
+
+    @staticmethod
+    def _atomic_write(path: Path, payload: str) -> None:
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.", suffix=".tmp", dir=path.parent, text=True
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_name, path)
+        finally:
+            if os.path.exists(temporary_name):
+                os.unlink(temporary_name)
 
     @staticmethod
     def _validate_requested_criteria(
@@ -94,16 +138,21 @@ class DeepSeekJudge:
         if not transferred and result.transfer_check.valid:
             raise ValueError("judge cannot mark a non-executed transfer as valid")
 
-    async def evaluate(self, **inputs: Any) -> tuple[JudgeResult, str, str]:
-        """Return validated result, raw response, and prompt hash."""
+    async def evaluate(self, **inputs: Any) -> tuple[JudgeResult, str, str, str]:
+        """Return result, raw response, prompt hash, and full cache-key hash."""
         messages = build_judge_messages(**inputs)
         prompt_hash = sha256_json(messages)
-        cache_path = self.cache_dir / f"{prompt_hash}.json"
+        identity = self.cache_identity(messages)
+        cache_key = sha256_json(identity)
+        cache_path = self.cache_dir / f"{cache_key}.json"
         if cache_path.exists():
-            raw = cache_path.read_text(encoding="utf-8")
-            parsed = JudgeResult.model_validate_json(raw)
+            envelope = json.loads(cache_path.read_text(encoding="utf-8"))
+            if envelope.get("identity") != identity:
+                raise RuntimeError("judge cache identity mismatch")
+            parsed = JudgeResult.model_validate(envelope["result"])
+            raw = str(envelope.get("raw_response", ""))
             self._validate_requested_criteria(parsed, inputs)
-            return parsed, raw, prompt_hash
+            return parsed, raw, prompt_hash, cache_key
 
         api_key = os.environ.get(self.config.api_key_env)
         if not api_key:
@@ -111,7 +160,7 @@ class DeepSeekJudge:
         payload = {
             "model": self.config.model,
             "messages": messages,
-            "temperature": 0.0,
+            "temperature": self.config.temperature,
             "response_format": {"type": "json_object"},
         }
         last_error: Exception | None = None
@@ -130,11 +179,20 @@ class DeepSeekJudge:
                     raw = response.json()["choices"][0]["message"]["content"]
                     parsed = JudgeResult.model_validate(json.loads(raw))
                     self._validate_requested_criteria(parsed, inputs)
-                    cache_path.write_text(
-                        parsed.model_dump_json(indent=2),
-                        encoding="utf-8",
+                    self._atomic_write(
+                        cache_path,
+                        json.dumps(
+                            {
+                                "identity": identity,
+                                "result": parsed.model_dump(mode="json"),
+                                "raw_response": raw,
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                            sort_keys=True,
+                        ),
                     )
-                    return parsed, raw, prompt_hash
+                    return parsed, raw, prompt_hash, cache_key
                 except (
                     httpx.HTTPError,
                     KeyError,

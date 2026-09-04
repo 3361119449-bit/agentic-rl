@@ -38,6 +38,17 @@ def main() -> None:
         raise RuntimeError("set TAU2_ROOT, VERL_ROOT, and MERGED_SFT_MODEL/model-path")
     _require_exact_checkout(args.tau2_root, TAU2_COMMIT, "Tau2")
     _require_exact_checkout(args.verl_root, VERL_COMMIT, "veRL")
+    if args.lora_adapter is not None:
+        required = [
+            args.lora_adapter / "adapter_config.json",
+            args.lora_adapter / "adapter_model.safetensors",
+        ]
+        missing = [str(path) for path in required if not path.is_file()]
+        if missing:
+            raise FileNotFoundError(
+                "incomplete RL PEFT adapter; export it with "
+                "scripts/export_verl_lora.py: " + ", ".join(missing)
+            )
     for name in (
         "DEEPSEEK_USER_MODEL",
         "DEEPSEEK_JUDGE_MODEL",

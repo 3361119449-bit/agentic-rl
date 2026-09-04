@@ -9,13 +9,13 @@ from tau2_agentic_rl.reward.required_actions import MUTATING_TOOLS, arguments_eq
 from tau2_agentic_rl.schemas import PolicyCheckResult, ToolEvent
 
 
-def _matches_allowed_write(
+def matches_allowed_write(
     event: ToolEvent,
     required_actions: list[dict[str, Any]],
 ) -> bool:
     return any(
         action["name"] == event.name
-        and arguments_equal(action["arguments"], event.arguments)
+        and arguments_equal(action["arguments"], event.arguments, tool_name=event.name)
         for action in required_actions
     )
 
@@ -63,27 +63,35 @@ def evaluate_mandatory_policy(
         )
     )
 
-    unexpected_writes = [
-        event.event_id
-        for event in successful_writes
-        if not _matches_allowed_write(event, required_actions)
-    ]
-    results.append(
-        PolicyCheckResult(
-            rule_id="no_unannotated_database_mutation",
-            applicable=bool(successful_writes),
-            passed=not unexpected_writes,
-            evidence_event_ids=unexpected_writes,
-            reason=(
-                "all writes are allowed task-completion actions"
-                if not unexpected_writes
-                else "trajectory performed a write outside the allowed task actions"
-            ),
-        )
-    )
     if judge_policy_checks:
         results.extend(judge_policy_checks)
     return results
+
+
+def evaluate_task_safety(
+    events: list[ToolEvent], required_actions: list[dict[str, Any]]
+) -> PolicyCheckResult:
+    """Keep unannotated writes out of the official-policy gate namespace."""
+    unexpected_writes = [
+        event.event_id
+        for event in events
+        if event.success
+        and event.name in MUTATING_TOOLS
+        and not matches_allowed_write(event, required_actions)
+    ]
+    return PolicyCheckResult(
+        rule_id="no_unannotated_database_mutation",
+        applicable=any(
+            event.success and event.name in MUTATING_TOOLS for event in events
+        ),
+        passed=not unexpected_writes,
+        evidence_event_ids=unexpected_writes,
+        reason=(
+            "all writes match task-completion annotations"
+            if not unexpected_writes
+            else "trajectory performed a write outside task annotations"
+        ),
+    )
 
 
 def policy_gate_passed(checks: list[PolicyCheckResult]) -> bool:

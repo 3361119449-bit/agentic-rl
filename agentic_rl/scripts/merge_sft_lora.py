@@ -13,6 +13,17 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
+    required = [
+        args.sft_adapter / "adapter_config.json",
+        args.sft_adapter / "adapter_model.safetensors",
+    ]
+    missing = [str(path) for path in required if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "--sft-adapter must be a standard PEFT directory exported by "
+            "verl.model_merger; missing: " + ", ".join(missing)
+        )
+
     import torch
     from peft import PeftModel
     from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -28,6 +39,9 @@ def main() -> None:
     merged.save_pretrained(args.output, safe_serialization=True)
     tokenizer = AutoTokenizer.from_pretrained(args.base_model, trust_remote_code=False)
     tokenizer.save_pretrained(args.output)
+    for name in ("config.json", "tokenizer_config.json"):
+        if not (args.output / name).is_file():
+            raise RuntimeError(f"merged model output is incomplete: {name}")
     print(args.output)
 
 
