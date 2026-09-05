@@ -18,6 +18,9 @@
 当前本地组合回归 **102 项通过**，含生产 loop + 模拟环境的截断/观察测试，lint 通过。
 新增真实固定 veRL/Ray/vLLM 契约 CI，必须查看对应提交的远端结果，不能把新增测试文件当成已经通过。
 本机 Docker daemon 未运行且没有可用 Linux RL 栈，所以真实依赖层交由 Linux CI 执行。
+首轮真实依赖 CI 确实拦截了 vLLM 0.18 的 Transformers <5 冲突；现采用固定 veRL
+[官方安装脚本](https://github.com/verl-project/verl/blob/483b8a009ba3a97563edee3a19887e4862b8094a/scripts/install_vllm_sglang_mcore.sh)
+指定的 vLLM 0.24.0，而非忽略包依赖。安装保留 `pip check`。
 GPU/API、两个 PPO epoch 内部 old-log-prob、模型权重导出与 BF16 等价性仍未验收。
 
 ---

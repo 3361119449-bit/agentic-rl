@@ -85,7 +85,7 @@ python -m venv --system-site-packages /root/venvs/airline-rl
 source /root/venvs/airline-rl/bin/activate
 python -m pip install -e "$TAU2_ROOT[gym]"
 python -m pip install -e "$VERL_ROOT"
-python -m pip install "vllm==0.18.0" "TransferQueue==0.1.8"
+python -m pip install "vllm==0.24.0" "TransferQueue==0.1.8"
 python -m pip install -e "$AGENTIC_RL_ROOT[data,test]"
 ```
 
