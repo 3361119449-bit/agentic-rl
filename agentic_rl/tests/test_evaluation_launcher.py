@@ -5,12 +5,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from test_review_boundaries import scoring_failure_record
 
 from scripts import evaluate_airline
 
 
+@pytest.mark.parametrize("scoring_only", [False, True])
 def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
-    monkeypatch, scratch_dir
+    monkeypatch, scratch_dir, scoring_only
 ):
     source = Path(__file__).parents[1]
     for directory in ("configs", "data/annotations", "data/splits"):
@@ -86,6 +88,13 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
                 "official_scores": None if failed else {"reward": 0.0},
                 "custom_reward": None if failed else {"strict_success": 0.0},
             }
+            if failed and scoring_only:
+                pending = scoring_failure_record().model_dump()
+                pending.update(
+                    {key: record[key] for key in ("trajectory_id", "task_id", "split")}
+                )
+                pending["metadata"].update(record["metadata"])
+                record = pending
             (records / f"{record['trajectory_id']}.json").write_text(
                 json.dumps(record), encoding="utf-8"
             )
@@ -93,17 +102,25 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
 
     monkeypatch.setattr(evaluate_airline, "_write_parquet", write_parquet)
     monkeypatch.setattr(evaluate_airline.subprocess, "run", launch)
+
+    async def judge(_self, **inputs):
+        from tau2_agentic_rl.schemas import JudgeResult
+
+        return JudgeResult(), "raw", "prompt", "cache"
+
+    monkeypatch.setattr(evaluate_airline.DeepSeekJudge, "evaluate", judge)
     evaluate_airline.main()
-    assert [len(rows) for rows in batches] == [80, 1]
-    assert batches[1][0] == batches[0][0]
+    assert [len(rows) for rows in batches] == ([80] if scoring_only else [80, 1])
+    if not scoring_only:
+        assert batches[1][0] == batches[0][0]
     result = json.loads((root / "summary.json").read_text(encoding="utf-8"))
     assert result["valid_samples"] == 80
-    assert result["aggregate"]["official_pass4"] == 0
+    assert result["aggregate"]["official_pass4"] == (0.05 if scoring_only else 0)
     with pytest.raises(FileExistsError):
         evaluate_airline.main()
     monkeypatch.setattr(sys, "argv", argv + ["--resume"])
     evaluate_airline.main()
-    assert len(batches) == 2  # A complete run never regenerates successful slots.
+    assert len(batches) == (1 if scoring_only else 2)
     (model / "model.safetensors").write_bytes(b"different-model")
     with pytest.raises(ValueError, match="identity changed"):
         evaluate_airline.main()

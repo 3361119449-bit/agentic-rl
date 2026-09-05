@@ -34,6 +34,7 @@ except ModuleNotFoundError:  # Direct python scripts/evaluate_airline.py.
         _safe_run_name,
     )
 
+from tau2_agentic_rl.base_identity import validate_adapter_base
 from tau2_agentic_rl.config import load_runtime_config
 from tau2_agentic_rl.evaluation import (
     evaluation_coverage,
@@ -176,6 +177,7 @@ def main() -> None:
                 "incomplete RL PEFT adapter; export it with "
                 "scripts/export_verl_lora.py: " + ", ".join(missing)
             )
+        validate_adapter_base(args.lora_adapter, args.model_path)
     for name in (
         "DEEPSEEK_USER_MODEL",
         "DEEPSEEK_JUDGE_MODEL",

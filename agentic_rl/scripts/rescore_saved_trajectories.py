@@ -57,11 +57,13 @@ def main() -> None:
             raise ValueError(
                 f"Judge rubric changed or was not fingerprinted; re-judge before rescoring: {path}"
             )
+        if record.environment_transcript is None:
+            raise ValueError(
+                f"record lacks the delivered environment transcript: {path}"
+            )
         reward = score_trajectory(
             events=record.tool_events,
-            messages=record.environment_transcript
-            if record.environment_transcript is not None
-            else [],
+            messages=record.environment_transcript,
             assistant_turns=record.assistant_turns,
             required_actions=required[record.task_id],
             official=record.official_scores,

@@ -31,6 +31,7 @@ async def retry_scoring(record, judge, store):
         or [event.model_dump() for event in record.tool_events]
         != trajectory["tool_events"]
         or record.termination_reason != trajectory["termination_reason"]
+        or record.official_scores.model_dump() != inputs["official_scores"]
     ):
         raise ValueError("interaction differs from frozen scoring inputs")
     attempts = record.metadata.setdefault("scoring_retries", [])

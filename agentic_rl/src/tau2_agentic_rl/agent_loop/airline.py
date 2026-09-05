@@ -636,6 +636,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "transfer_rule": transfer_rule,
             },
             "required_actions": self.required_actions[task_id],
+            "official_scores": official.model_dump() if official is not None else None,
             "action_dependencies": self.action_dependencies.get(task_id, []),
             "reward_project_config": {
                 "reward": self.project.get("reward", {}),
@@ -684,7 +685,10 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 token_turns,
             )
         except Exception as exc:
-            if infrastructure_error is None:
+            if infrastructure_error is None or infrastructure_error[0] in {
+                "judge",
+                "reward_scoring",
+            }:
                 infrastructure_error = ("token_alignment", exc)
                 termination_reason = "infrastructure_error"
                 custom_reward = None

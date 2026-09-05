@@ -15,12 +15,14 @@
 - 已完成交互但 Judge/自定义评分失败的 slot 单独列为 scoring pending。保存冻结评分输入及指纹，原 ID 原地原子更新，只重评、不重新 rollout；仍不完整就拒绝最终指标。
 
 本轮未改变学习率、LoRA rank、奖励权重、PPO epoch、数据集或任务标注。
-当前本地组合回归 **102 项通过**，含生产 loop + 模拟环境的截断/观察测试，lint 通过。
+当前本地组合回归 **105 项通过**，含生产 loop + 模拟环境的截断/观察测试，lint 通过。
 新增真实固定 veRL/Ray/vLLM 契约 CI，必须查看对应提交的远端结果，不能把新增测试文件当成已经通过。
 本机 Docker daemon 未运行且没有可用 Linux RL 栈，所以真实依赖层交由 Linux CI 执行。
 首轮真实依赖 CI 确实拦截了 vLLM 0.18 的 Transformers <5 冲突；现采用固定 veRL
 [官方安装脚本](https://github.com/verl-project/verl/blob/483b8a009ba3a97563edee3a19887e4862b8094a/scripts/install_vllm_sglang_mcore.sh)
 指定的 vLLM 0.24.0，而非忽略包依赖。安装保留 `pip check`。
+完整依赖安装随后通过，并发现第三方 `scripts` 包遮蔽本项目 launcher 的问题；本项目
+`scripts` 现为显式包，契约测试继续验证真正的项目入口。
 GPU/API、两个 PPO epoch 内部 old-log-prob、模型权重导出与 BF16 等价性仍未验收。
 
 ---

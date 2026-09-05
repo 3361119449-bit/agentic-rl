@@ -21,9 +21,11 @@ def model_files(path):
         p.relative_to(path).as_posix(): sha256_file(p)
         for p in sorted(path.rglob("*"))
         if p.is_file()
+        and not any(part.startswith(".") for part in p.relative_to(path).parts)
         and (
             p.name in names
             or p.name.startswith("tokenizer")
+            and p.suffix in {".json", ".model"}
             or p.name.startswith("model")
             and p.suffix in {".json", ".safetensors", ".bin"}
             or p.suffix == ".jinja"

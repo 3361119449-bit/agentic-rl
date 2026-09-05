@@ -174,6 +174,7 @@ def scoring_failure_record():
             "transfer_rule": {},
         },
         "required_actions": [],
+        "official_scores": OfficialScores(reward=1).model_dump(),
         "action_dependencies": [],
         "reward_project_config": {},
     }
@@ -258,3 +259,31 @@ def test_judge_retry_failure_keeps_slot_pending(scratch_dir):
     assert record.official_scores.reward == 1
     assert record.custom_reward is None
     assert len(record.metadata["scoring_retries"]) == 1
+
+
+def test_judge_retry_rejects_modified_official_score(scratch_dir):
+    record = scoring_failure_record()
+    record.official_scores.reward = 0
+    store = TrajectoryStore(scratch_dir, attach_evaluation_identity=False)
+    with pytest.raises(ValueError, match="interaction differs"):
+        asyncio.run(retry_scoring(record, None, store))
+
+
+def test_cancelling_queued_trajectory_does_not_leak_or_release_another_lease():
+    async def run():
+        budget = SharedBudget({"trajectories": 1, "user_api": 2, "judge_api": 2})
+        async with budget.aslot("trajectories"):
+
+            async def queued():
+                async with budget.aslot("trajectories"):
+                    pytest.fail("queue cancellation should not enter the environment")
+
+            task = asyncio.create_task(queued())
+            await asyncio.sleep(0.01)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert budget.call("snapshot")["active"]["trajectories"] == 1
+        assert budget.call("snapshot")["active"]["trajectories"] == 0
+
+    asyncio.run(run())
