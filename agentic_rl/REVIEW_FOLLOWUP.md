@@ -16,13 +16,22 @@
 
 本轮未改变学习率、LoRA rank、奖励权重、PPO epoch、数据集或任务标注。
 当前本地组合回归 **105 项通过**，含生产 loop + 模拟环境的截断/观察测试，lint 通过。
-新增真实固定 veRL/Ray/vLLM 契约 CI，必须查看对应提交的远端结果，不能把新增测试文件当成已经通过。
+代码提交 `151d850618c6c37191bd2f3c8beca2a72f579332` 的
+[GitHub CI](https://github.com/3361119449-bit/agentic-rl/actions/runs/33968645059)
+两层均已通过：105 项 CPU/真实 tokenizer 回归，以及 **5 项真实依赖契约测试**。
+后者实际覆盖 runner 导入与单次 Ray 装饰、训练配置、基线评估配置、带 adapter
+评估配置的 Hydra/veRL 校验，以及两个真实 Ray worker 的共享额度。
 本机 Docker daemon 未运行且没有可用 Linux RL 栈，所以真实依赖层交由 Linux CI 执行。
 首轮真实依赖 CI 确实拦截了 vLLM 0.18 的 Transformers <5 冲突；现采用固定 veRL
 [官方安装脚本](https://github.com/verl-project/verl/blob/483b8a009ba3a97563edee3a19887e4862b8094a/scripts/install_vllm_sglang_mcore.sh)
 指定的 vLLM 0.24.0，而非忽略包依赖。安装保留 `pip check`。
 完整依赖安装随后通过，并发现第三方 `scripts` 包遮蔽本项目 launcher 的问题；本项目
-`scripts` 现为显式包，契约测试继续验证真正的项目入口。
+`scripts` 现为显式包，修复后的真实入口测试通过。
+该 CI 的依赖组合为 veRL `483b8a00`、Ray 2.58.0、vLLM 0.24.0、
+Transformers 5.10.4、torch 2.11.0、TransferQueue 0.1.8，`pip check` 通过。
+契约测试未加载 4B 权重、未调用 DeepSeek；日志中的可选非 FSDP 引擎缺失和弃用
+warning 不代表那些引擎已验收。官方数据核验仍为 30 train / 24 RL-train /
+6 internal-dev / 20 test，50 个保留动作的内容和格式均与官方一致。
 GPU/API、两个 PPO epoch 内部 old-log-prob、模型权重导出与 BF16 等价性仍未验收。
 
 ---
