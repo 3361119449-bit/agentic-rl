@@ -22,7 +22,11 @@ rollout:
   top_p: 1.0
   top_k: -1
   group_size: 4
-  concurrency: 2
+  agent_worker_count: 2
+  max_active_trajectories: 2
+  user_api_max_inflight: 2
+  judge_api_max_inflight: 2
+  vllm_max_num_seqs: 2
 
 user_simulator:
   provider: DeepSeek

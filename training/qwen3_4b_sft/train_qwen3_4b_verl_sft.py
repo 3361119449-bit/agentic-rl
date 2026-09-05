@@ -745,6 +745,20 @@ def main() -> None:
     print("Launching:\n" + shlex.join(command), flush=True)
     if args.dry_run:
         return
+    # This stdlib-only module is shared with adapter export/merge. Hash the
+    # actual training weights, not just the tokenizer or requested Hub name.
+    sys.path.insert(0, str(repository_root() / "agentic_rl/src"))
+    from tau2_agentic_rl.base_identity import capture_base_identity, save_base_identity
+
+    if any(item.split("=", 1)[0].lstrip("+") == "model.path" for item in args.extra_config):
+        raise ValueError("use --model, not an untracked model.path override")
+    base_identity = capture_base_identity(args.model)
+    if args.resume_mode == "resume_path":
+        from tau2_agentic_rl.base_identity import find_base_identity
+        saved = json.loads(find_base_identity(args.resume_from_path).read_text(encoding="utf-8"))
+        if saved["files"] != base_identity["files"]:
+            raise ValueError("SFT resume base identity changed")
+    save_base_identity(output_dir, base_identity)
     subprocess.run(command, check=True)
 
 

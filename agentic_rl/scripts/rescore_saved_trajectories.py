@@ -59,7 +59,9 @@ def main() -> None:
             )
         reward = score_trajectory(
             events=record.tool_events,
-            messages=record.messages,
+            messages=record.environment_transcript
+            if record.environment_transcript is not None
+            else [],
             assistant_turns=record.assistant_turns,
             required_actions=required[record.task_id],
             official=record.official_scores,

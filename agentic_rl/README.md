@@ -78,12 +78,14 @@ python -m venv --system-site-packages /root/venvs/airline-sft
 source /root/venvs/airline-sft/bin/activate
 python -m pip install -e "$SFT_VERL_ROOT"
 python -m pip install "transformers>=4.51.0" pyarrow peft
+python -m pip install -e "$AGENTIC_RL_ROOT"
 deactivate
 
 python -m venv --system-site-packages /root/venvs/airline-rl
 source /root/venvs/airline-rl/bin/activate
 python -m pip install -e "$TAU2_ROOT[gym]"
 python -m pip install -e "$VERL_ROOT"
+python -m pip install "vllm==0.18.0" "TransferQueue==0.1.8"
 python -m pip install -e "$AGENTIC_RL_ROOT[data,test]"
 ```
 
@@ -151,11 +153,9 @@ veRL v0.7.1 导出标准 adapter；SFT 的 `--local-dir` 指向实际的
 
 ```bash
 /root/venvs/airline-sft/bin/python scripts/merge_sft_lora.py \
-  --base-model Qwen/Qwen3-4B-Instruct-2507 \
   --sft-adapter /root/models/qwen3_4b_sft_export/lora_adapter \
   --output /root/models/qwen3_4b_airline_sft_merged
 /root/venvs/airline-sft/bin/python scripts/verify_adapter_equivalence.py \
-  --base-model Qwen/Qwen3-4B-Instruct-2507 \
   --adapter /root/models/qwen3_4b_sft_export/lora_adapter \
   --merged-model /root/models/qwen3_4b_airline_sft_merged
 export MERGED_SFT_MODEL=/root/models/qwen3_4b_airline_sft_merged
@@ -163,6 +163,36 @@ export MERGED_SFT_MODEL=/root/models/qwen3_4b_airline_sft_merged
 
 最后一条命令在 GPU 上顺序加载 adapter 版和合并版模型，比较同一固定输入
 的末位 logits；超出给定数值误差时直接失败。
+
+训练保存 `base_model_identity.json`（实际权重、tokenizer 文件、模板 SHA-256），
+导出时复制到 adapter 目录。合并默认读取训练时的本地快照，不再解析 Hub main。
+若快照搬家，可传 `--base-model /new/local/snapshot`，但文件内容必须一致。
+旧 checkpoint 若缺少原始身份文件会拒绝导出；只能提供可追溯的原训练
+`--base-identity /path/base_model_identity.json`，不能用今天的 Hub 模型冒充历史底座。
+
+## 真实依赖契约与并发设置
+
+在已安装固定 veRL/Ray/vLLM 的 RL 环境中，先执行（不加载权重、不请求 API）：
+
+```bash
+cd "$AGENTIC_RL_ROOT"
+python -m pytest contract_tests -v
+```
+
+测试包含真实 runner 导入、训练/两种评估命令的 Hydra 组合及 `validate_config()`、
+两个真实 Ray worker 的共享并发额度。GitHub Actions 单独运行此层；CPU 单元测试
+不能替代它，也不能替代 GPU/API smoke。
+
+两份 YAML 的 `rollout` 均区分 `agent_worker_count`、`max_active_trajectories`、
+`user_api_max_inflight`、`judge_api_max_inflight` 和 `vllm_max_num_seqs`，默认均为 2。
+前者只是 worker 数；轨迹在创建环境前领取同一个 Ray job 的共享额度，评分结束后释放。
+API 缓存命中不占请求额度。轨迹 metadata 的 `concurrency` 保存实际峰值。
+worker 意外死亡时额度不自动超时回收来放行更多环境；等待超时后失败，需停止整个旧
+Ray job 再恢复，避免孤儿环境仍在运行时超额启动。
+
+评分只读 cleanup 前的 `environment_transcript`；`messages` 是裁剪后的 actor 上下文，
+`token_turns` 是原始策略输出，不可混当沟通证据。Judge 单独失败保留同 ID/seed/slot 的
+`scoring_inputs`，`--resume` 只重试评分；评分仍失败时不输出最终 pass@1/pass@4。
 
 ## 分阶段运行
 

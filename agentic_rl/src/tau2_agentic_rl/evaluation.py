@@ -8,6 +8,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from tau2_agentic_rl.scoring_retry import scoring_pending
 from tau2_agentic_rl.versions import sha256_file, sha256_json
 
 
@@ -69,6 +70,7 @@ def evaluation_coverage(records_dir: Path, manifest: dict[str, Any]) -> dict[str
         raise ValueError("official test requires 20 tasks x 4 valid samples")
     expected = {(task, slot) for task in tasks for slot in range(n)}
     valid: dict[tuple[str, int], dict] = {}
+    pending: dict[tuple[str, int], dict] = {}
     failures = 0
     trajectory_ids = set()
     for path in sorted(records_dir.glob("*.json")):
@@ -87,6 +89,11 @@ def evaluation_coverage(records_dir: Path, manifest: dict[str, Any]) -> dict[str
         if row["trajectory_id"] in trajectory_ids:
             raise ValueError("duplicate trajectory ID")
         trajectory_ids.add(row["trajectory_id"])
+        if scoring_pending(row):
+            if key in valid or key in pending:
+                raise ValueError(f"duplicate interaction for valid slot: {key}")
+            pending[key] = row
+            continue
         if (
             row.get("custom_reward") is None
             or row.get("official_scores") is None
@@ -95,15 +102,18 @@ def evaluation_coverage(records_dir: Path, manifest: dict[str, Any]) -> dict[str
         ):
             failures += 1
             continue
-        if key in valid:
+        if key in valid or key in pending:
             raise ValueError(f"duplicate valid sample for task/slot: {key}")
         valid[key] = row
-    missing = sorted(expected - valid.keys(), key=lambda key: (int(key[0]), key[1]))
+    missing = sorted(
+        expected - valid.keys() - pending.keys(), key=lambda key: (int(key[0]), key[1])
+    )
     return {
-        "complete": not missing,
+        "complete": not missing and not pending,
         "expected_samples": len(expected),
         "valid_samples": len(valid),
         "infrastructure_failures": failures,
+        "scoring_pending_records": list(pending.values()),
         "missing_slots": [
             {"task_id": task, "sample_index": slot} for task, slot in missing
         ],

@@ -28,12 +28,25 @@ def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str,
     )
     coverage = evaluation_coverage(records_dir, manifest)
     records = coverage.pop("records")
+    pending = coverage.pop("scoring_pending_records")
+    coverage["scoring_pending_slots"] = [
+        {
+            "task_id": row["task_id"],
+            "sample_index": row["metadata"]["evaluation_sample_index"],
+        }
+        for row in pending
+    ]
     if not coverage["complete"]:
         if allow_incomplete:
             return {"status": "incomplete", **coverage}
         raise ValueError(
             "incomplete evaluation; no final metrics: "
-            + json.dumps(coverage["missing_slots"])
+            + json.dumps(
+                {
+                    "missing": coverage["missing_slots"],
+                    "scoring_pending": coverage["scoring_pending_slots"],
+                }
+            )
         )
     groups: dict[str, list] = defaultdict(list)
     for row in records:

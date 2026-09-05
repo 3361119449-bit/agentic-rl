@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shlex
 import subprocess
 import sys
 from pathlib import Path
+
+from tau2_agentic_rl.base_identity import find_base_identity, save_base_identity
 
 VERL_COMMITS = {
     "sft": "bec9ef74768dd201881cd4e54cd0385e87caae27",  # v0.7.1
@@ -63,6 +66,11 @@ def main() -> None:
     parser.add_argument("--local-dir", type=Path, required=True)
     parser.add_argument("--target-dir", type=Path, required=True)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--base-identity",
+        type=Path,
+        help="Original training manifest if checkpoint was moved",
+    )
     args = parser.parse_args()
 
     actual = _git_commit(args.verl_root)
@@ -80,13 +88,19 @@ def main() -> None:
     print(shlex.join(command))
     if args.dry_run:
         return
+    identity_path = args.base_identity or find_base_identity(args.local_dir)
+    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    if identity.get("schema_version") != 1 or not identity.get("files"):
+        raise ValueError("invalid training base identity")
     environment = os.environ.copy()
     existing = environment.get("PYTHONPATH")
     environment["PYTHONPATH"] = os.pathsep.join(
         [str(args.verl_root), *([existing] if existing else [])]
     )
     subprocess.run(command, check=True, cwd=args.verl_root, env=environment)
-    print(adapter_dir(args.target_dir))
+    adapter = adapter_dir(args.target_dir)
+    save_base_identity(adapter, identity)
+    print(adapter)
 
 
 if __name__ == "__main__":

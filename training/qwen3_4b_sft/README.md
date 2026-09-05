@@ -120,12 +120,10 @@ python agentic_rl/scripts/export_verl_lora.py \
   --target-dir /root/models/qwen3_4b_sft_export
 
 python agentic_rl/scripts/merge_sft_lora.py \
-  --base-model Qwen/Qwen3-4B-Instruct-2507 \
   --sft-adapter /root/models/qwen3_4b_sft_export/lora_adapter \
   --output /root/models/qwen3_4b_airline_sft_merged
 
 python agentic_rl/scripts/verify_adapter_equivalence.py \
-  --base-model Qwen/Qwen3-4B-Instruct-2507 \
   --adapter /root/models/qwen3_4b_sft_export/lora_adapter \
   --merged-model /root/models/qwen3_4b_airline_sft_merged
 ```
@@ -133,6 +131,15 @@ python agentic_rl/scripts/verify_adapter_equivalence.py \
 The second command refuses an incomplete adapter directory and verifies the
 merged model/tokenizer output. The final GPU check compares adapter and merged
 model logits on exactly the same fixed input and fails outside its tolerance.
+
+First install the shared helper package in this SFT environment with
+`python -m pip install -e ./agentic_rl`. Training now saves a content-hashed
+`base_model_identity.json` beside the checkpoints; export copies it into the
+adapter. Merge defaults to that training snapshot and rejects changed weights,
+tokenizer or template. A relocated identical snapshot may be supplied with
+`--base-model /local/snapshot`. Missing historical manifests are not reconstructed
+from today's Hub main; pass the original `--base-identity` when exporting moved
+checkpoints. Identity checks and GPU numerical equivalence are separate checks.
 
 ## Useful checks and overrides
 

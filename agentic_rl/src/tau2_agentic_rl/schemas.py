@@ -182,8 +182,12 @@ class TrajectoryRecord(BaseModel):
     assistant_turns: int = Field(ge=0)
     trajectory_tokens: int = Field(ge=0)
     messages: list[dict[str, Any]] = Field(default_factory=list)
+    # messages is retained as the actor-context view for compatibility.
+    environment_transcript: list[dict[str, Any]] | None = None
+    scoring_inputs: dict[str, Any] | None = None
     tool_events: list[ToolEvent] = Field(default_factory=list)
     token_turns: list[TokenTurn] = Field(default_factory=list)
+    # token_turns contains the unmodified raw policy output tokens and log-probs.
     initial_db_hash: str | None = None
     final_db_hash: str | None = None
     target_db_hash: str | None = None

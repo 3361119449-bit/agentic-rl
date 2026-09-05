@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from tau2_agentic_rl.concurrency import api_budget
 from tau2_agentic_rl.versions import sha256_json
 
 
@@ -67,13 +68,14 @@ class CachedUserSimulatorMixin:
             last_error: Exception | None = None
             for attempt in range(self.max_retries + 1):
                 try:
-                    assistant_message = generate(
-                        model=self.llm,
-                        messages=messages,
-                        tools=self.tools,
-                        call_name="user_simulator_response",
-                        **self.llm_args,
-                    )
+                    with api_budget().slot("user_api"):
+                        assistant_message = generate(
+                            model=self.llm,
+                            messages=messages,
+                            tools=self.tools,
+                            call_name="user_simulator_response",
+                            **self.llm_args,
+                        )
                     tmp = cache_path.with_name(f".{cache_path.name}.{uuid4().hex}.tmp")
                     tmp.write_text(
                         assistant_message.model_dump_json(indent=2),

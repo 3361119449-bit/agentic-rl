@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import shlex
@@ -40,7 +41,83 @@ from tau2_agentic_rl.evaluation import (
     fingerprint_directory,
     initialize_evaluation,
 )
+from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
+from tau2_agentic_rl.schemas import TrajectoryRecord
+from tau2_agentic_rl.scoring_retry import retry_scoring
+from tau2_agentic_rl.storage import TrajectoryStore
 from tau2_agentic_rl.versions import sha256_file, sha256_json
+
+
+def build_evaluation_command(
+    args, *, project_root, data_file, run_root, project, identity
+):
+    agent_config = project_root / "configs" / "rl" / "agent_loop_v1.yaml"
+    command = [
+        sys.executable,
+        "-m",
+        "tau2_agentic_rl.verl_entrypoint",
+        "algorithm.adv_estimator=grpo",
+        "algorithm.use_kl_in_reward=false",
+        "algorithm.filter_groups.enable=false",
+        f"data.train_files={data_file}",
+        f"data.val_files={data_file}",
+        "data.train_batch_size=1",
+        "data.max_prompt_length=8192",
+        "data.max_response_length=16384",
+        "data.return_raw_chat=true",
+        "data.filter_overlong_prompts=false",
+        "data.truncation=error",
+        "data.continuous_token.enable=false",
+        f"actor_rollout_ref.model.path={args.model_path}",
+        "actor_rollout_ref.model.use_remove_padding=true",
+        "actor_rollout_ref.actor.use_dynamic_bsz=false",
+        "actor_rollout_ref.actor.ppo_mini_batch_size=1",
+        "actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1",
+        "actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1",
+        "actor_rollout_ref.rollout.name=vllm",
+        "actor_rollout_ref.rollout.mode=async",
+        "actor_rollout_ref.rollout.tensor_model_parallel_size=1",
+        "actor_rollout_ref.rollout.gpu_memory_utilization=0.40",
+        "actor_rollout_ref.rollout.max_model_len=16384",
+        "actor_rollout_ref.rollout.calculate_log_probs=true",
+        f"actor_rollout_ref.rollout.agent.num_workers={project['rollout']['agent_worker_count']}",
+        f"actor_rollout_ref.rollout.max_num_seqs={project['rollout']['vllm_max_num_seqs']}",
+        "actor_rollout_ref.rollout.agent.default_agent_loop=tau2_airline",
+        f"actor_rollout_ref.rollout.agent.agent_loop_config_path={agent_config}",
+        f"actor_rollout_ref.rollout.val_kwargs.temperature={identity['temperature']}",
+        f"actor_rollout_ref.rollout.val_kwargs.top_p={identity['top_p']}",
+        f"actor_rollout_ref.rollout.val_kwargs.top_k={identity['top_k']}",
+        "actor_rollout_ref.rollout.val_kwargs.do_sample=true",
+        "actor_rollout_ref.rollout.val_kwargs.n=1",
+        f"actor_rollout_ref.rollout.seed={args.seed}",
+        f"data.seed={args.seed}",
+        "trainer.use_v1=true",
+        "trainer.v1.trainer_mode=sync",
+        "trainer.val_only=true",
+        "trainer.val_before_train=true",
+        "trainer.resume_mode=disable",
+        f"trainer.default_local_dir={run_root / 'unused_checkpoints'}",
+        "trainer.n_gpus_per_node=1",
+        "trainer.nnodes=1",
+        "trainer.logger=[console]",
+        "trainer.project_name=tau2_airline_agentic_rl",
+        f"trainer.experiment_name={args.tag}",
+    ]
+    if args.lora_adapter:
+        adapter_config = json.loads(
+            (args.lora_adapter / "adapter_config.json").read_text(encoding="utf-8")
+        )
+        command.extend(
+            [
+                f"actor_rollout_ref.model.lora_rank={adapter_config['r']}",
+                f"actor_rollout_ref.model.lora_alpha={adapter_config['lora_alpha']}",
+                "actor_rollout_ref.model.target_modules=all-linear",
+                f"actor_rollout_ref.model.lora_adapter_path={args.lora_adapter}",
+                "actor_rollout_ref.rollout.load_format=safetensors",
+            ]
+        )
+    command.extend(args.extra)
+    return command
 
 
 def main() -> None:
@@ -187,67 +264,14 @@ def main() -> None:
         path_items.append(os.environ["PYTHONPATH"])
     os.environ["PYTHONPATH"] = os.pathsep.join(path_items)
 
-    agent_config = project_root / "configs" / "rl" / "agent_loop_v1.yaml"
-    command = [
-        sys.executable,
-        "-m",
-        "verl.trainer.main_ppo",
-        "algorithm.adv_estimator=grpo",
-        "algorithm.use_kl_in_reward=false",
-        "algorithm.filter_groups.enable=false",
-        f"data.train_files={data_file}",
-        f"data.val_files={data_file}",
-        "data.train_batch_size=1",
-        "data.max_prompt_length=8192",
-        "data.max_response_length=16384",
-        "data.return_raw_chat=true",
-        "data.filter_overlong_prompts=false",
-        "data.truncation=error",
-        "data.continuous_token.enable=false",
-        f"actor_rollout_ref.model.path={args.model_path}",
-        "actor_rollout_ref.model.use_remove_padding=true",
-        "actor_rollout_ref.rollout.name=vllm",
-        "actor_rollout_ref.rollout.mode=async",
-        "actor_rollout_ref.rollout.tensor_model_parallel_size=1",
-        "actor_rollout_ref.rollout.gpu_memory_utilization=0.40",
-        "actor_rollout_ref.rollout.max_model_len=16384",
-        "actor_rollout_ref.rollout.calculate_log_probs=true",
-        "actor_rollout_ref.rollout.agent.num_workers=2",
-        "actor_rollout_ref.rollout.agent.default_agent_loop=tau2_airline",
-        f"actor_rollout_ref.rollout.agent.agent_loop_config_path={agent_config}",
-        f"actor_rollout_ref.rollout.val_kwargs.temperature={identity['temperature']}",
-        f"actor_rollout_ref.rollout.val_kwargs.top_p={identity['top_p']}",
-        f"actor_rollout_ref.rollout.val_kwargs.top_k={identity['top_k']}",
-        "actor_rollout_ref.rollout.val_kwargs.do_sample=true",
-        "actor_rollout_ref.rollout.val_kwargs.n=1",
-        f"actor_rollout_ref.rollout.seed={args.seed}",
-        f"data.seed={args.seed}",
-        "trainer.use_v1=true",
-        "trainer.v1.trainer_mode=sync",
-        "trainer.val_only=true",
-        "trainer.val_before_train=true",
-        "trainer.resume_mode=disable",
-        f"trainer.default_local_dir={run_root / 'unused_checkpoints'}",
-        "trainer.n_gpus_per_node=1",
-        "trainer.nnodes=1",
-        "trainer.logger=[console]",
-        "trainer.project_name=tau2_airline_agentic_rl",
-        f"trainer.experiment_name={args.tag}",
-    ]
-    if args.lora_adapter:
-        adapter_config = json.loads(
-            (args.lora_adapter / "adapter_config.json").read_text(encoding="utf-8")
-        )
-        command.extend(
-            [
-                f"actor_rollout_ref.model.lora_rank={adapter_config['r']}",
-                f"actor_rollout_ref.model.lora_alpha={adapter_config['lora_alpha']}",
-                "actor_rollout_ref.model.target_modules=all-linear",
-                f"actor_rollout_ref.model.lora_adapter_path={args.lora_adapter}",
-                "actor_rollout_ref.rollout.load_format=safetensors",
-            ]
-        )
-    command.extend(args.extra)
+    command = build_evaluation_command(
+        args,
+        project_root=project_root,
+        data_file=data_file,
+        run_root=run_root,
+        project=project,
+        identity=identity,
+    )
     print(shlex.join(command))
     if not args.dry_run:
         manifest = initialize_evaluation(run_root, identity, resume=args.resume)
@@ -266,10 +290,30 @@ def main() -> None:
                     "saved runtime config differs from evaluation manifest"
                 )
             os.environ["AGENTIC_RL_CONFIG"] = str(runtime_path)
+            judge_config = project["judge"]
+            judge = DeepSeekJudge(
+                JudgeConfig(
+                    model=judge_config["model"],
+                    provider=judge_config.get("provider", "DeepSeek"),
+                    base_url=judge_config["base_url"],
+                    max_retries=int(judge_config["max_retries"]),
+                    cache_dir=str(project_root / project["outputs"]["judge_cache"]),
+                )
+            )
+            store = TrajectoryStore(run_root / "trajectories")
             for refill in range(args.max_refill_rounds + 1):
+                coverage = evaluation_coverage(run_root / "trajectories", manifest)
+                for row in coverage["scoring_pending_records"]:
+                    asyncio.run(
+                        retry_scoring(
+                            TrajectoryRecord.model_validate(row), judge, store
+                        )
+                    )
                 coverage = evaluation_coverage(run_root / "trajectories", manifest)
                 if coverage["complete"]:
                     break
+                if not coverage["missing_slots"]:
+                    continue  # Scoring-only failures must never cause a fresh interaction.
                 rows = []
                 for item in coverage["missing_slots"]:
                     task, slot = item["task_id"], item["sample_index"]

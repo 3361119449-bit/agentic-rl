@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Any
@@ -19,17 +20,18 @@ from verl.tools.base_tool import OpenAIFunctionToolSchema
 from tau2_agentic_rl.annotations import load_task_mapping
 from tau2_agentic_rl.budget import ContextBudget
 from tau2_agentic_rl.chat_stream import render_environment_turn
+from tau2_agentic_rl.concurrency import SharedBudget, limits_from_project
 from tau2_agentic_rl.config import load_runtime_config
 from tau2_agentic_rl.environment.tau2_gym import GymStep, Tau2GymAdapter
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
-from tau2_agentic_rl.reward.official_tau2 import parse_official_reward_info
 from tau2_agentic_rl.reward.required_actions import (
     arguments_equal,
     load_action_dependencies,
     load_required_actions,
 )
 from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
+from tau2_agentic_rl.rollout_audit import audited_official_scores, snapshot_transcript
 from tau2_agentic_rl.schemas import TokenTurn, ToolEvent, TrajectoryRecord
 from tau2_agentic_rl.storage import TrajectoryStore
 from tau2_agentic_rl.token_alignment import validate_aligned_response
@@ -41,6 +43,7 @@ from tau2_agentic_rl.tooling import (
     validate_tool_call,
     validate_tool_turn,
 )
+from tau2_agentic_rl.versions import sha256_json
 
 
 def _split(kwargs: dict[str, Any]) -> tuple[str, str, int]:
@@ -179,6 +182,22 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         )
 
     async def run(
+        self, sampling_params: dict[str, Any], **kwargs: Any
+    ) -> AgentLoopOutput:
+        self.shared_budget = SharedBudget(
+            limits_from_project(self.project), require_ray=True
+        )
+        async with self.shared_budget.aslot("trajectories"):
+            task = asyncio.create_task(self._run_trajectory(sampling_params, **kwargs))
+            try:
+                return await asyncio.shield(task)
+            except asyncio.CancelledError:
+                # Tau2's synchronous user call may still be running in a
+                # thread. Retain the lease until the interaction really ends.
+                await asyncio.gather(task, return_exceptions=True)
+                raise
+
+    async def _run_trajectory(
         self, sampling_params: dict[str, Any], **kwargs: Any
     ) -> AgentLoopOutput:
         task_id, split, policy_version = _split(kwargs)
@@ -468,11 +487,42 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             result=detail,
                         )
                     else:
+                        before_tool_hash = environment.safe_db_hash()
                         try:
                             step = await execute_validated_tool_call(
                                 checked, environment.step_tool
                             )
                         except Exception as exc:
+                            after_tool_hash = environment.safe_db_hash()
+                            changed = (
+                                before_tool_hash != after_tool_hash
+                                if before_tool_hash is not None
+                                and after_tool_hash is not None
+                                else None
+                            )
+                            if proposal is not None and changed is not False:
+                                confirmation.consume(proposal.proposal_hash)
+                            tool_events.append(
+                                ToolEvent(
+                                    event_id=f"{trajectory_id}:{len(tool_events)}",
+                                    sequence=len(tool_events),
+                                    turn_id=assistant_turns,
+                                    name=call.name,
+                                    arguments=checked.arguments,
+                                    success=False,
+                                    db_effect=changed,
+                                    confirmed_before=proposal is not None,
+                                    confirmation_consumed=proposal is not None
+                                    and changed is not False,
+                                    confirmation_proposal_hash=proposal.proposal_hash
+                                    if proposal
+                                    else None,
+                                    confirmation_turn_id=proposal.confirmation_turn_id
+                                    if proposal
+                                    else None,
+                                    result=f"environment exception: {type(exc).__name__}: {exc}",
+                                )
+                            )
                             infrastructure_error = ("tau2_tool_step", exc)
                             termination_reason = "infrastructure_error"
                             break
@@ -500,7 +550,9 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             ),
                             result=step.tool_result,
                         )
-                        if proposal is not None and event.success:
+                        if proposal is not None and (
+                            event.success or event.db_effect is True
+                        ):
                             confirmation.consume(proposal.proposal_hash)
                             event.confirmation_consumed = True
                 _mark_repetition(event, tool_events)
@@ -548,14 +600,16 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 ):
                     termination_reason = "human_transfer"
 
-        trajectory_for_judge = messages
+        trajectory_for_judge = snapshot_transcript(environment)
+        interaction_termination_reason = termination_reason
+        final_db_hash = environment.safe_db_hash()
         await environment.force_cleanup_stop()
         official = None
         try:
             official_reward, official_payload = environment.official_reward_payload()
-            if termination_reason in {"budget_exhausted", "hard_turn_limit"}:
-                official_reward = 0.0
-            official = parse_official_reward_info(official_reward, official_payload)
+            official = audited_official_scores(
+                official_reward, official_payload, termination_reason
+            )
         except Exception as exc:
             if infrastructure_error is None:
                 infrastructure_error = ("official_reward", exc)
@@ -568,6 +622,26 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         judge_raw = None
         judge_prompt_hash = None
         judge_cache_key = None
+        scoring_inputs = {
+            "judge": {
+                "task": environment.task,
+                "policy": environment.policy,
+                "trajectory": {
+                    "messages": trajectory_for_judge,
+                    "tool_events": [event.model_dump() for event in tool_events],
+                    "termination_reason": interaction_termination_reason,
+                },
+                "semantic_checks": semantic_row.get("semantic_checks", []),
+                "mandatory_policy_checks": policy_row.get("judge_checks", []),
+                "transfer_rule": transfer_rule,
+            },
+            "required_actions": self.required_actions[task_id],
+            "action_dependencies": self.action_dependencies.get(task_id, []),
+            "reward_project_config": {
+                "reward": self.project.get("reward", {}),
+                "rollout": self.project["rollout"],
+            },
+        }
         if infrastructure_error is None:
             try:
                 (
@@ -576,20 +650,10 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     judge_prompt_hash,
                     judge_cache_key,
                 ) = await self.judge.evaluate(
-                    task=environment.task,
-                    policy=environment.policy,
-                    trajectory={
-                        "messages": trajectory_for_judge,
-                        "tool_events": [event.model_dump() for event in tool_events],
-                        "termination_reason": termination_reason,
-                    },
-                    semantic_checks=semantic_row.get("semantic_checks", []),
-                    mandatory_policy_checks=policy_row.get("judge_checks", []),
-                    transfer_rule=transfer_rule,
+                    **scoring_inputs["judge"],
                 )
             except Exception as exc:
                 infrastructure_error = ("judge", exc)
-                termination_reason = "infrastructure_error"
 
         required = self.required_actions[task_id]
         custom_reward = None
@@ -599,7 +663,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     raise RuntimeError("successful rollout lacks scorer inputs")
                 custom_reward = score_trajectory(
                     events=tool_events,
-                    messages=messages,
+                    messages=trajectory_for_judge,
                     assistant_turns=assistant_turns,
                     required_actions=required,
                     official=official,
@@ -610,7 +674,6 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 )
             except Exception as exc:
                 infrastructure_error = ("reward_scoring", exc)
-                termination_reason = "infrastructure_error"
 
         response_ids = prompt_ids[len(initial_prompt_ids) :]
         try:
@@ -638,14 +701,19 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             assistant_turns=assistant_turns,
             trajectory_tokens=len(prompt_ids),
             messages=messages,
+            environment_transcript=trajectory_for_judge,
+            scoring_inputs=scoring_inputs,
             tool_events=tool_events,
             token_turns=token_turns,
             initial_db_hash=environment.initial_db_hash(),
-            final_db_hash=environment.safe_db_hash(),
+            final_db_hash=final_db_hash,
             official_scores=official,
             judge_result=judge_result,
             custom_reward=custom_reward,
             metadata={
+                "interaction_termination_reason": interaction_termination_reason,
+                "concurrency": await self.shared_budget.acall("snapshot"),
+                "scoring_inputs_sha256": sha256_json(scoring_inputs),
                 "evaluation_sample_index": kwargs.get("extra_info", {}).get(
                     "evaluation_sample_index"
                 ),

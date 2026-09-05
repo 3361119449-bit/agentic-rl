@@ -9,7 +9,11 @@ from __future__ import annotations
 
 import argparse
 import gc
+import json
 from pathlib import Path
+
+from tau2_agentic_rl.base_identity import model_files, validate_adapter_base
+from tau2_agentic_rl.versions import sha256_file, sha256_json
 
 DEFAULT_PROMPT = (
     "A customer asks whether a cancelled flight can be refunded. "
@@ -29,7 +33,7 @@ def _require_adapter(path: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--base-model", default="Qwen/Qwen3-4B-Instruct-2507")
+    parser.add_argument("--base-model", type=Path)
     parser.add_argument("--adapter", type=Path, required=True)
     parser.add_argument("--merged-model", type=Path, required=True)
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
@@ -37,6 +41,18 @@ def main() -> None:
     parser.add_argument("--rtol", type=float, default=1e-2)
     args = parser.parse_args()
     _require_adapter(args.adapter)
+    args.base_model, identity = validate_adapter_base(args.adapter, args.base_model)
+    provenance = json.loads(
+        (args.merged_model / "merge_provenance.json").read_text(encoding="utf-8")
+    )
+    if provenance != {
+        "base_identity_sha256": sha256_json(identity),
+        "adapter_sha256": sha256_file(args.adapter / "adapter_model.safetensors"),
+        "adapter_config_sha256": sha256_file(args.adapter / "adapter_config.json"),
+        "merged_files": model_files(args.merged_model),
+    }:
+        raise ValueError("merged model provenance mismatch")
+    print("training base and merge provenance identity verified")
     if not (args.merged_model / "config.json").is_file():
         raise FileNotFoundError(f"incomplete merged model: {args.merged_model}")
 

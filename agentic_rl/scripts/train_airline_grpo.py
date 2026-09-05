@@ -12,6 +12,11 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
+from tau2_agentic_rl.base_identity import (
+    capture_base_identity,
+    find_base_identity,
+    save_base_identity,
+)
 from tau2_agentic_rl.checkpoints import resolve_resume_path, restore_step_clock
 from tau2_agentic_rl.config import expand_env, load_yaml
 from tau2_agentic_rl.training_config import effective_project_config, training_overrides
@@ -239,6 +244,14 @@ def main() -> None:
         import yaml
 
         run_root.mkdir(parents=True, exist_ok=True)
+        base_identity = capture_base_identity(model_path)
+        if args.resume_from_path:
+            saved = json.loads(
+                find_base_identity(args.resume_from_path).read_text(encoding="utf-8")
+            )
+            if saved["files"] != base_identity["files"]:
+                raise ValueError("RL resume base identity changed")
+        save_base_identity(run_root, base_identity)
         if (
             args.resume_from_path
             and any(run_root.iterdir())

@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 
+from tau2_agentic_rl.concurrency import api_budget
 from tau2_agentic_rl.judge.prompts import (
     JUDGE_PROMPT_VERSION,
     JUDGE_RUBRIC_VERSION,
@@ -178,11 +179,12 @@ class DeepSeekJudge:
         ) as client:
             for attempt in range(self.config.max_retries + 1):
                 try:
-                    response = await client.post(
-                        "chat/completions",
-                        headers={"Authorization": f"Bearer {api_key}"},
-                        json=payload,
-                    )
+                    async with api_budget().aslot("judge_api"):
+                        response = await client.post(
+                            "chat/completions",
+                            headers={"Authorization": f"Bearer {api_key}"},
+                            json=payload,
+                        )
                     response.raise_for_status()
                     raw = response.json()["choices"][0]["message"]["content"]
                     parsed = JudgeResult.model_validate(json.loads(raw))
