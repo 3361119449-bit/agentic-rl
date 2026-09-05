@@ -10,6 +10,9 @@
 
 `R_tau2_official != S_custom_strict != R_train`，最终报告脚本只输出 pass@1 和 pass@4，不把训练奖励冒充官方成功率。
 
+最新复审修复、评估断点续跑、PPO 审计开关与尚未完成的 GPU 验收见
+[REVIEW_FOLLOWUP.md](REVIEW_FOLLOWUP.md)。CPU 测试通过不代表 GPU 端到端验收已完成。
+
 ## 已实现的关键约束
 
 - Tau2 固定提交：`a2c024725189473d2d7cea3a5cfdbcc67478e41f`；
@@ -17,9 +20,10 @@
 - 每条 rollout 创建独立 `AgentGymEnv` 和 Airline DB；
 - Qwen3-4B-Instruct 的 JSON `<tool_call>` 固定使用 veRL `hermes` 解析器；
 - 未知工具、非法 JSON/Schema 和多工具调用在进入 Tau2 前被确定性阻断；
-- 写操作确认绑定到精确工具名与参数，只能消费一次；
+- 写操作确认绑定到成功发送给用户的纯文本精确提案，只能消费一次；条件式或修改参数的 Yes 不授权旧操作；
 - Qwen 原始生成 token ID、vLLM old log-prob 和 turn 边界原样保存；
 - 只有 Qwen 输出 token 的 `response_mask=1`，工具、用户、模板 token 均为 0；
+- 多轮 observation 包含 Qwen `turn_separator`，完整计入上下文预算；
 - 16,384 token 生成前预算检查，15 轮软阈值、24 轮硬终止；
 - DeepSeek 用户模拟器与 Judge 使用独立 prompt、缓存和重试；
 - Judge 每条完整轨迹只调用一次，输出二值条目，并严格核对 criterion ID；
@@ -32,6 +36,7 @@
 - 每条轨迹原子化保存，可离线重新打分。
 - 每个实验使用独立 run 目录且默认禁用自动续训；
 - 基础设施失败单独落盘，不计作模型失败或 pass@k 样本。
+- 冻结评估身份与样本 slot；最终 test 必须补齐 20 × 4 = 80 条有效轨迹才输出分数。
 
 ## 目录
 
@@ -281,6 +286,11 @@ veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num
 只增加前者；学习率、epoch、终止条件和 checkpoint 仍绑定
 `optimizer_step`。两者会原子写入每个 run 的 `step_counters.json`。
 
+每个 checkpoint 内还保存自己的 `step_counters.json`，恢复时优先读取它并
+验证 optimizer step；旧 run 级计数仅在恰好匹配该 checkpoint 时兼容。
+训练 YAML 是所列超参数的来源，支持 `--config`；实际配置保存为
+`runtime_config.yaml`，每次启动记录保存在 `launches/`。
+
 这段扩展依赖 veRL v0.9.0 的受保护接口，因此训练启动器会先检查完整 commit SHA；版本不符会直接终止。
 
 ## 离线重新打分
@@ -288,6 +298,9 @@ veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num
 当只调整 reward 权重、过程扣分或必须动作标注，而且 Judge rubric 未变时，
 不必重新请求 DeepSeek。`reward`、`process_penalties`、软轮数和扣分上限会
 从指定 YAML 显式构造成 `RewardConfig`，不会退回代码默认值：
+
+新版会严格核对轨迹中的 Judge rubric 指纹。旧版笼统 Policy 判断不能用于
+新版原子规则；需要重新 Judge。输出必须使用新的空目录，不能覆盖原轨迹。
 
 ```bash
 python scripts/rescore_saved_trajectories.py \

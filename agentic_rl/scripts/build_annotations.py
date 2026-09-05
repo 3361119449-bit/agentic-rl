@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from tau2_agentic_rl.policy_rules import POLICY_RUBRIC_VERSION, policy_checks
+
 TRANSFER_TEXT = "YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON."
 DEFAULT_DEV_IDS = ["3", "7", "12", "23", "39", "43"]
 
@@ -50,20 +52,12 @@ def _policy_rows(ids: set[str]) -> list[dict[str, Any]]:
     return [
         {
             "task_id": task_id,
+            "policy_rubric_version": POLICY_RUBRIC_VERSION,
             "deterministic_rules": [
                 "confirmation_before_database_write",
                 "one_tool_call_per_assistant_turn",
             ],
-            "judge_checks": [
-                {
-                    "criterion_id": f"{task_id}:official_policy_hard_constraints",
-                    "description": (
-                        "Considering the fixed task and trajectory, every applicable "
-                        "Airline Policy rule expressed as must, cannot, or only-if was "
-                        "obeyed. Judge policy compliance only, not task completion."
-                    ),
-                }
-            ],
+            "judge_checks": policy_checks(task_id),
         }
         for task_id in sorted(ids, key=int)
     ]

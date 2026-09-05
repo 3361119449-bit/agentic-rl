@@ -37,7 +37,9 @@ from verl.utils.tracking import (
     ValidationGenerationsLogger,
 )
 
+from tau2_agentic_rl.checkpoints import restore_step_clock
 from tau2_agentic_rl.dynamic_sampling import TrainingStepClock
+from tau2_agentic_rl.ppo_audit import audit_update
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +89,16 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         self._sync_metadata_from_transfer_queue()
         all_prompt_uids = set(self.prompt_global_steps[partition_id])
         self._clear_groups(partition_id, all_prompt_uids)
+
+    def _terminal_eviction_reasons(self, global_steps: int, partition_id: str):
+        reasons = super()._terminal_eviction_reasons(global_steps, partition_id)
+        if partition_id != "train":
+            return reasons
+        stale, constant, failed, counts = reasons
+        # The pinned parent only evicts failed groups with zero materializable
+        # trajectories. Our GRPO contract also excludes 7-success + 1-API-error
+        # groups, even if their surviving rewards have variance.
+        return stale, constant, failed | set(self.failure_keys[partition_id]), counts
 
     def _add_sampling_metrics(
         self,
@@ -206,8 +218,81 @@ class CappedPPOTrainerSync(PPOTrainerSync):
     max_num_gen_batches = 3
     rollout_group_size = 8
 
-    def _write_step_counters(self, clock: TrainingStepClock) -> None:
-        path = Path(self.config.trainer.default_local_dir).parent / "step_counters.json"
+    def _update_actor(self, batch: KVBatchMeta, metrics: dict) -> KVBatchMeta:
+        if not self.config.trainer.get("ppo_audit", False):
+            return super()._update_actor(batch, metrics)
+        from verl.workers.utils.padding import response_from_nested
+
+        def rows(tensor):
+            return [item.detach().float().cpu().tolist() for item in tensor.unbind()]
+
+        def read_old():
+            data = tq.kv_batch_get(
+                keys=batch.keys,
+                partition_id=batch.partition_id,
+                select_fields=["old_log_probs", "response_mask"],
+            )
+            return rows(data["old_log_probs"]), rows(data["response_mask"])
+
+        def compute_current():
+            saved = dict(batch.extra_info)
+            try:
+                batch.extra_info.update(
+                    calculate_entropy=False,
+                    compute_loss=False,
+                    temperature=self.config.actor_rollout_ref.rollout.temperature,
+                )
+                output = self.actor_rollout_wg.compute_log_prob(batch)
+                if len(output) != len(batch):
+                    raise ValueError("audit inference returned a different batch size")
+                data = tq.kv_batch_get(
+                    keys=batch.keys,
+                    partition_id=batch.partition_id,
+                    select_fields=["log_probs", "response_mask"],
+                )
+                return rows(
+                    response_from_nested(data["log_probs"], data["response_mask"])
+                )
+            finally:
+                batch.extra_info.clear()
+                batch.extra_info.update(saved)
+
+        parent_update = super()._update_actor
+        result, report = audit_update(
+            read_old=read_old,
+            compute_current=compute_current,
+            update=lambda: parent_update(batch, metrics),
+            path=Path(self.config.trainer.default_local_dir).parent
+            / "ppo_audit"
+            / f"step_{self.global_steps}.json",
+            tolerance=float(
+                self.config.trainer.get("ppo_audit_logprob_tolerance", 0.005)
+            ),
+        )
+        metrics.update(
+            {
+                f"audit/{key}": value
+                for key, value in report.items()
+                if key.startswith("ratio_")
+            }
+        )
+        return result
+
+    def _save_checkpoint(self) -> None:
+        super()._save_checkpoint()
+        checkpoint = (
+            Path(self.config.trainer.default_local_dir)
+            / f"global_step_{self.global_steps}"
+        )
+        self._write_step_counters(self.step_clock, checkpoint / "step_counters.json")
+
+    def _write_step_counters(
+        self, clock: TrainingStepClock, path: Path | None = None
+    ) -> None:
+        path = (
+            path
+            or Path(self.config.trainer.default_local_dir).parent / "step_counters.json"
+        )
         path.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=".step-counters.", suffix=".tmp", dir=path.parent, text=True
@@ -319,6 +404,11 @@ class CappedPPOTrainerSync(PPOTrainerSync):
             attempt_step=self.global_steps,
             optimizer_step=self.global_steps,
         )
+        if self.config.trainer.resume_mode == "resume_path":
+            clock = restore_step_clock(
+                Path(self.config.trainer.resume_from_path), self.global_steps
+            )
+        self.step_clock = clock
         max_attempts_without_update = int(
             self.config.trainer.get("max_attempts_without_update", 50)
         )
@@ -384,7 +474,11 @@ class CappedPPOTrainerSync(PPOTrainerSync):
                     ):
                         self._save_checkpoint()
 
-                self.on_step_end()
+                if skipped:
+                    # Wake replicas without falsely stamping a new policy version.
+                    self.checkpoint_manager.update_weights(clock.optimizer_step)
+                else:
+                    self.on_step_end()
                 metrics.update(self._consume_sync_metrics())
 
             if (

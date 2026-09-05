@@ -2,6 +2,9 @@
 
 This repository contains the cleaned AReaL Tau2 airline SFT dataset and its reproducibility artifacts.
 
+Latest RL review fixes, frozen evaluation/resume commands, CPU CI, and remaining
+GPU acceptance requirements: [review follow-up](agentic_rl/REVIEW_FOLLOWUP.md).
+
 ## Dataset
 
 Path: `datasets/tau2_airline_sft_strict_cleaned/`

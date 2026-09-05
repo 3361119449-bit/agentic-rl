@@ -32,7 +32,7 @@ except ModuleNotFoundError as exc:
     MultiTurnSFTDataset = object  # type: ignore[assignment,misc]
 
 
-SCRIPT_VERSION = 3
+SCRIPT_VERSION = 4
 DEFAULT_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 DATA_RELATIVE_PATH = Path(
     "datasets/tau2_airline_sft_strict_cleaned/data/"
@@ -192,6 +192,22 @@ def tokenizer_identity(model: str, revision: str, max_length: int) -> dict[str, 
         "thinking_reasoning_rejected": True,
         "normalization_version": SCRIPT_VERSION,
     }
+
+
+def resolve_model_snapshot(model: str, revision: str, *, metadata_only: bool = False) -> str:
+    """Resolve both training weights and tokenizer to a single immutable snapshot."""
+    local = Path(model)
+    if local.is_dir():
+        return str(local.resolve())
+    from huggingface_hub import snapshot_download
+
+    return snapshot_download(
+        repo_id=model,
+        revision=revision,
+        allow_patterns=(
+            ["*.json", "*.jinja", "*.txt", "*.model"] if metadata_only else None
+        ),
+    )
 
 
 def prepared_cache_matches(
@@ -706,7 +722,14 @@ def main() -> None:
             f"output directory is not empty: {output_dir}; choose --run-name or "
             "use --resume-mode resume_path --resume-from-path ..."
         )
+    requested_model = args.model
+    args.model = resolve_model_snapshot(
+        args.model, args.model_revision, metadata_only=args.prepare_only or args.dry_run
+    )
     identity = tokenizer_identity(args.model, args.model_revision, args.max_length)
+    identity["requested_model"] = requested_model
+    if Path(args.model).parent.name == "snapshots":
+        identity["resolved_revision"] = Path(args.model).name
     train_path, val_path, _ = prepare_dataset(
         source=args.data_jsonl,
         work_dir=args.work_dir,

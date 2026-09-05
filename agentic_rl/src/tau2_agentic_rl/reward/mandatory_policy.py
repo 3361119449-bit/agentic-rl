@@ -50,6 +50,11 @@ def evaluate_mandatory_policy(
 
     calls_per_turn = Counter(event.turn_id for event in events if event.name)
     multi_call_turns = [turn for turn, count in calls_per_turn.items() if count > 1]
+    multi_call_turns.extend(
+        event.turn_id
+        for event in events
+        if event.error_kind in {"multiple_tool_calls", "mixed_content_and_tool_call"}
+    )
     results.append(
         PolicyCheckResult(
             rule_id="one_tool_call_per_assistant_turn",

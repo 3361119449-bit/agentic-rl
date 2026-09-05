@@ -14,12 +14,22 @@ from tau2_agentic_rl.schemas import TrajectoryRecord
 class TrajectoryStore:
     """Store each trajectory as an atomic JSON file for safe rescoring."""
 
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, *, attach_evaluation_identity: bool = True):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
+        self.evaluation_manifest_id = (
+            os.environ.get("EVALUATION_MANIFEST_ID")
+            if attach_evaluation_identity
+            else None
+        )
 
     def save(self, record: TrajectoryRecord) -> Path:
         """Atomically save one validated trajectory."""
+        if self.evaluation_manifest_id:
+            existing = record.metadata.get("evaluation_manifest_id")
+            if existing is not None and existing != self.evaluation_manifest_id:
+                raise ValueError("cannot relabel a trajectory from another evaluation")
+            record.metadata["evaluation_manifest_id"] = self.evaluation_manifest_id
         destination = self.root / f"{record.trajectory_id}.json"
         payload = record.model_dump_json(indent=2)
         descriptor, temporary_name = tempfile.mkstemp(

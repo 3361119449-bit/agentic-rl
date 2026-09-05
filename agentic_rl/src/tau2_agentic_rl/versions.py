@@ -15,7 +15,11 @@ def sha256_bytes(payload: bytes) -> str:
 
 def sha256_file(path: str | Path) -> str:
     """Hash one file without changing it."""
-    return sha256_bytes(Path(path).read_bytes())
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def sha256_json(value: Any) -> str:

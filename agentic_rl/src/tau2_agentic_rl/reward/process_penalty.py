@@ -28,6 +28,7 @@ class ProcessPenaltyConfig:
             "model_caused_execution_error": 0.08,
             "confirmation_required": 0.08,
             "multiple_tool_calls": 0.10,
+            "mixed_content_and_tool_call": 0.10,
             "unchanged_retry": 0.06,
             "duplicate_no_progress": 0.03,
             "extra_assistant_turn": 0.02,

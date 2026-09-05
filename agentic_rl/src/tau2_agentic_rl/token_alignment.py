@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 
 from tau2_agentic_rl.schemas import TokenTurn
@@ -56,5 +57,7 @@ def validate_pre_update_ratio(
         )
         if mask
     ]
-    if selected and sum(selected) / len(selected) > tolerance:
+    if not selected or any(not math.isfinite(value) for value in selected):
+        raise ValueError("no policy tokens or non-finite log probabilities")
+    if sum(selected) / len(selected) > tolerance:
         raise ValueError("pre-update current and rollout log-probs are misaligned")

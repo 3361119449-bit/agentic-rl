@@ -12,6 +12,7 @@ TerminationReason = Literal[
     "human_transfer",
     "environment_terminated",
     "budget_exhausted",
+    "generation_truncated",
     "hard_turn_limit",
     "infrastructure_failure",
     "max_steps",
@@ -31,6 +32,7 @@ ToolErrorKind = Literal[
     "model_caused_execution_error",
     "confirmation_required",
     "multiple_tool_calls",
+    "mixed_content_and_tool_call",
 ]
 
 

@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from tau2_agentic_rl.policy_rules import policy_checks
+
 try:
     from scripts.prepare_tau2_dataset import SMOKE_IDS
 except ModuleNotFoundError:  # Direct ``python scripts/verify_setup.py`` execution.
@@ -84,7 +86,7 @@ def verify(project_root: Path, tau2_data: Path) -> dict[str, Any]:
                 "confirmation_before_database_write",
                 "one_tool_call_per_assistant_turn",
             ]
-            assert len(row["judge_checks"]) == 1
+            assert row["judge_checks"] == policy_checks(str(row["task_id"]))
 
     config = yaml.safe_load(
         (project_root / "configs/rl/airline_grpo_v1.yaml").read_text(encoding="utf-8")

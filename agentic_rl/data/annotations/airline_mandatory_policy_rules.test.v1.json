@@ -1,261 +1,1961 @@
 [
   {
     "task_id": "2",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "2:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "2:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "2:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "6",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "6:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "6:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "6:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "8",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "8:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "8:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "8:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "13",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "13:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "13:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "13:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "16",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "16:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "16:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "16:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "18",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "18:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "18:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "18:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "19",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "19:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "19:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "19:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "22",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "22:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "22:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "22:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "24",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "24:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "24:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "24:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "25",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "25:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "25:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "25:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "26",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "26:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "26:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "26:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "29",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "29:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "29:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "29:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "30",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "30:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "30:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "30:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "31",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "31:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "31:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "31:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "32",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "32:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "32:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "32:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "35",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "35:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "35:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "35:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "37",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "37:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "37:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "37:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "44",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "44:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "44:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "44:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "45",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "45:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "45:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "45:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   },
   {
     "task_id": "48",
+    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
     "deterministic_rules": [
       "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
       {
-        "criterion_id": "48:official_policy_hard_constraints",
-        "description": "Considering the fixed task and trajectory, every applicable Airline Policy rule expressed as must, cannot, or only-if was obeyed. Judge policy compliance only, not task completion."
+        "criterion_id": "48:policy:information_grounding",
+        "description": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:user_identity",
+        "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:confirmation_details",
+        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:single_action_turn",
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:booking_cabin",
+        "description": "A new reservation uses one cabin class and the same flights for all passengers and all segments. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:booking_passengers",
+        "description": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:booking_payment_limits",
+        "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:baggage_pricing",
+        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:insurance_timing",
+        "description": "Insurance costs $30 per passenger and cannot be added after the initial booking. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:flight_change_eligibility",
+        "description": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:cabin_change_eligibility",
+        "description": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:cabin_price_difference",
+        "description": "For cabin changes charge the positive price difference or refund the negative difference. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:baggage_removal",
+        "description": "For an existing reservation, checked bags may be added but not removed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:passenger_count",
+        "description": "Passenger details may be changed but the passenger count may not change, even via a human agent. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:modification_payment",
+        "description": "Flight changes require a single gift card or credit card already in the user profile for payment or refund, not a travel certificate. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:cancellation_reason",
+        "description": "Before cancellation obtain the user's cancellation reason. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:cancellation_eligibility",
+        "description": "If any portion has been flown, do not cancel and transfer is needed. Otherwise cancellation requires at least one: booking within 24 hours, airline cancellation, business cabin, or insurance covering the reason (health/weather). Basic economy is NOT a blanket cancellation prohibition. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:refund_destination",
+        "description": "Cancellation refunds go to the original payment methods within 5 to 7 business days; do not promise a different destination or schedule. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:compensation_request_and_facts",
+        "description": "Do not proactively offer compensation unless explicitly requested by the user, and confirm the facts before offering it. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:compensation_eligibility",
+        "description": "Compensation requires silver/gold membership OR travel insurance OR business cabin. Regular uninsured economy/basic economy is ineligible. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:compensation_reason_amount",
+        "description": "Only offer $100 per passenger for confirmed airline-cancelled flights, or $50 per passenger for a confirmed delay when the user wants to change/cancel AND the reservation has been changed/cancelled. No other compensation reason is allowed. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "48:policy:transfer_scope_and_message",
+        "description": "Transfer if and only if the request is outside the agent's action scope; call transfer_to_human_agents first, then send 'YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON.' to the user. Do not transfer simply to avoid policy denial. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       }
     ]
   }

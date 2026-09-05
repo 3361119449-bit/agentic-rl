@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shlex
 import subprocess
 import sys
 from pathlib import Path
+from uuid import uuid4
+
+from tau2_agentic_rl.checkpoints import resolve_resume_path, restore_step_clock
+from tau2_agentic_rl.config import expand_env, load_yaml
+from tau2_agentic_rl.training_config import effective_project_config, training_overrides
 
 TAU2_COMMIT = "a2c024725189473d2d7cea3a5cfdbcc67478e41f"
 VERL_COMMIT = "483b8a009ba3a97563edee3a19887e4862b8094a"
@@ -51,10 +57,21 @@ def build_command(
     run_root: Path | None = None,
     resume_from_path: Path | None = None,
     seed: int = 42,
+    project_config: dict | None = None,
 ) -> list[str]:
     """Translate the plan to veRL v0.9.0 Hydra overrides."""
     agent_config = project_root / "configs" / "rl" / "agent_loop_v1.yaml"
     run_root = run_root or project_root / "outputs" / "runs" / run_name
+    project = effective_project_config(
+        project_config
+        or load_yaml(
+            Path(__file__).resolve().parents[1] / "configs/rl/airline_grpo_v1.yaml"
+        ),
+        extra,
+    )
+    mapped = training_overrides(project)
+    if resume_from_path is not None:
+        resume_from_path = resolve_resume_path(project_root, resume_from_path)
     resume_overrides = (
         [
             "trainer.resume_mode=resume_path",
@@ -63,70 +80,36 @@ def build_command(
         if resume_from_path is not None
         else ["trainer.resume_mode=disable"]
     )
-    return [
+    command = [
         sys.executable,
         "-m",
         "tau2_agentic_rl.verl_entrypoint",
-        "algorithm.adv_estimator=grpo",
-        "algorithm.norm_adv_by_std_in_grpo=true",
-        "algorithm.use_kl_in_reward=false",
-        "algorithm.kl_ctrl.kl_coef=0.0",
         "algorithm.rollout_correction.bypass_mode=true",
         "algorithm.rollout_correction.loss_type=ppo_clip",
-        "algorithm.filter_groups.enable=true",
-        "algorithm.filter_groups.metric=train_reward",
-        "algorithm.filter_groups.max_num_gen_batches=3",
         "algorithm.filter_groups.max_inflight_gen_batches=1",
         f"data.train_files={train_file}",
         f"data.val_files={val_file}",
-        "data.train_batch_size=4",
         "data.max_prompt_length=8192",
-        "data.max_response_length=16384",
         "data.return_raw_chat=true",
         "data.filter_overlong_prompts=true",
         "data.truncation=error",
         "data.continuous_token.enable=false",
         f"data.seed={seed}",
         f"actor_rollout_ref.model.path={model_path}",
-        "actor_rollout_ref.model.lora_rank=32",
-        "actor_rollout_ref.model.lora_alpha=64",
-        "actor_rollout_ref.model.target_modules=all-linear",
         "actor_rollout_ref.model.use_remove_padding=true",
-        "actor_rollout_ref.model.enable_gradient_checkpointing=true",
-        "actor_rollout_ref.actor.optim.lr=5e-6",
         # veRL v0.9.0 interprets this field in prompt groups. Four prompts
         # times rollout.n=8 gives the planned 32-trajectory mini-batch.
-        "actor_rollout_ref.actor.ppo_mini_batch_size=4",
-        "actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1",
-        "actor_rollout_ref.actor.ppo_epochs=2",
         "actor_rollout_ref.actor.use_dynamic_bsz=true",
         "actor_rollout_ref.actor.ppo_max_token_len_per_gpu=32768",
-        "actor_rollout_ref.actor.clip_ratio_low=0.20",
-        "actor_rollout_ref.actor.clip_ratio_high=0.28",
-        "actor_rollout_ref.actor.clip_ratio_c=10.0",
-        "actor_rollout_ref.actor.loss_agg_mode=token-mean",
-        "actor_rollout_ref.actor.entropy_coeff=0.0",
-        "actor_rollout_ref.actor.grad_clip=1.0",
         f"actor_rollout_ref.actor.data_loader_seed={seed}",
-        "actor_rollout_ref.actor.use_kl_loss=false",
-        "actor_rollout_ref.actor.kl_loss_coef=0.0",
         "actor_rollout_ref.actor.fsdp_config.param_offload=false",
         "actor_rollout_ref.actor.fsdp_config.optimizer_offload=false",
         "actor_rollout_ref.rollout.name=vllm",
         "actor_rollout_ref.rollout.mode=async",
-        "actor_rollout_ref.rollout.tensor_model_parallel_size=1",
-        "actor_rollout_ref.rollout.gpu_memory_utilization=0.40",
-        "actor_rollout_ref.rollout.n=8",
-        "actor_rollout_ref.rollout.temperature=1.0",
-        "actor_rollout_ref.rollout.top_p=1.0",
-        "actor_rollout_ref.rollout.top_k=-1",
         "actor_rollout_ref.rollout.calculate_log_probs=true",
-        "actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=1",
-        "actor_rollout_ref.rollout.max_model_len=16384",
         "actor_rollout_ref.rollout.load_format=safetensors",
         "actor_rollout_ref.rollout.layered_summon=true",
         f"actor_rollout_ref.rollout.seed={seed}",
-        "actor_rollout_ref.rollout.agent.num_workers=2",
         "actor_rollout_ref.rollout.agent.default_agent_loop=tau2_airline",
         f"actor_rollout_ref.rollout.agent.agent_loop_config_path={agent_config}",
         "trainer.use_v1=true",
@@ -145,8 +128,10 @@ def build_command(
         "trainer.save_freq=10",
         "trainer.test_freq=10",
         f"trainer.total_epochs={total_epochs}",
-        *extra,
+        *[f"{key}={value}" for key, value in mapped.items()],
+        *[item for item in extra if item.split("=", 1)[0].lstrip("+") not in mapped],
     ]
+    return command
 
 
 def _safe_run_name(value: str) -> str:
@@ -154,14 +139,6 @@ def _safe_run_name(value: str) -> str:
     if not normalized:
         raise ValueError("run name is empty after normalization")
     return normalized
-
-
-def _learning_rate_label(extra: list[str]) -> str:
-    key = "actor_rollout_ref.actor.optim.lr="
-    value = next(
-        (item[len(key) :] for item in reversed(extra) if item.startswith(key)), "5e-6"
-    )
-    return _safe_run_name(value)
 
 
 def main() -> None:
@@ -179,6 +156,7 @@ def main() -> None:
     parser.add_argument("--resume-from-path", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--extra", action="append", default=[])
+    parser.add_argument("--config", type=Path)
     args = parser.parse_args()
 
     if args.tau2_root is None or args.verl_root is None:
@@ -204,9 +182,15 @@ def main() -> None:
         raise FileNotFoundError("run scripts/prepare_tau2_dataset.py first")
 
     config_path = project_root / "configs" / "rl" / "airline_grpo_v1.yaml"
-    generated_run_name = (
-        f"{args.stage}_lr{_learning_rate_label(args.extra)}_seed{args.seed}"
-    )
+    config_path = (args.config or config_path).resolve()
+    project = effective_project_config(load_yaml(config_path), args.extra)
+    if args.resume_from_path is not None:
+        args.resume_from_path = resolve_resume_path(project_root, args.resume_from_path)
+        restore_step_clock(
+            args.resume_from_path,
+            int(args.resume_from_path.name.split("global_step_")[1]),
+        )
+    generated_run_name = f"{args.stage}_lr{project['optimizer']['lr']}_seed{args.seed}"
     run_name = _safe_run_name(args.run_name or generated_run_name)
     run_root = project_root / "outputs" / "runs" / run_name
     if not args.dry_run and args.resume_from_path is None and run_root.exists():
@@ -226,6 +210,7 @@ def main() -> None:
     for name, path in output_env.items():
         os.environ[name] = str(path)
     os.environ["AGENTIC_RL_CONFIG"] = str(config_path)
+    os.environ["AGENTIC_RL_PROJECT_ROOT"] = str(project_root)
     pythonpath = [
         str(project_root / "src"),
         str(args.tau2_root / "src"),
@@ -247,9 +232,37 @@ def main() -> None:
         run_root=run_root,
         resume_from_path=args.resume_from_path,
         seed=args.seed,
+        project_config=project,
     )
     print(shlex.join(command))
     if not args.dry_run:
+        import yaml
+
+        run_root.mkdir(parents=True, exist_ok=True)
+        if (
+            args.resume_from_path
+            and any(run_root.iterdir())
+            and args.resume_from_path.parent.parent != run_root
+        ):
+            raise ValueError("cannot resume another run into a nonempty run directory")
+        project = expand_env(project)
+        runtime_path = run_root / "runtime_config.yaml"
+        if runtime_path.exists():
+            if load_yaml(runtime_path) != project:
+                raise ValueError(
+                    "resume runtime config changed; choose a new --run-name"
+                )
+        else:
+            runtime_path.write_text(
+                yaml.safe_dump(project, sort_keys=False), encoding="utf-8"
+            )
+        os.environ["AGENTIC_RL_CONFIG"] = str(runtime_path)
+        launches = run_root / "launches"
+        launches.mkdir(exist_ok=True)
+        (launches / f"{uuid4().hex}.json").write_text(
+            json.dumps({"command": command, "config": project}, indent=2),
+            encoding="utf-8",
+        )
         subprocess.run(command, check=True, cwd=args.verl_root)
 
 

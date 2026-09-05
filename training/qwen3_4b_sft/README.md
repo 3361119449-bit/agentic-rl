@@ -154,6 +154,14 @@ SHA-256, split parameters, model/tokenizer revision, chat-template SHA-256,
 Transformers version, context limit, and normalization version all match the
 manifest. Equal file size alone is never accepted.
 
+`--model-revision` now resolves one local Hugging Face snapshot for both the
+preprocessing tokenizer and veRL `model.path`, so a pinned tokenizer cannot
+silently train against a newer `main`. Normal training downloads the snapshot's
+weights; `--prepare-only` / `--dry-run` download only tokenizer/config metadata.
+For a local `--model` directory, that directory is used directly. When exporting,
+merging or checking the adapter later, use the same resolved base-model snapshot
+path recorded in the preparation manifest, not a moving Hub `main`.
+
 Raw Hydra overrides can be appended when needed:
 
 ```bash

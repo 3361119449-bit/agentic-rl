@@ -21,11 +21,31 @@ user and include the exact tool payload in
 confirmation. A later affirmative user message authorizes exactly that name and
 argument object once. Any argument change requires a new proposal and a new
 confirmation. Never put the proposal tag inside a tool call.
+Ask the user to reply with an unqualified "Yes" (or "Yes, proceed"). A reply
+that adds conditions or changes the requested details requires a new proposal.
 """.strip()
 
 ACTION_PROPOSAL_RE = re.compile(
     r"<action_proposal>\s*(\{.*?\})\s*</action_proposal>", re.DOTALL
 )
+TOOL_BLOCK_RE = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+
+
+def validate_tool_turn(raw: str, parsed_count: int) -> str | None:
+    """Check the entire Qwen turn, including blocks Hermes silently discarded."""
+    starts, ends = raw.count("<tool_call>"), raw.count("</tool_call>")
+    if not starts and not ends and not parsed_count:
+        return None
+    blocks = TOOL_BLOCK_RE.findall(raw)
+    if starts != ends or starts != len(blocks) or starts != parsed_count:
+        return "parse_error"
+    if starts != 1:
+        return "multiple_tool_calls"
+    outside = TOOL_BLOCK_RE.sub("", raw).strip()
+    # Only strip one terminal assistant EOS, never tokens embedded in text.
+    if outside.endswith("<|im_end|>"):
+        outside = outside[: -len("<|im_end|>")].strip()
+    return "mixed_content_and_tool_call" if outside else None
 
 
 @dataclass(frozen=True)
@@ -57,7 +77,7 @@ def validate_tool_call(
         return ToolValidation(name, arguments, "unknown_tool", f"unknown tool: {name}")
     errors = sorted(
         Draft202012Validator(schemas_by_name[name]).iter_errors(arguments),
-        key=lambda item: list(item.absolute_path),
+        key=lambda item: tuple(map(str, item.absolute_path)),
     )
     if errors:
         first = errors[0]
@@ -115,11 +135,20 @@ class ConfirmationTracker:
 
     def __init__(self) -> None:
         self.pending: ActionProposal | None = None
-        self._observed_messages = 0
 
     @staticmethod
     def _affirmative(content: Any) -> bool:
-        return re.match(r"^yes\b", str(content).strip(), re.IGNORECASE) is not None
+        # A prefix match also accepts "Yes, but cancel B instead", authorizing
+        # the wrong payload. Keep the protocol deliberately conservative.
+        normalized = re.sub(r"[,.!]", " ", str(content).lower())
+        normalized = " ".join(normalized.split())
+        return (
+            re.fullmatch(
+                r"yes(?: please|(?: (?:please )?(?:proceed|go ahead|cancel it|book it|do it)(?: please)?))?",
+                normalized,
+            )
+            is not None
+        )
 
     def _set_proposal(
         self, name: str, arguments: dict[str, Any], turn_id: int
@@ -132,44 +161,45 @@ class ConfirmationTracker:
         )
         return self.pending
 
-    def observe_messages(self, messages: list[dict[str, Any]]) -> None:
-        for index, message in enumerate(
-            messages[self._observed_messages :], self._observed_messages
+    def observe_visible_assistant_text(self, content: str, turn_id: int) -> None:
+        """Call only AFTER a pure-text turn was successfully delivered to Tau2."""
+        self.pending = None
+        if "<tool_call>" in content or "</tool_call>" in content:
+            return
+        matches = ACTION_PROPOSAL_RE.findall(content)
+        if len(matches) != 1 or content.count("<action_proposal>") != 1:
+            return
+        try:
+            parsed = json.loads(matches[0])
+        except json.JSONDecodeError:
+            return
+        if not isinstance(parsed, dict) or set(parsed) != {"name", "arguments"}:
+            return
+        name, arguments = parsed["name"], parsed["arguments"]
+        if (
+            isinstance(name, str)
+            and name in MUTATING_TOOLS
+            and isinstance(arguments, dict)
         ):
-            role = message.get("role")
-            if role == "assistant":
-                content = str(message.get("content", ""))
-                matches = ACTION_PROPOSAL_RE.findall(content)
-                for raw in matches:
-                    try:
-                        parsed = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
-                    name = parsed.get("name") if isinstance(parsed, dict) else None
-                    arguments = (
-                        parsed.get("arguments") if isinstance(parsed, dict) else None
-                    )
-                    if name in MUTATING_TOOLS and isinstance(arguments, dict):
-                        self._set_proposal(
-                            str(name), arguments, int(message.get("turn_idx", index))
-                        )
-            elif (
-                role == "user"
-                and self.pending is not None
-                and not self.pending.consumed
-                and self._affirmative(message.get("content", ""))
-            ):
-                self.pending.confirmation_turn_id = int(message.get("turn_idx", index))
-        self._observed_messages = len(messages)
+            self._set_proposal(name, arguments, turn_id)
+
+    def observe_user_reply(self, content: str, turn_id: int) -> None:
+        """A new non-affirmative reply revokes any earlier authorization."""
+        if (
+            self.pending is None
+            or self.pending.consumed
+            or turn_id <= self.pending.proposal_turn_id
+        ):
+            return
+        self.pending.confirmation_turn_id = (
+            turn_id if self._affirmative(content) else None
+        )
 
     def authorize(
         self,
         name: str,
         arguments: dict[str, Any],
-        turn_id: int,
-        messages: list[dict[str, Any]],
-    ) -> tuple[bool, ActionProposal]:
-        self.observe_messages(messages)
+    ) -> tuple[bool, ActionProposal | None]:
         requested_hash = action_hash(name, arguments)
         if (
             self.pending is not None
@@ -178,7 +208,7 @@ class ConfirmationTracker:
             and not self.pending.consumed
         ):
             return True, self.pending
-        return False, self._set_proposal(name, arguments, turn_id)
+        return False, None
 
     def consume(self, proposal_hash: str) -> None:
         if self.pending is None or self.pending.proposal_hash != proposal_hash:

@@ -124,6 +124,14 @@ class DeepSeekJudge:
                 f"expected={expected_policy}, actual={actual_policy}"
             )
 
+        for check in result.mandatory_policy_checks:
+            if not check.passed and (
+                not check.evidence_turn_ids or not check.short_reason.strip()
+            ):
+                raise ValueError(
+                    "failed policy criterion requires evidence and a concrete reason"
+                )
+
         tool_events = inputs.get("trajectory", {}).get("tool_events", [])
         transferred = any(
             item.get("name") == "transfer_to_human_agents" and item.get("success")

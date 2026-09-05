@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import Any
@@ -19,9 +18,11 @@ from verl.tools.base_tool import OpenAIFunctionToolSchema
 
 from tau2_agentic_rl.annotations import load_task_mapping
 from tau2_agentic_rl.budget import ContextBudget
+from tau2_agentic_rl.chat_stream import render_environment_turn
 from tau2_agentic_rl.config import load_runtime_config
 from tau2_agentic_rl.environment.tau2_gym import GymStep, Tau2GymAdapter
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
+from tau2_agentic_rl.judge.prompts import rubric_fingerprint
 from tau2_agentic_rl.reward.official_tau2 import parse_official_reward_info
 from tau2_agentic_rl.reward.required_actions import (
     arguments_equal,
@@ -37,8 +38,8 @@ from tau2_agentic_rl.tooling import (
     ConfirmationTracker,
     execute_validated_tool_call,
     synthetic_tool_error,
-    truncate_message_contents,
     validate_tool_call,
+    validate_tool_turn,
 )
 
 
@@ -50,17 +51,6 @@ def _split(kwargs: dict[str, Any]) -> tuple[str, str, int]:
     if not task_id:
         raise ValueError("Tau2 Airline rollout requires extra_info.task_id")
     return task_id, split, policy_version
-
-
-def _safe_arguments(raw: str) -> tuple[dict[str, Any], str | None]:
-    """Parse a tool argument object without allowing one bad call to crash logging."""
-    try:
-        value = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        return {}, str(exc)
-    if not isinstance(value, dict):
-        return {}, "tool arguments are not a JSON object"
-    return value, None
 
 
 def _mark_repetition(event: ToolEvent, earlier: list[ToolEvent]) -> None:
@@ -122,7 +112,11 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         super().__init__(*args, **kwargs)
         config_path = Path(project_config_path).resolve()
         self.project = load_runtime_config(config_path)
-        self.root = config_path.parent.parent.parent
+        self.root = Path(
+            os.environ.get(
+                "AGENTIC_RL_PROJECT_ROOT", str(config_path.parent.parent.parent)
+            )
+        )
         annotations = self.project["annotations"]
         self.required_actions = load_required_actions(
             self.root / annotations["required_actions"]
@@ -175,24 +169,14 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         )
         if allowed <= 0:
             raise RuntimeError("no token budget remains for environment observation")
-        low, high = 0, self.budget.reserved_observation_tokens
-        best: tuple[list[dict[str, Any]], list[int], bool] | None = None
-        while low <= high:
-            middle = (low + high) // 2
-            bounded, truncated = truncate_message_contents(
-                raw_messages, self.tokenizer, middle
-            )
-            environment_ids = await self.apply_chat_template(
-                bounded, remove_system_prompt=True
-            )
-            if len(environment_ids) <= allowed:
-                best = bounded, environment_ids, truncated
-                low = middle + 1
-            else:
-                high = middle - 1
-        if best is None:
-            raise RuntimeError("environment template exceeds reserved token budget")
-        return best
+        return await render_environment_turn(
+            raw_messages,
+            tokenizer=self.tokenizer,
+            render=self.apply_chat_template,
+            turn_separator=self.turn_separator,
+            allowed_tokens=allowed,
+            content_limit=self.budget.reserved_observation_tokens,
+        )
 
     async def run(
         self, sampling_params: dict[str, Any], **kwargs: Any
@@ -229,6 +213,9 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     initial_db_hash=environment.initial_db_hash(),
                     final_db_hash=environment.safe_db_hash(),
                     metadata={
+                        "evaluation_sample_index": kwargs.get("extra_info", {}).get(
+                            "evaluation_sample_index"
+                        ),
                         "failure_phase": "environment_reset",
                         "failure_type": type(exc).__name__,
                         "failure_message": str(exc),
@@ -272,6 +259,9 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     initial_db_hash=environment.initial_db_hash(),
                     final_db_hash=environment.safe_db_hash(),
                     metadata={
+                        "evaluation_sample_index": kwargs.get("extra_info", {}).get(
+                            "evaluation_sample_index"
+                        ),
                         "failure_phase": "prompt_initialization",
                         "failure_type": type(exc).__name__,
                         "failure_message": str(exc),
@@ -305,6 +295,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
 
             turn_sampling = dict(sampling_params)
             turn_sampling["max_tokens"] = decision.max_new_tokens
+            if os.environ.get("EVALUATION_MANIFEST_ID") and seed is not None:
+                turn_sampling["seed"] = int(seed) + assistant_turns * 100003
             try:
                 output = await self.server_manager.generate(
                     request_id=request_id,
@@ -353,6 +345,20 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             assistant_turns += 1
 
             decoded = self.tokenizer.decode(output.token_ids)
+            if (
+                not output.token_ids
+                or output.token_ids[-1] != self.tokenizer.eos_token_id
+            ):
+                # Do not execute a partial tool call or invent an EOS to continue.
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": decoded,
+                        "turn_idx": assistant_turns,
+                    }
+                )
+                termination_reason = "generation_truncated"
+                break
             try:
                 content, calls = await self.tool_parser.extract_tool_calls(
                     output.token_ids,
@@ -366,6 +372,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "role": "assistant",
                 "content": content if calls else decoded,
                 "turn_idx": assistant_turns,
+                "raw_generated_text": decoded,
             }
             if calls:
                 assistant_message["tool_calls"] = [
@@ -377,37 +384,24 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 ]
             messages.append(assistant_message)
 
-            if "<tool_call>" in decoded and not calls:
+            turn_error = validate_tool_turn(decoded, len(calls))
+            if turn_error:
                 event = ToolEvent(
                     event_id=f"{trajectory_id}:{len(tool_events)}",
                     sequence=len(tool_events),
                     turn_id=assistant_turns,
-                    error_kind="parse_error",
+                    name=calls[0].name if calls else "",
+                    error_kind=turn_error,
                     result=decoded,
                 )
                 tool_events.append(event)
-
-            if len(calls) > 1:
-                for call in calls:
-                    arguments, _ = _safe_arguments(call.arguments)
-                    tool_events.append(
-                        ToolEvent(
-                            event_id=f"{trajectory_id}:{len(tool_events)}",
-                            sequence=len(tool_events),
-                            turn_id=assistant_turns,
-                            name=call.name,
-                            arguments=arguments,
-                            success=False,
-                            error_kind="multiple_tool_calls",
-                            result="not executed: exactly one tool call is permitted",
-                        )
-                    )
                 step = _local_step(
                     environment,
                     synthetic_tool_error(
-                        "multiple_tool_calls",
-                        "multiple_tool_calls",
-                        "No call was executed; emit exactly one tool call.",
+                        "invalid_tool_turn",
+                        turn_error,
+                        "No call was executed. Emit one complete JSON tool call, "
+                        "with no accompanying text or additional tool blocks.",
                     ),
                 )
             elif calls:
@@ -450,11 +444,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                         authorized, proposal = confirmation.authorize(
                             call.name,
                             checked.arguments,
-                            assistant_turns,
-                            messages,
                         )
                     if not authorized:
-                        assert proposal is not None
                         detail = (
                             "Database write blocked. Present this exact action to the "
                             "user, obtain a new explicit confirmation, then retry it "
@@ -473,8 +464,6 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             name=call.name,
                             arguments=checked.arguments,
                             confirmed_before=False,
-                            confirmation_proposal_hash=proposal.proposal_hash,
-                            confirmation_turn_id=proposal.confirmation_turn_id,
                             error_kind="confirmation_required",
                             result=detail,
                         )
@@ -516,23 +505,19 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             event.confirmation_consumed = True
                 _mark_repetition(event, tool_events)
                 tool_events.append(event)
-            elif "<tool_call>" in decoded:
-                step = _local_step(
-                    environment,
-                    synthetic_tool_error(
-                        "unparsed_tool_call",
-                        "parse_error",
-                        "Malformed Qwen JSON tool call; no backend call was made.",
-                    ),
-                )
             else:
-                confirmation.observe_messages(messages)
                 try:
                     step = await environment.step_text(decoded)
                 except Exception as exc:
                     infrastructure_error = ("tau2_text_step", exc)
                     termination_reason = "infrastructure_error"
                     break
+                confirmation.observe_visible_assistant_text(decoded, assistant_turns)
+                for index, reply in enumerate(step.messages):
+                    if reply.get("role") == "user":
+                        confirmation.observe_user_reply(
+                            str(reply.get("content", "")), len(messages) + index
+                        )
 
             if step.messages:
                 try:
@@ -661,9 +646,17 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             judge_result=judge_result,
             custom_reward=custom_reward,
             metadata={
+                "evaluation_sample_index": kwargs.get("extra_info", {}).get(
+                    "evaluation_sample_index"
+                ),
                 "judge_raw": judge_raw,
                 "judge_prompt_hash": judge_prompt_hash,
                 "judge_cache_key": judge_cache_key,
+                "judge_rubric_sha256": rubric_fingerprint(
+                    semantic_row.get("semantic_checks", []),
+                    policy_row.get("judge_checks", []),
+                    transfer_rule,
+                ),
                 "user_prompt_hashes": environment.user_prompt_hashes(),
                 "tau2_commit": self.project["project"]["tau2_commit"],
                 "verl_commit": self.project["project"]["verl_commit"],

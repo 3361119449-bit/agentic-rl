@@ -57,3 +57,27 @@ def test_sft_run_directory_encodes_hyperparameters() -> None:
     )
     assert run_name == "airline-lora-r64-lr0.0001-ep2-seed42"
     assert output.parts[-2:] == (run_name, "checkpoints")
+
+
+def test_sft_revision_resolves_full_training_snapshot(monkeypatch, scratch_dir):
+    import sys
+    from types import SimpleNamespace
+
+    module = _load_sft_module()
+    requests = []
+
+    def snapshot_download(**kwargs):
+        requests.append(kwargs)
+        return str(scratch_dir / "snapshots" / "pinned-sha")
+
+    monkeypatch.setitem(
+        sys.modules,
+        "huggingface_hub",
+        SimpleNamespace(snapshot_download=snapshot_download),
+    )
+    path = module.resolve_model_snapshot("Qwen/Qwen3-4B-Instruct-2507", "pinned-sha")
+    assert Path(path).name == "pinned-sha"
+    assert requests[0]["revision"] == "pinned-sha"
+    assert requests[0].get("allow_patterns") is None
+    source = Path(module.__file__).read_text(encoding="utf-8")
+    assert 'f"model.path={args.model}"' in source
