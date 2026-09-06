@@ -94,7 +94,6 @@ def build_command(
         "algorithm.filter_groups.max_inflight_gen_batches=1",
         f"data.train_files={train_file}",
         f"data.val_files={val_file}",
-        "data.max_prompt_length=8192",
         "data.return_raw_chat=true",
         "data.filter_overlong_prompts=true",
         "data.truncation=error",
@@ -144,6 +143,46 @@ def _safe_run_name(value: str) -> str:
     if not normalized:
         raise ValueError("run name is empty after normalization")
     return normalized
+
+
+def validate_run_destination(run_root: Path, resume_from_path: Path | None) -> None:
+    """Check the ORIGINAL destination, without creating or changing any files."""
+    if not run_root.exists() or not any(run_root.iterdir()):
+        return
+    if resume_from_path is None:
+        raise FileExistsError(
+            f"run directory is not empty: {run_root}; choose --run-name or "
+            "explicitly pass --resume-from-path"
+        )
+    if resume_from_path.parent.parent.resolve() != run_root.resolve():
+        raise ValueError("cannot resume another run into a nonempty run directory")
+
+
+def prepare_run_directory(
+    run_root: Path, resume_from_path: Path | None, model_path: str, project: dict
+) -> Path:
+    """Validate destination, base and runtime config before the first write."""
+    import yaml
+
+    validate_run_destination(run_root, resume_from_path)
+    base_identity = capture_base_identity(model_path)
+    if resume_from_path is not None:
+        saved = json.loads(
+            find_base_identity(resume_from_path).read_text(encoding="utf-8")
+        )
+        if saved["files"] != base_identity["files"]:
+            raise ValueError("RL resume base identity changed")
+    runtime_path = run_root / "runtime_config.yaml"
+    if runtime_path.exists() and load_yaml(runtime_path) != project:
+        raise ValueError("resume runtime config changed; choose a new --run-name")
+
+    run_root.mkdir(parents=True, exist_ok=True)
+    save_base_identity(run_root, base_identity)
+    if not runtime_path.exists():
+        runtime_path.write_text(
+            yaml.safe_dump(project, sort_keys=False), encoding="utf-8"
+        )
+    return runtime_path
 
 
 def main() -> None:
@@ -198,12 +237,8 @@ def main() -> None:
     generated_run_name = f"{args.stage}_lr{project['optimizer']['lr']}_seed{args.seed}"
     run_name = _safe_run_name(args.run_name or generated_run_name)
     run_root = project_root / "outputs" / "runs" / run_name
-    if not args.dry_run and args.resume_from_path is None and run_root.exists():
-        if any(run_root.iterdir()):
-            raise FileExistsError(
-                f"run directory is not empty: {run_root}; choose --run-name or "
-                "explicitly pass --resume-from-path"
-            )
+    if not args.dry_run:
+        validate_run_destination(run_root, args.resume_from_path)
     output_env = {
         "TRAJECTORY_OUTPUT_DIR": run_root / "trajectories",
         "CHECKPOINT_OUTPUT_DIR": run_root / "checkpoints",
@@ -241,34 +276,10 @@ def main() -> None:
     )
     print(shlex.join(command))
     if not args.dry_run:
-        import yaml
-
-        run_root.mkdir(parents=True, exist_ok=True)
-        base_identity = capture_base_identity(model_path)
-        if args.resume_from_path:
-            saved = json.loads(
-                find_base_identity(args.resume_from_path).read_text(encoding="utf-8")
-            )
-            if saved["files"] != base_identity["files"]:
-                raise ValueError("RL resume base identity changed")
-        save_base_identity(run_root, base_identity)
-        if (
-            args.resume_from_path
-            and any(run_root.iterdir())
-            and args.resume_from_path.parent.parent != run_root
-        ):
-            raise ValueError("cannot resume another run into a nonempty run directory")
         project = expand_env(project)
-        runtime_path = run_root / "runtime_config.yaml"
-        if runtime_path.exists():
-            if load_yaml(runtime_path) != project:
-                raise ValueError(
-                    "resume runtime config changed; choose a new --run-name"
-                )
-        else:
-            runtime_path.write_text(
-                yaml.safe_dump(project, sort_keys=False), encoding="utf-8"
-            )
+        runtime_path = prepare_run_directory(
+            run_root, args.resume_from_path, model_path, project
+        )
         os.environ["AGENTIC_RL_CONFIG"] = str(runtime_path)
         launches = run_root / "launches"
         launches.mkdir(exist_ok=True)

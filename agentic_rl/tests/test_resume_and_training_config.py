@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from scripts.train_airline_grpo import build_command
+from scripts.train_airline_grpo import build_command, prepare_run_directory
+from tau2_agentic_rl.base_identity import capture_base_identity, save_base_identity
 from tau2_agentic_rl.checkpoints import resolve_resume_path, restore_step_clock
 from tau2_agentic_rl.config import load_yaml
 from tau2_agentic_rl.training_config import effective_project_config
@@ -94,3 +95,76 @@ def test_extra_override_updates_runtime_snapshot_and_rejects_managed_identity():
         effective_project_config(project(), ["trainer.resume_from_path=elsewhere"])
     with pytest.raises(ValueError, match="pinned capped"):
         effective_project_config(project(), ["actor_rollout_ref.rollout.n=4"])
+
+
+def resume_fixture(root):
+    path = checkpoint(root)
+    base = root / "base"
+    base.mkdir()
+    for name in (
+        "config.json",
+        "tokenizer_config.json",
+        "tokenizer.json",
+        "model.safetensors",
+    ):
+        (base / name).write_text("{}", encoding="utf-8")
+    save_base_identity(path.parent.parent, capture_base_identity(base))
+    return path, base
+
+
+@pytest.mark.parametrize("destination", ["same", "new_empty", "new_absent"])
+def test_resume_destination_accepts_same_or_new_empty_run(scratch_dir, destination):
+    path, base = resume_fixture(scratch_dir)
+    target = path.parent.parent if destination == "same" else scratch_dir / "new"
+    if destination == "new_empty":
+        target.mkdir()
+    runtime = prepare_run_directory(target, path, str(base), {"fixture": 1})
+    assert load_yaml(runtime) == {"fixture": 1}
+    assert (target / "base_model_identity.json").is_file()
+    assert (path / "actor/model_world_size_1_rank_0.pt").is_file()
+
+
+def test_cross_run_nonempty_destination_rejected_without_writes(scratch_dir):
+    path, base = resume_fixture(scratch_dir)
+    target = scratch_dir / "another"
+    target.mkdir()
+    (target / "keep.txt").write_text("original", encoding="utf-8")
+    with pytest.raises(ValueError, match="nonempty"):
+        prepare_run_directory(target, path, str(base), {})
+    assert [p.name for p in target.iterdir()] == ["keep.txt"]
+    assert (target / "keep.txt").read_text(encoding="utf-8") == "original"
+
+
+@pytest.mark.parametrize("failure", ["base", "config", "fresh_nonempty"])
+def test_rejected_resume_or_fresh_run_does_not_modify_existing_files(
+    scratch_dir, failure
+):
+    path, base = resume_fixture(scratch_dir)
+    target = path.parent.parent
+    if failure == "base":
+        (base / "model.safetensors").write_text("changed", encoding="utf-8")
+    if failure == "config":
+        (target / "runtime_config.yaml").write_text("fixture: old\n", encoding="utf-8")
+    before = {
+        p.relative_to(target): p.read_bytes() for p in target.rglob("*") if p.is_file()
+    }
+    with pytest.raises((ValueError, FileExistsError)):
+        prepare_run_directory(
+            target,
+            None if failure == "fresh_nonempty" else path,
+            str(base),
+            {"fixture": "new"},
+        )
+    after = {
+        p.relative_to(target): p.read_bytes() for p in target.rglob("*") if p.is_file()
+    }
+    assert after == before
+
+
+def test_prompt_override_has_one_runtime_and_hydra_source():
+    config = effective_project_config(project(), ["data.max_prompt_length=7000"])
+    assert config["rollout"]["initial_prompt_max_tokens"] == 7000
+    with pytest.raises(ValueError, match="derived"):
+        effective_project_config(
+            project(), ["actor_rollout_ref.rollout.prompt_length=7000"]
+        )

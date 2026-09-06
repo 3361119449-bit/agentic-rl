@@ -5,6 +5,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from tau2_agentic_rl.concurrency import queue_options_from_project
+
 TRAINING_KEYS = {
     "algorithm.adv_estimator": "algorithm.adv_estimator",
     "algorithm.norm_adv_by_std_in_grpo": "algorithm.norm_adv_by_std_in_grpo",
@@ -28,6 +30,7 @@ TRAINING_KEYS = {
     "ppo.ppo_micro_batch_size_per_gpu": "actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu",
     "ppo.log_prob_micro_batch_size_per_gpu": "actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu",
     "rollout.max_context_length": "actor_rollout_ref.rollout.max_model_len",
+    "rollout.initial_prompt_max_tokens": "data.max_prompt_length",
     "rollout.temperature": "actor_rollout_ref.rollout.temperature",
     "rollout.top_p": "actor_rollout_ref.rollout.top_p",
     "rollout.top_k": "actor_rollout_ref.rollout.top_k",
@@ -82,6 +85,7 @@ def effective_project_config(
             )
         if normalized in {
             "data.max_response_length",
+            "actor_rollout_ref.rollout.prompt_length",
             "actor_rollout_ref.actor.kl_loss_coef",
         }:
             raise ValueError(
@@ -102,6 +106,12 @@ def effective_project_config(
             section, field = reverse[normalized].split(".")
             result[section][field] = yaml.safe_load(raw)
     dynamic, rollout, ppo = result["dynamic_sampling"], result["rollout"], result["ppo"]
+    queue_options_from_project(result)
+    if (
+        type(rollout["initial_prompt_max_tokens"]) is not int
+        or rollout["initial_prompt_max_tokens"] < 1
+    ):
+        raise ValueError("initial_prompt_max_tokens must be a positive integer")
     if not dynamic["enable"] or dynamic["metric"] != "train_reward":
         raise ValueError(
             "pinned capped trainer requires dynamic sampling on train_reward"

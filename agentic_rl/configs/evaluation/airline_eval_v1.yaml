@@ -12,6 +12,7 @@ model:
 rollout:
   tool_parser: hermes
   max_context_length: 16384
+  initial_prompt_max_tokens: 8192
   max_soft_turns: 15
   max_hard_turns: 24
   reserved_observation_tokens: 1024
@@ -27,6 +28,8 @@ rollout:
   user_api_max_inflight: 2
   judge_api_max_inflight: 2
   vllm_max_num_seqs: 2
+  queue_timeout_seconds: null
+  queue_stall_timeout_seconds: 1800
 
 user_simulator:
   provider: DeepSeek
@@ -36,6 +39,7 @@ user_simulator:
   max_retries: 2
   llm_args:
     api_base: ${DEEPSEEK_BASE_URL}
+    timeout: 120
     extra_body:
       thinking:
         type: disabled

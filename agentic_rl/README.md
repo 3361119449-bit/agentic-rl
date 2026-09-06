@@ -187,12 +187,62 @@ python -m pytest contract_tests -v
 `user_api_max_inflight`、`judge_api_max_inflight` 和 `vllm_max_num_seqs`，默认均为 2。
 前者只是 worker 数；轨迹在创建环境前领取同一个 Ray job 的共享额度，评分结束后释放。
 API 缓存命中不占请求额度。轨迹 metadata 的 `concurrency` 保存实际峰值。
-worker 意外死亡时额度不自动超时回收来放行更多环境；等待超时后失败，需停止整个旧
-Ray job 再恢复，避免孤儿环境仍在运行时超额启动。
+排队与执行分开：`queue_timeout_seconds: null` 默认不限制总排队时间；
+`queue_stall_timeout_seconds: 1800` 只在同一资源连续 1,800 秒没有领取、释放或
+真实工作进展时报告队列停滞。reset、生成、环境 step 和评分完成会报告进展，
+不是用定时心跳掩盖卡住的任务。可显式设置有限的总排队上限，但长批次正常排队也
+可能超过它。排队失败已有 trajectory ID，并保存 `failure_phase=trajectory_queue`、
+等待时间、停滞时间及共享额度快照；不再笼统宣称 worker 故障。
+
+用户 API 请求使用 `llm_args.timeout: 120`，Judge 请求默认也是 120 秒；
+这不等于整条轨迹的墙钟超时（整条轨迹仍由轮数和 token 预算约束）。
+worker 意外死亡时额度不会自动回收；取消时也要等后台工作真正结束才释放额度。
+若确认卡死，需停止整个旧 Ray job 再恢复，避免孤儿环境仍在运行时超额启动。
 
 评分只读 cleanup 前的 `environment_transcript`；`messages` 是裁剪后的 actor 上下文，
 `token_turns` 是原始策略输出，不可混当沟通证据。Judge 单独失败保留同 ID/seed/slot 的
 `scoring_inputs`，`--resume` 只重试评分；评分仍失败时不输出最终 pass@1/pass@4。
+
+## 真实初始 prompt 长度预检
+
+Parquet 的 `Initialize isolated Tau2 Airline task ...` 只是占位符，不能代表实际
+上下文。运行时会完整编码 Policy、确认协议、工具定义、初始化得到的用户/工具消息，
+保留所有 token，并在第一次生成前检查：
+
+```text
+initial_prompt_tokens <= rollout.initial_prompt_max_tokens（默认 8192）
+initial_prompt_tokens + 1024 observation + 128 template + 64 generation <= 16384
+```
+
+超限不左截断，也不请求策略模型；轨迹 JSON 的 `metadata.initial_prompt` 保存
+任务 ID、真实长度、预留量和失败原因。成功轨迹同样保存测量值。
+`initial_prompt_max_tokens` 是训练/评估的数据 prompt 上限来源，训练时
+`--extra data.max_prompt_length=...` 会同步到实际配置；不要先盲目提高上限。
+后续 observation 仍按原预算截断内容，但不会再调用 veRL 的左截断辅助函数。
+
+准备好固定 Tau2 环境、本地 tokenizer 和 RL 环境变量后，可先测 smoke 的初始化
+（不加载 4B 权重、不生成 agent 回复、不调用 Judge；**会请求用户模拟器 API**）：
+
+```bash
+python scripts/check_initial_prompts.py \
+  --live-user-api --split smoke \
+  --model "$MERGED_SFT_MODEL" --tau2-root "$TAU2_ROOT" \
+  --output outputs/reports/initial_prompts_smoke.json
+```
+
+再测 `--split rl_train` 和 `--split internal_dev`。初始化 seed 与对应 Parquet
+保持一致；报告记录 min/max/p50/p90/p95/p99、逐任务长度、失败与缺失任务。
+这是该次真实初始化的测量，不保证未来不同 API 回复也一样长，运行时检查始终保留。
+已有新版轨迹时可以完全离线汇总：
+
+```bash
+python scripts/check_initial_prompts.py \
+  --records outputs/runs/rl_e2e_step1/trajectories --split smoke \
+  --output outputs/reports/initial_prompts_observed.json
+```
+
+旧轨迹缺少初始测量时标记 `not_measured`，不会用整条轨迹长度冒充初始 prompt。
+报告输出不覆盖已有文件；任一测量失败、超限或请求的任务缺失时返回非零退出码。
 
 ## 分阶段运行
 
@@ -216,16 +266,40 @@ python scripts/run_reward_audit.py data/audits/reward_audit.v1.json
 第二条命令使用真实 Qwen tokenizer/chat template、veRL `hermes` parser 和
 Tau2 的只读 `list_all_airports` 工具，必须得到恰好一个调用、执行成功且
 数据库哈希不变。
+该工具调用是人工构造再经模板渲染的，不是策略模型生成的，不能替代真实工具能力验收。
 
 Stage 2，小规模 smoke：
 
 ```bash
 python scripts/train_airline_grpo.py \
-  --stage smoke --run-name smoke_lr5e-6_seed42 \
+  --stage smoke --run-name rl_e2e_step1 \
+  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT" \
+  --extra trainer.total_training_steps=1 \
+  --extra trainer.save_freq=1 --extra trainer.test_freq=1 \
+  --extra +trainer.ppo_audit=true
+```
+
+一次更新可能先生成 64–192 条候选轨迹；收不满组还可能再次尝试，另有训练前验证。
+这不是单请求测试。先用默认超参数完成真实更新、checkpoint、导出和 internal-dev
+评估闭环，不要直接运行正式 15 epoch，也不要用 official-test 反复联调：
+
+```bash
+python scripts/export_verl_lora.py --stage rl --verl-root "$VERL_ROOT" \
+  --local-dir outputs/runs/rl_e2e_step1/checkpoints/global_step_1/actor \
+  --target-dir /root/models/rl_e2e_step1_export
+python scripts/evaluate_airline.py --split internal_dev --samples 4 \
+  --tag rl_e2e_step1_dev --model-path "$MERGED_SFT_MODEL" \
+  --lora-adapter /root/models/rl_e2e_step1_export/lora_adapter \
   --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
 ```
 
-先用默认 `lr=5e-6`，只在单独 run 中比较 `1e-5`：
+只有 checkpoint 实际保存成功后才执行导出。另需设计至少两次更新的独立运行，
+在第一个 checkpoint 后中断并恢复，验证 optimizer、scheduler、计数和后续更新。
+`ppo_audit` 目前检查整个 actor update 的前后边界，
+`epoch_boundaries_instrumented=false`；它不等于已经验证 worker 内部两个 PPO epoch。
+LoRA 梯度/参数变化、冻结底座不变及下一轮 vLLM 使用新权重，仍需 GPU 实测。
+
+通过上述验收后，如需学习率对比，只在单独 run 中比较 `1e-5`：
 
 ```bash
 python scripts/train_airline_grpo.py \
@@ -263,6 +337,12 @@ python scripts/train_airline_grpo.py \
   --resume-from-path outputs/runs/internal_dev_frozen_v1_seed42/checkpoints/global_step_N \
   --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
 ```
+
+恢复也允许保存到另一个原本为空（或尚不存在）的新 run 目录；目标目录、底座
+身份、目标已有配置的校验都发生在第一次写文件之前。另一个非空 run 仍会被拒绝。
+`--resume-from-path` 无论是否换目录，都表示继续 checkpoint 的 optimizer/scheduler
+和训练计数；**不等于仅加载模型权重开启新实验**。后者应先导出/合并所需模型，
+设置新的 `MERGED_SFT_MODEL` 和 run name，不传 `--resume-from-path`。
 
 Stage 5 前，先从 RL 检查点的 `actor/` 子目录导出标准 PEFT adapter：
 

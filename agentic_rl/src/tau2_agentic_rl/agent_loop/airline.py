@@ -20,9 +20,21 @@ from verl.tools.base_tool import OpenAIFunctionToolSchema
 from tau2_agentic_rl.annotations import load_task_mapping
 from tau2_agentic_rl.budget import ContextBudget
 from tau2_agentic_rl.chat_stream import render_environment_turn
-from tau2_agentic_rl.concurrency import SharedBudget, limits_from_project
+from tau2_agentic_rl.concurrency import (
+    BudgetLease,
+    QueueWaitError,
+    SharedBudget,
+    limits_from_project,
+    queue_options_from_project,
+)
 from tau2_agentic_rl.config import load_runtime_config
 from tau2_agentic_rl.environment.tau2_gym import GymStep, Tau2GymAdapter
+from tau2_agentic_rl.initial_prompt import (
+    encode_full_chat,
+    initial_messages,
+    inspect_initial_prompt,
+    require_initial_prompt_fits,
+)
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
 from tau2_agentic_rl.reward.required_actions import (
@@ -36,7 +48,6 @@ from tau2_agentic_rl.schemas import TokenTurn, ToolEvent, TrajectoryRecord
 from tau2_agentic_rl.storage import TrajectoryStore
 from tau2_agentic_rl.token_alignment import validate_aligned_response
 from tau2_agentic_rl.tooling import (
-    CONFIRMATION_PROTOCOL,
     ConfirmationTracker,
     execute_validated_tool_call,
     synthetic_tool_error,
@@ -158,6 +169,25 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         )
         self.hard_turn_limit = int(rollout["max_hard_turns"])
         self.response_length = int(self.rollout_config.response_length)
+        if self.processor is not None:
+            raise ValueError("Tau2 Airline requires the text-only Qwen tokenizer")
+
+    async def _render_full_chat(self, messages, tools=None, remove_system_prompt=False):
+        ids = await asyncio.to_thread(
+            encode_full_chat,
+            self.tokenizer,
+            messages,
+            tools=tools,
+            template_kwargs=self.apply_chat_template_kwargs,
+        )
+        if remove_system_prompt:
+            prefix = list(self.system_prompt)
+            if ids[: len(prefix)] != prefix:
+                raise ValueError(
+                    "environment turn does not match the template's system prefix"
+                )
+            ids = ids[len(prefix) :]
+        return ids
 
     async def _bounded_environment_messages(
         self,
@@ -175,7 +205,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         return await render_environment_turn(
             raw_messages,
             tokenizer=self.tokenizer,
-            render=self.apply_chat_template,
+            render=self._render_full_chat,
             turn_separator=self.turn_separator,
             allowed_tokens=allowed,
             content_limit=self.budget.reserved_observation_tokens,
@@ -185,23 +215,89 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         self, sampling_params: dict[str, Any], **kwargs: Any
     ) -> AgentLoopOutput:
         self.shared_budget = SharedBudget(
-            limits_from_project(self.project), require_ray=True
+            limits_from_project(self.project),
+            require_ray=True,
+            **queue_options_from_project(self.project),
         )
-        async with self.shared_budget.aslot("trajectories"):
-            task = asyncio.create_task(self._run_trajectory(sampling_params, **kwargs))
-            try:
-                return await asyncio.shield(task)
-            except asyncio.CancelledError:
-                # Tau2's synchronous user call may still be running in a
-                # thread. Retain the lease until the interaction really ends.
-                await asyncio.gather(task, return_exceptions=True)
+        task_id, split, policy_version = _split(kwargs)
+        trajectory_id = (
+            uuid4().hex
+        )  # Allocate before queueing, including queue failures.
+        acquired = False
+        try:
+            async with self.shared_budget.aslot("trajectories") as lease:
+                acquired = True
+                task = asyncio.create_task(
+                    self._run_trajectory(
+                        sampling_params,
+                        trajectory_id=trajectory_id,
+                        lease=lease,
+                        **kwargs,
+                    )
+                )
+                try:
+                    return await asyncio.shield(task)
+                except asyncio.CancelledError:
+                    # Tau2's synchronous user call may still be running in a
+                    # thread. Retain the lease until the interaction really ends,
+                    # even if shutdown sends more than one cancellation.
+                    while not task.done():
+                        try:
+                            await asyncio.shield(task)
+                        except asyncio.CancelledError:
+                            continue
+                        except Exception:
+                            break
+                    if not task.cancelled():
+                        task.exception()
+                    raise
+        except QueueWaitError as exc:
+            if acquired:
                 raise
+            self.store.save(
+                TrajectoryRecord(
+                    trajectory_id=trajectory_id,
+                    task_id=task_id,
+                    split=split,
+                    policy_version=policy_version,
+                    annotation_version=self.project["project"]["annotation_version"],
+                    reward_version=self.project["project"]["reward_version"],
+                    environment_seed=kwargs.get("extra_info", {}).get(
+                        "environment_seed"
+                    ),
+                    termination_reason="infrastructure_error",
+                    assistant_turns=0,
+                    trajectory_tokens=0,
+                    metadata={
+                        "evaluation_sample_index": kwargs.get("extra_info", {}).get(
+                            "evaluation_sample_index"
+                        ),
+                        "failure_phase": "trajectory_queue",
+                        "failure_type": type(exc).__name__,
+                        "failure_message": str(exc),
+                        "queue": exc.details,
+                        "concurrency": self.shared_budget.call("snapshot"),
+                    },
+                )
+            )
+            raise
 
     async def _run_trajectory(
-        self, sampling_params: dict[str, Any], **kwargs: Any
+        self,
+        sampling_params: dict[str, Any],
+        *,
+        trajectory_id: str | None = None,
+        lease: BudgetLease | None = None,
+        **kwargs: Any,
     ) -> AgentLoopOutput:
         task_id, split, policy_version = _split(kwargs)
-        trajectory_id = uuid4().hex
+        trajectory_id = trajectory_id or uuid4().hex
+        queue_wait_seconds = lease.queue_wait_seconds if lease is not None else 0.0
+
+        def progress():
+            if lease is not None:
+                lease.progress()
+
         seed = kwargs.get("extra_info", {}).get("environment_seed")
         user = self.project["user_simulator"]
         environment = Tau2GymAdapter(
@@ -215,6 +311,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         )
         try:
             incoming = await environment.reset(seed=seed)
+            progress()
         except Exception as exc:
             await environment.force_cleanup_stop()
             self.store.save(
@@ -236,6 +333,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             "evaluation_sample_index"
                         ),
                         "failure_phase": "environment_reset",
+                        "queue_wait_seconds": queue_wait_seconds,
                         "failure_type": type(exc).__name__,
                         "failure_message": str(exc),
                     },
@@ -244,14 +342,9 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             raise RuntimeError(
                 "Tau2 environment reset failed; audit record saved"
             ) from exc
-        messages: list[dict[str, Any]] = [
-            {
-                "role": "system",
-                "content": f"{environment.policy}\n\n{CONFIRMATION_PROTOCOL}",
-            },
-            *incoming,
-        ]
+        messages = initial_messages(environment.policy, incoming)
         confirmation = ConfirmationTracker()
+        prompt_measurement = None
         try:
             schemas = environment.tool_schemas
             schemas_by_name = {
@@ -259,7 +352,14 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 for item in schemas
             }
             parser_schemas = [OpenAIFunctionToolSchema(**item) for item in schemas]
-            prompt_ids = await self.apply_chat_template(messages, tools=schemas)
+            prompt_ids = await self._render_full_chat(messages, tools=schemas)
+            prompt_measurement = inspect_initial_prompt(
+                task_id,
+                len(prompt_ids),
+                int(self.rollout_config.prompt_length),
+                self.budget,
+            )
+            require_initial_prompt_fits(prompt_measurement)
         except Exception as exc:
             await environment.force_cleanup_stop()
             self.store.save(
@@ -273,7 +373,9 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     environment_seed=seed,
                     termination_reason="infrastructure_error",
                     assistant_turns=0,
-                    trajectory_tokens=0,
+                    trajectory_tokens=(prompt_measurement or {}).get(
+                        "initial_prompt_tokens", 0
+                    ),
                     messages=messages,
                     initial_db_hash=environment.initial_db_hash(),
                     final_db_hash=environment.safe_db_hash(),
@@ -282,6 +384,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             "evaluation_sample_index"
                         ),
                         "failure_phase": "prompt_initialization",
+                        "initial_prompt": prompt_measurement,
+                        "queue_wait_seconds": queue_wait_seconds,
                         "failure_type": type(exc).__name__,
                         "failure_message": str(exc),
                     },
@@ -322,6 +426,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     prompt_ids=prompt_ids,
                     sampling_params=turn_sampling,
                 )
+                progress()
             except Exception as exc:
                 infrastructure_error = ("model_generation", exc)
                 termination_reason = "infrastructure_error"
@@ -571,6 +676,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             str(reply.get("content", "")), len(messages) + index
                         )
 
+            progress()
             if step.messages:
                 try:
                     (
@@ -653,6 +759,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 ) = await self.judge.evaluate(
                     **scoring_inputs["judge"],
                 )
+                progress()
             except Exception as exc:
                 infrastructure_error = ("judge", exc)
 
@@ -715,6 +822,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             judge_result=judge_result,
             custom_reward=custom_reward,
             metadata={
+                "initial_prompt": prompt_measurement,
+                "queue_wait_seconds": queue_wait_seconds,
                 "interaction_termination_reason": interaction_termination_reason,
                 "concurrency": await self.shared_budget.acall("snapshot"),
                 "scoring_inputs_sha256": sha256_json(scoring_inputs),

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tau2_agentic_rl.chat_stream import render_environment_turn
+from tau2_agentic_rl.initial_prompt import encode_full_chat
 
 
 @pytest.fixture(scope="module")
@@ -149,3 +150,28 @@ def test_live_loop_uses_the_budgeted_renderer_after_successful_text_delivery():
         "confirmation.observe_visible_assistant_text"
     )
     assert "validate_tool_turn(decoded, len(calls))" in source
+
+
+def test_real_qwen_initial_prompt_is_encoded_without_left_truncation(tokenizer):
+    messages = [
+        {
+            "role": "system",
+            "content": "POLICY MUST SURVIVE " + "airline policy " * 5000,
+        },
+        {"role": "user", "content": "Please check the policy."},
+    ]
+    full = encode_full_chat(tokenizer, messages)
+    expected = tokenizer.apply_chat_template(
+        messages, tokenize=True, add_generation_prompt=True
+    )
+    assert len(full) > 8192 and full == expected
+    assert "POLICY MUST SURVIVE" in tokenizer.decode(full[:40])
+
+
+def test_untruncated_encoder_rejects_template_truncation_override(tokenizer):
+    with pytest.raises(ValueError, match="cannot override"):
+        encode_full_chat(
+            tokenizer,
+            [{"role": "user", "content": "hi"}],
+            template_kwargs={"truncation": True},
+        )

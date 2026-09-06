@@ -333,7 +333,10 @@ def test_real_parquet_parent_dataset_and_qwen_masks(tmp_path):
         }
     )
     dataset = mod.ARealLastAnswerSFTDataset(
-        parquet_files=train, tokenizer=tokenizer, config=config
+        # Match Hydra's production path type; pinned veRL indexes path strings.
+        parquet_files=str(train),
+        tokenizer=tokenizer,
+        config=config,
     )
     row = dataset[0]
     normalized = [mod.normalize_message(m) for m in messages]

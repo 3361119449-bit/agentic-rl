@@ -63,7 +63,7 @@ def build_evaluation_command(
         f"data.train_files={data_file}",
         f"data.val_files={data_file}",
         "data.train_batch_size=1",
-        "data.max_prompt_length=8192",
+        f"data.max_prompt_length={project['rollout']['initial_prompt_max_tokens']}",
         "data.max_response_length=16384",
         "data.return_raw_chat=true",
         "data.filter_overlong_prompts=false",

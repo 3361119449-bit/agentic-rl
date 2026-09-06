@@ -91,11 +91,12 @@ def test_two_real_ray_workers_share_one_trajectory_and_api_budget():
                 shared = SharedBudget(limits, require_ray=True)
 
                 async def trajectory():
-                    async with shared.aslot("trajectories"):
+                    async with shared.aslot("trajectories") as lease:
                         async with shared.aslot("user_api"):
                             await asyncio.sleep(0.02)
                         async with shared.aslot("judge_api"):
                             await asyncio.sleep(0.02)
+                        lease.progress()
 
                 await asyncio.gather(*(trajectory() for _ in range(8)))
 
@@ -107,5 +108,32 @@ def test_two_real_ray_workers_share_one_trajectory_and_api_budget():
             metrics["peak_user_api_inflight"] == metrics["peak_judge_api_inflight"] == 1
         )
         assert set(metrics["active"].values()) == {0}
+        assert metrics["progress_revision"]["trajectories"] == 16 * 3
     finally:
         ray.shutdown()
+
+
+def test_actual_agentloop_helper_truncates_but_project_renderer_preserves_tokens():
+    from verl.experimental.agent_loop.agent_loop import AgentLoopBase
+
+    from tau2_agentic_rl.agent_loop.airline import Tau2AirlineAgentLoop
+
+    async def check():
+        instance = Tau2AirlineAgentLoop.__new__(Tau2AirlineAgentLoop)
+        instance.loop = asyncio.get_running_loop()
+        instance.rollout_config = SimpleNamespace(prompt_length=8192)
+        instance.processor = None
+        instance.apply_chat_template_kwargs = {}
+        instance.system_prompt = []
+        tokens = list(range(9000))
+        instance.tokenizer = SimpleNamespace(
+            apply_chat_template=lambda *a, **kw: tokens
+        )
+        messages = [{"role": "system", "content": "fixture policy"}]
+        assert (
+            await AgentLoopBase.apply_chat_template(instance, messages)
+            == tokens[-8192:]
+        )
+        assert await instance._render_full_chat(messages) == tokens
+
+    asyncio.run(check())
