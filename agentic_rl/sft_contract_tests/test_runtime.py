@@ -340,11 +340,17 @@ def test_real_parquet_parent_dataset_and_qwen_masks(tmp_path):
     )
     row = dataset[0]
     normalized = [mod.normalize_message(m) for m in messages]
+    # Preparation deliberately stores tools_json with recursively sorted keys.
+    # Qwen renders JSON in insertion order, so equal dictionaries can still
+    # produce different token IDs. Assert semantic preservation independently,
+    # then compare the exact canonical stream rather than weakening equality.
+    assert json.loads(dataset.dataframe.iloc[0]["tools_json"]) == tools
+    canonical_tools = json.loads(json.dumps(tools, sort_keys=True))
     prompt = tokenizer.apply_chat_template(
-        normalized, tools=tools, add_generation_prompt=True
+        normalized, tools=canonical_tools, add_generation_prompt=True
     )
     full = tokenizer.apply_chat_template(
-        normalized + [mod.normalize_message(answer)], tools=tools
+        normalized + [mod.normalize_message(answer)], tools=canonical_tools
     )
     assert row["input_ids"].tolist() == full
     assert not row["loss_mask"][: len(prompt)].any()
