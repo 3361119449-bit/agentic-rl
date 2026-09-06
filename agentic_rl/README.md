@@ -223,6 +223,9 @@ initial_prompt_tokens + 1024 observation + 128 template + 64 generation <= 16384
 准备好固定 Tau2 环境、本地 tokenizer 和 RL 环境变量后，可先测 smoke 的初始化
 （不加载 4B 权重、不生成 agent 回复、不调用 Judge；**会请求用户模拟器 API**）：
 
+这里的 Judge 指本项目 DeepSeek 评分器。结束初始化环境时，Tau2 自身可能计算
+内置奖励；预检不使用或报告这些分数。
+
 ```bash
 python scripts/check_initial_prompts.py \
   --live-user-api --split smoke \

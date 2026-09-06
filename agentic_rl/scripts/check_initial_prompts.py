@@ -1,7 +1,8 @@
 """Measure real Tau2 reset prompts, or summarize already measured rollout records.
 
 Live mode uses the USER API, but never loads policy weights, generates an agent
-answer, calls the Judge, or evaluates rewards. No placeholder-prompt estimates.
+answer, or calls the project's Judge. Tau2 may compute its built-in reward during
+cleanup; this script does not report scores. No placeholder-prompt estimates.
 """
 
 from __future__ import annotations
