@@ -152,7 +152,9 @@ epochs, global batch size, learning rate, and all other optimizer settings.
 
 ## 6. Run the four SFT ablations
 
-All commands use the existing verl entry point. Keep work and checkpoint
+All commands use the LoRA-only SFT entry point (rank 64, alpha 128, LR 1e-4).
+Use the dedicated pinned SFT environment in [the SFT README](../qwen3_4b_sft/README.md).
+Keep work and checkpoint
 directories separate so prepared Parquet and optimizer state cannot cross
 experiments.
 
@@ -164,7 +166,9 @@ python training/qwen3_4b_sft/train_qwen3_4b_verl_sft.py \
   --output-dir training/qwen3_4b_sft/checkpoints/areal_only \
   --experiment-name areal-only \
   --resume-mode disable \
-  --num-gpus 8 --ulysses-size 2
+  --lora-rank 64 --lora-alpha 128 --learning-rate 1e-4 \
+  --global-batch-size 8 --optimizer-offload \
+  --num-gpus 1 --ulysses-size 1
 ```
 
 ### Tau2 train only
@@ -176,29 +180,47 @@ python training/qwen3_4b_sft/train_qwen3_4b_verl_sft.py \
   --output-dir training/qwen3_4b_sft/checkpoints/tau2_only \
   --experiment-name tau2-only \
   --resume-mode disable \
-  --num-gpus 8 --ulysses-size 2
+  --lora-rank 64 --lora-alpha 128 --learning-rate 1e-4 \
+  --global-batch-size 8 --optimizer-offload \
+  --num-gpus 1 --ulysses-size 1
 ```
 
 ### AReaL then Tau2 train
 
-First finish AReaL-only SFT. Then point `--model` to its final HF-format model
-directory (the directory containing `config.json`) and start a fresh Tau2-stage
-optimizer:
+First finish AReaL-only LoRA SFT, then export and merge its selected checkpoint:
+
+```bash
+python agentic_rl/scripts/export_verl_lora.py \
+  --stage sft --verl-root /root/verl-sft-v071 \
+  --local-dir training/qwen3_4b_sft/checkpoints/areal_only/global_step_N \
+  --target-dir /root/models/areal_sft_export
+python agentic_rl/scripts/merge_sft_lora.py \
+  --sft-adapter /root/models/areal_sft_export/lora_adapter \
+  --output /root/models/areal_sft_merged
+python agentic_rl/scripts/verify_adapter_equivalence.py \
+  --adapter /root/models/areal_sft_export/lora_adapter \
+  --merged-model /root/models/areal_sft_merged
+```
+
+Replace `global_step_N` with the actual selected checkpoint. Its `huggingface/`
+subdirectory is metadata only, not merged weights. Both second-stage branches
+must start from `/root/models/areal_sft_merged`, with a **fresh LoRA and optimizer**.
+This is not `resume_path` of the first stage:
 
 ```bash
 python training/qwen3_4b_sft/train_qwen3_4b_verl_sft.py \
-  --model /root/agentic-rl/training/qwen3_4b_sft/checkpoints/areal_only/FINAL_HF_MODEL \
+  --model /root/models/areal_sft_merged \
   --data-jsonl training/tau2_rollout_sft/generated/tau2_airline_train_success_sft.jsonl \
   --work-dir training/qwen3_4b_sft/work/areal_then_tau2 \
   --output-dir training/qwen3_4b_sft/checkpoints/areal_then_tau2 \
   --experiment-name areal-then-tau2 \
   --val-ratio 0 \
   --epochs 2 \
-  --global-batch-size 32 \
-  --learning-rate 2e-5 \
+  --global-batch-size 8 \
+  --lora-rank 64 --lora-alpha 128 --learning-rate 1e-4 --optimizer-offload \
   --seed 42 \
   --resume-mode disable \
-  --num-gpus 8 --ulysses-size 2
+  --num-gpus 1 --ulysses-size 1
 ```
 
 ### AReaL then step-matched random AReaL
@@ -208,24 +230,28 @@ settings as the preceding AReaL-then-Tau2 command:
 
 ```bash
 python training/qwen3_4b_sft/train_qwen3_4b_verl_sft.py \
-  --model /root/agentic-rl/training/qwen3_4b_sft/checkpoints/areal_only/FINAL_HF_MODEL \
+  --model /root/models/areal_sft_merged \
   --data-jsonl training/tau2_rollout_sft/generated/areal_random_matched_to_tau2_rows.jsonl \
   --work-dir training/qwen3_4b_sft/work/areal_then_areal_matched \
   --output-dir training/qwen3_4b_sft/checkpoints/areal_then_areal_matched \
   --experiment-name areal-then-areal-matched \
   --val-ratio 0 \
   --epochs 2 \
-  --global-batch-size 32 \
-  --learning-rate 2e-5 \
+  --global-batch-size 8 \
+  --lora-rank 64 --lora-alpha 128 --learning-rate 1e-4 --optimizer-offload \
   --seed 42 \
   --resume-mode disable \
-  --num-gpus 8 --ulysses-size 2
+  --num-gpus 1 --ulysses-size 1
 ```
 
 This control measures the gain from an equal amount of continued SFT/replay.
-The difference between it and AReaL-then-Tau2 is therefore evidence about the
-content of the official Tau2 train trajectories rather than merely extra
-updates.
+The difference from AReaL-then-Tau2 is not explained merely by more optimizer
+steps. Sequence/answer lengths, tool-schema availability and data distributions
+still differ; this is not a token-matched or schema-matched control.
+The matched branches use `2 * floor(reference_rows / 8)` updates. If there are
+fewer than eight training rows, reduce the global batch identically for both.
+For every final branch, export/merge its own LoRA before the evaluation below;
+do not evaluate the unmerged first-stage base by accident.
 
 ## 7. Evaluate each model with four test trials
 

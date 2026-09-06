@@ -77,7 +77,7 @@ export VERL_ROOT=/root/verl-rl-v090
 python -m venv --system-site-packages /root/venvs/airline-sft
 source /root/venvs/airline-sft/bin/activate
 python -m pip install -e "$SFT_VERL_ROOT"
-python -m pip install "transformers>=4.51.0" pyarrow peft
+python -m pip install "transformers==4.57.1" pyarrow "peft==0.17.1" "torchdata==0.11.0"
 python -m pip install -e "$AGENTIC_RL_ROOT"
 deactivate
 

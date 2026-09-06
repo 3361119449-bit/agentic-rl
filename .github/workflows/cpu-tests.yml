@@ -3,9 +3,9 @@ name: CPU regression and Qwen tokenizer
 on:
   push:
     branches: [main]
-    paths: ['agentic_rl/**', 'training/qwen3_4b_sft/**', '.github/workflows/cpu-tests.yml']
+    paths: ['agentic_rl/**', 'training/qwen3_4b_sft/**', 'training/tau2_rollout_sft/**', '.github/workflows/cpu-tests.yml']
   pull_request:
-    paths: ['agentic_rl/**', 'training/qwen3_4b_sft/**', '.github/workflows/cpu-tests.yml']
+    paths: ['agentic_rl/**', 'training/qwen3_4b_sft/**', 'training/tau2_rollout_sft/**', '.github/workflows/cpu-tests.yml']
   workflow_dispatch:
 
 permissions:
@@ -38,7 +38,7 @@ jobs:
           local_dir=os.environ['QWEN_TOKENIZER_PATH'],
           allow_patterns=['tokenizer*', '*.jinja', 'config.json', 'special_tokens_map.json'])"
       - name: Lint
-        run: python -m ruff check src scripts tests
+        run: python -m ruff check --config pyproject.toml src scripts tests sft_contract_tests ../training/qwen3_4b_sft
       - name: Run CPU and real-tokenizer regressions
         run: python -m pytest -ra
 
@@ -70,3 +70,40 @@ jobs:
           python -m pip freeze
       - name: Real runner import, Hydra validation and multi-worker concurrency
         run: python -m pytest contract_tests -v --tb=short
+
+  real-sft-lora-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PYTHONPATH: src
+      RUN_REAL_SFT_CONTRACT: '1'
+      SFT_VERL_ROOT: /tmp/verl-sft-contract
+      QWEN_TOKENIZER_PATH: /tmp/sft-qwen-tokenizer
+    defaults:
+      run:
+        working-directory: agentic_rl
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          lfs: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - name: Install the isolated pinned SFT CPU dependency stack
+        run: |
+          git clone --filter=blob:none https://github.com/verl-project/verl.git "$SFT_VERL_ROOT"
+          git -C "$SFT_VERL_ROOT" checkout bec9ef74768dd201881cd4e54cd0385e87caae27
+          python -m pip install 'torch==2.9.1' --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e '.[test]' -e "$SFT_VERL_ROOT" 'transformers==4.57.1' 'peft==0.17.1' 'torchdata==0.11.0' 'tensordict==0.10.0'
+          python -m pip check
+      - name: Fetch tokenizer only, no model weights
+        run: >-
+          python -c "import os; from huggingface_hub import snapshot_download;
+          snapshot_download('Qwen/Qwen3-4B-Instruct-2507',
+          revision='cdbee75f17c01a7cc42f958dc650907174af0554',
+          local_dir=os.environ['QWEN_TOKENIZER_PATH'],
+          allow_patterns=['tokenizer*', '*.jinja', 'config.json', 'special_tokens_map.json'])"
+      - name: Real SFT imports, Hydra, Parquet, masks and epoch resume contracts
+        env:
+          HF_HUB_OFFLINE: '1'
+        run: python -m pytest sft_contract_tests -v --tb=short

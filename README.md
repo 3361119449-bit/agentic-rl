@@ -56,7 +56,7 @@ source dialog, and supervises only each row's final `answer` rather than the
 assistant messages in its history.
 
 See [`training/qwen3_4b_sft/README.md`](training/qwen3_4b_sft/README.md) for
-AutoDL setup, full-parameter SFT, and lower-memory LoRA commands.
+AutoDL setup, LoRA-only SFT, strict epoch-boundary resume, and adapter export/merge commands.
 
 ## Tau2 train rollout SFT and evaluation
 

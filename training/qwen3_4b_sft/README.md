@@ -1,6 +1,6 @@
-# Qwen3-4B airline SFT with verl
+# Qwen3-4B non-thinking LoRA SFT with verl
 
-This directory contains one training entry point:
+Use this training entry point (LoRA only; rank 0 is rejected):
 
 ```text
 train_qwen3_4b_verl_sft.py
@@ -10,8 +10,11 @@ It is designed for `verl v0.7.1` and defaults to
 `Qwen/Qwen3-4B-Instruct-2507`, Qwen's 4B instruction model that supports only
 non-thinking output.
 
-The exact tested veRL v0.7.1 commit is
-`bec9ef74768dd201881cd4e54cd0385e87caae27`.
+The required veRL v0.7.1 commit is
+`bec9ef74768dd201881cd4e54cd0385e87caae27`, with Transformers **4.57.1**.
+The actual imported checkout must match and have no tracked modifications.
+`lora_sft_runtime.py` adapts the pinned trainer's loaders/checkpoint handling;
+`agentic_rl/src/tau2_agentic_rl/sft_contract.py` implements the stdlib preflight.
 
 ## What the script does
 
@@ -50,8 +53,9 @@ compatible.
 ```bash
 git clone https://github.com/verl-project/verl.git ~/verl
 git -C ~/verl checkout bec9ef74768dd201881cd4e54cd0385e87caae27
-python -m pip install -e ~/verl
-python -m pip install "transformers>=4.51.0" pyarrow
+python -m pip install -e ~/verl "transformers==4.57.1" "torchdata==0.11.0" "peft==0.17.1"
+python -m pip install -e './agentic_rl[data,test]'
+python -m pip check
 ```
 
 Prepare the Parquet files without starting a GPU job:
@@ -60,23 +64,10 @@ Prepare the Parquet files without starting a GPU job:
 python training/qwen3_4b_sft/train_qwen3_4b_verl_sft.py --prepare-only
 ```
 
-## Full-parameter SFT
+## LoRA training
 
-Full-parameter training is the default. This example uses eight GPUs and
-two-way Ulysses sequence parallelism for the 16K trajectories:
-
-```bash
-python training/qwen3_4b_sft/train_qwen3_4b_verl_sft.py \
-  --num-gpus 8 \
-  --ulysses-size 2 \
-  --global-batch-size 32 \
-  --micro-batch-size 1
-```
-
-The default learning rate is `2e-5`, training lasts two epochs, validation and
-checkpointing run after every epoch, and the output includes an HF-format model.
-
-## Lower-memory LoRA run
+Defaults: rank 64, alpha 128, global batch 8, LR `1e-4`, two epochs.
+Full-parameter training is not supported by this entry point.
 
 For one GPU, start with LoRA and optimizer offload. A 48 GB or larger GPU is a
 safer choice for 16K samples; 24 GB may still be insufficient depending on the
@@ -88,13 +79,16 @@ python training/qwen3_4b_sft/train_qwen3_4b_verl_sft.py \
   --global-batch-size 8 \
   --lora-rank 64 \
   --lora-alpha 128 \
+  --learning-rate 1e-4 --epochs 2 --seed 42 --val-ratio 0.02 \
   --optimizer-offload \
   --experiment-name qwen3-4b-airline-lora \
   --run-name qwen3-4b-airline-lora-r64-lr1e-4-seed42
 ```
 
 LoRA automatically uses a default learning rate of `1e-4`. Use
-`--learning-rate` to override either default.
+`--learning-rate` to override it. Use Python 3.12 and a separate environment
+from RL's veRL v0.9.0. These install instructions do not verify GPU kernels
+or guarantee that 16K training fits in VRAM.
 
 Every run uses `training/qwen3_4b_sft/runs/<run-name>/checkpoints` and
 `resume_mode=disable` by default. The generated default run name includes the
@@ -103,15 +97,45 @@ directory is rejected. Resume only an intentionally selected run:
 
 ```bash
 python training/qwen3_4b_sft/train_qwen3_4b_verl_sft.py \
+  --num-gpus 1 --global-batch-size 8 \
+  --lora-rank 64 --lora-alpha 128 --optimizer-offload \
+  --learning-rate 1e-4 --epochs 2 --seed 42 --val-ratio 0.02 \
   --run-name qwen3-4b-airline-lora-r64-lr1e-4-seed42 \
   --resume-mode resume_path \
   --resume-from-path /path/to/global_step_N
 ```
 
+Repeat the original data/work directory, rank/alpha, batch size, learning rate,
+offload, epochs, seed and topology when resuming. A run name does **not** recover
+CLI settings automatically. Replace `global_step_N` with a completed first-epoch
+checkpoint; an already-finished run is rejected.
+
+Resume requires `sft_run_identity.json` and the atomic
+`sft_checkpoint_complete.json` inside the selected checkpoint. The identity binds
+base weights/tokenizer, source and Parquet hashes, LoRA/optimizer settings,
+parallel topology, package versions and SFT code. All model/optimizer/extra-state
+shards and `data_<DP rank>.pt` files must exist. Small loader/metadata files are
+hashed; large state shards are checked for presence/size, not full corruption.
+Do not load untrusted PyTorch checkpoints.
+
+Only completed-epoch checkpoints are supported. Resume restores the model/LoRA,
+optimizer, LR scheduler and RNG, then starts the next epoch's seeded sampler.
+It does not restore the exhausted previous-epoch iterator (which can skip the
+next epoch). Legacy/partial checkpoints without the new manifests cannot resume;
+do not fabricate manifests. If later checkpoint directories exist, resume into
+a **new** `--output-dir` to avoid overwriting them.
+
+Changing to Tau2 data is a **new SFT stage**, not a resume: first merge the AReaL
+LoRA, then use the merged base with a fresh LoRA/optimizer and output directory.
+
 ## Export and merge a LoRA checkpoint
 
 The veRL/FSDP checkpoint is not itself a PEFT adapter. Export the selected SFT
 `global_step_N` with the pinned veRL v0.7.1 merger:
+
+Training now saves `[model,optimizer,extra]`, not a full HF model.
+`global_step_N/huggingface/` contains config/tokenizer metadata, **not** ready-to-
+evaluate weights. Use the merged model below for evaluation and the next stage.
 
 ```bash
 python agentic_rl/scripts/export_verl_lora.py \
@@ -177,6 +201,51 @@ python training/qwen3_4b_sft/train_qwen3_4b_verl_sft.py \
 ```
 
 Generated Parquet files and checkpoints are intentionally ignored by Git.
+
+Only `engine.use_torch_compile=true/false` raw overrides are accepted. Critical
+model, data, loss, checkpoint and resume settings cannot bypass the explicit CLI.
+
+After upgrading from preparation version 4, use `--force-prepare` once or a new
+work directory. Cache reuse additionally verifies the Parquet file hashes.
+The default Qwen model revision is pinned to
+`cdbee75f17c01a7cc42f958dc650907174af0554`; local model directories remain supported.
+
+## Validation, seed and test boundaries
+
+`--val-ratio 0` safely disables validation (`test_freq=-1`). Empty validation
+splits are also disabled. Training needs at least one full global batch and uses
+`drop_last=True`: steps = `floor(train_rows / global_batch_size) * epochs`.
+
+Validation is complete, batch size 1, with no discarded tail. Every DP rank
+evaluates the same small validation set, avoiding padding duplicates and unequal
+collective counts even when there are fewer examples than GPUs. Reported loss
+is the mean of each example's answer-token NLL, not token-weighted corpus
+perplexity or Tau2 pass metrics. The tradeoff is redundant validation across DP.
+
+The seed controls splitting, the training sampler, independent loader generators
+and LoRA/model initialization; it does not promise bitwise GPU determinism.
+CPU regressions and pinned-source contract checks are not a substitute for an
+AutoDL LoRA train → epoch-boundary resume → export → merge → GPU-equivalence
+smoke test. No full-parameter training acceptance is claimed.
+
+Local verification on 2026-09-06: 141 standard CPU regressions and 8 isolated
+pinned-source loader/fit/resume checks passed. The rollout conversion suite had
+3 passes / 1 optional tokenizer test skipped. All 10,649 bundled rows were
+reprocessed and checked with the real Qwen3-4B-Instruct-2507 tokenizer and the
+custom dataset getter: max 16,310 tokens, no overlength/empty-target/prefix errors,
+and no train/validation dialog overlap. This getter check did not instantiate
+the full veRL engine.
+
+The new `real-sft-lora-contract` CI job separately checks installed veRL imports,
+Hydra configuration and real parent-dataset/Parquet integration. Those 3 full-
+stack checks were not run locally (skipped in isolated mode); the new CI job and
+GPU acceptance have not yet been executed. To run the full CPU contract suite
+in the installed SFT environment, from `agentic_rl/`:
+
+```bash
+RUN_REAL_SFT_CONTRACT=1 QWEN_TOKENIZER_PATH=/path/to/local/qwen-tokenizer \
+  python -m pytest sft_contract_tests -v
+```
 
 ## Important data note
 

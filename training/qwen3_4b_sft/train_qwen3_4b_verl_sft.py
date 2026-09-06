@@ -6,7 +6,7 @@ next assistant turn in ``answer``. This module appends ``answer`` during
 preparation and provides a verl dataset class whose loss mask covers only that
 last assistant turn.
 
-Recommended runtime: verl v0.7.1 and transformers >= 4.51.0.
+Supported training path: LoRA, pinned verl v0.7.1, transformers 4.57.1.
 """
 
 from __future__ import annotations
@@ -20,8 +20,19 @@ import re
 import shlex
 import subprocess
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "agentic_rl/src"))
+
+from tau2_agentic_rl.sft_contract import (
+    build_run_identity,
+    save_run_identity,
+    validate_output,
+    validate_resume,
+    validate_runtime,
+)
 
 try:
     from verl.utils.dataset.multiturn_sft_dataset import MultiTurnSFTDataset
@@ -32,8 +43,9 @@ except ModuleNotFoundError as exc:
     MultiTurnSFTDataset = object  # type: ignore[assignment,misc]
 
 
-SCRIPT_VERSION = 4
+SCRIPT_VERSION = 5
 DEFAULT_MODEL = "Qwen/Qwen3-4B-Instruct-2507"
+DEFAULT_MODEL_REVISION = "cdbee75f17c01a7cc42f958dc650907174af0554"
 DATA_RELATIVE_PATH = Path(
     "datasets/tau2_airline_sft_strict_cleaned/data/"
     "airline_sft_no_thinking_under_16k_strict_leakage_cleaned.jsonl"
@@ -54,7 +66,7 @@ class ARealLastAnswerSFTDataset(MultiTurnSFTDataset):
 
     def __getitem__(self, item: int) -> dict[str, Any]:
         import torch
-        import torch.nn.functional as functional
+        from torch.nn import functional
         from verl.utils.py_functional import convert_nested_value_to_list_recursive
 
         row = self.dataframe.iloc[item].to_dict()
@@ -72,13 +84,7 @@ class ARealLastAnswerSFTDataset(MultiTurnSFTDataset):
             tools = convert_nested_value_to_list_recursive(self.tools[item])
 
         template_kwargs = dict(self.apply_chat_template_kwargs)
-        enable_thinking = (
-            self.enable_thinking[item]
-            if self.enable_thinking is not None
-            else self.enable_thinking_default
-        )
-        if enable_thinking is not None:
-            template_kwargs["enable_thinking"] = bool(enable_thinking)
+        template_kwargs["enable_thinking"] = False
 
         prompt = self.tokenizer.apply_chat_template(
             messages[:-1],
@@ -194,7 +200,9 @@ def tokenizer_identity(model: str, revision: str, max_length: int) -> dict[str, 
     }
 
 
-def resolve_model_snapshot(model: str, revision: str, *, metadata_only: bool = False) -> str:
+def resolve_model_snapshot(
+    model: str, revision: str, *, metadata_only: bool = False
+) -> str:
     """Resolve both training weights and tokenizer to a single immutable snapshot."""
     local = Path(model)
     if local.is_dir():
@@ -379,7 +387,7 @@ def prepare_dataset(
 ) -> tuple[Path, Path | None, dict[str, Any]]:
     try:
         import pyarrow as arrow
-        import pyarrow.parquet as parquet
+        from pyarrow import parquet
     except ModuleNotFoundError as exc:
         raise RuntimeError("pyarrow is required: pip install pyarrow") from exc
 
@@ -408,6 +416,12 @@ def prepare_dataset(
             val_path=val_path,
         )
         if reusable:
+            expected = manifest.get("parquet_sha256", {})
+            for path in (train_path, val_path):
+                if path is not None and expected.get(path.name) != sha256_file(path):
+                    raise RuntimeError(
+                        "Prepared Parquet changed; rerun with --force-prepare"
+                    )
             print(f"Reusing prepared dataset in {work_dir}")
             return train_path, val_path, manifest
         raise RuntimeError("Prepared files are stale; rerun with --force-prepare")
@@ -498,7 +512,12 @@ def prepare_dataset(
         "script_version": SCRIPT_VERSION,
         "input": str(source),
         "input_size": source.stat().st_size,
-        "input_sha256": scan["sha256"],
+        "input_sha256": source_sha256,
+        "parquet_sha256": {
+            path.name: sha256_file(path)
+            for path in (train_path, val_path)
+            if path is not None
+        },
         "preprocessing_identity": expected_identity,
         "source_rows": scan["rows"],
         "source_dialogs": len(scan["dialogs"]),
@@ -528,24 +547,47 @@ def numeric_version(package: str) -> tuple[int, int, int]:
     return tuple(int(value or 0) for value in match.groups())  # type: ignore[return-value]
 
 
-def validate_training_runtime() -> None:
-    for package, minimum in (("verl", (0, 7, 1)), ("transformers", (4, 51, 0))):
-        try:
-            installed = numeric_version(package)
-        except importlib.metadata.PackageNotFoundError as exc:
-            raise RuntimeError(
-                f"Missing package {package}; see the training README"
-            ) from exc
-        if installed < minimum:
-            raise RuntimeError(
-                f"{package}>={'.'.join(map(str, minimum))} is required; found "
-                f"{importlib.metadata.version(package)}"
+def validate_training_runtime() -> dict[str, Any]:
+    return validate_runtime()
+
+
+def validate_lora_options(args: argparse.Namespace) -> None:
+    if args.lora_rank <= 0 or args.lora_alpha <= 0:
+        raise ValueError(
+            "This entry point supports LoRA only: rank and alpha must be positive"
+        )
+    if args.epochs <= 0 or args.seed < 0 or args.num_workers < 0:
+        raise ValueError(
+            "epochs must be positive; seed and num-workers must be nonnegative"
+        )
+    if args.learning_rate is not None and not 0 < args.learning_rate < float("inf"):
+        raise ValueError("learning-rate must be positive and finite")
+    if not 0 <= args.warmup_ratio <= 1 or not 0 <= args.weight_decay < float("inf"):
+        raise ValueError("Invalid warmup-ratio or weight-decay")
+    if args.resume_mode != "resume_path" and args.resume_from_path is not None:
+        raise ValueError("resume-from-path requires --resume-mode resume_path")
+    if args.resume_mode == "resume_path" and args.resume_from_path is None:
+        raise ValueError("resume_path requires --resume-from-path")
+    # Do not let raw Hydra overrides bypass model/data/checkpoint identity or
+    # re-enable full-parameter training. Extend this allowlist deliberately.
+    for override in args.extra_config:
+        if override not in {
+            "engine.use_torch_compile=false",
+            "engine.use_torch_compile=true",
+        }:
+            raise ValueError(
+                f"Untracked/unsupported SFT override: {override}; use explicit CLI flags"
             )
+    if len(args.extra_config) != len(
+        set(item.split("=", 1)[0] for item in args.extra_config)
+    ):
+        raise ValueError("Duplicate SFT override")
 
 
 def build_training_command(
     args: argparse.Namespace, train_path: Path, val_path: Path | None
 ) -> list[str]:
+    validate_lora_options(args)
     if args.num_gpus < 1:
         raise ValueError("--num-gpus must be positive")
     if args.global_batch_size < 1 or args.micro_batch_size < 1:
@@ -572,7 +614,6 @@ def build_training_command(
 
     custom_module = Path(__file__).resolve()
     output_dir = args.output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
     val_override = str(val_path.resolve()) if val_path is not None else "null"
     command = [
         sys.executable,
@@ -581,8 +622,7 @@ def build_training_command(
         "--standalone",
         "--nnodes=1",
         f"--nproc-per-node={args.num_gpus}",
-        "-m",
-        "verl.trainer.sft_trainer",
+        str(custom_module.with_name("lora_sft_runtime.py")),
         f"data.train_files={train_path.resolve()}",
         f"data.val_files={val_override}",
         f"data.train_batch_size={args.global_batch_size}",
@@ -595,6 +635,7 @@ def build_training_command(
         f"data.max_token_len_per_gpu={args.max_token_len_per_gpu}",
         f"data.num_workers={args.num_workers}",
         "data.ignore_input_ids_mismatch=False",
+        "data.enable_thinking_default=false",
         f"data.custom_cls.path={custom_module}",
         "data.custom_cls.name=ARealLastAnswerSFTDataset",
         f"model.path={args.model}",
@@ -609,6 +650,7 @@ def build_training_command(
         f"engine.ulysses_sequence_parallel_size={args.ulysses_size}",
         f"engine.param_offload={str(args.param_offload).lower()}",
         f"engine.optimizer_offload={str(args.optimizer_offload).lower()}",
+        f"engine.seed={args.seed}",
         f"optim.lr={learning_rate}",
         f"optim.lr_warmup_steps_ratio={args.warmup_ratio}",
         f"optim.weight_decay={args.weight_decay}",
@@ -618,12 +660,15 @@ def build_training_command(
         f"trainer.experiment_name={args.experiment_name}",
         f"trainer.total_epochs={args.epochs}",
         "trainer.save_freq=after_each_epoch",
-        "trainer.test_freq=after_each_epoch",
+        "trainer.test_freq=after_each_epoch"
+        if val_path is not None
+        else "trainer.test_freq=-1",
         "trainer.logger=[console]",
         f"trainer.seed={args.seed}",
         f"trainer.n_gpus_per_node={args.num_gpus}",
         f"trainer.resume_mode={args.resume_mode}",
-        "checkpoint.save_contents=[model,optimizer,extra,hf_model]",
+        "checkpoint.save_contents=[model,optimizer,extra]",
+        "checkpoint.load_contents=[model,optimizer,extra]",
     ]
     if args.resume_mode == "resume_path":
         if args.resume_from_path is None:
@@ -668,9 +713,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--work-dir", type=Path, default=default_work)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--model", default=DEFAULT_MODEL)
-    parser.add_argument("--model-revision", default="main")
+    parser.add_argument("--model-revision", default=DEFAULT_MODEL_REVISION)
     parser.add_argument("--num-gpus", type=int, default=int(os.getenv("NUM_GPUS", "1")))
-    parser.add_argument("--global-batch-size", type=int, default=32)
+    parser.add_argument("--global-batch-size", type=int, default=8)
     parser.add_argument("--micro-batch-size", type=int, default=1)
     parser.add_argument("--max-length", type=int, default=16_384)
     parser.add_argument("--max-token-len-per-gpu", type=int, default=16_384)
@@ -678,7 +723,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--learning-rate", type=float)
     parser.add_argument("--warmup-ratio", type=float, default=0.03)
     parser.add_argument("--weight-decay", type=float, default=0.01)
-    parser.add_argument("--lora-rank", type=int, default=0)
+    parser.add_argument("--lora-rank", type=int, default=64)
     parser.add_argument("--lora-alpha", type=int, default=128)
     parser.add_argument("--ulysses-size", type=int, default=1)
     parser.add_argument("--fsdp-strategy", choices=("fsdp", "fsdp2"), default="fsdp")
@@ -687,7 +732,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--val-ratio", type=float, default=0.02)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--experiment-name", default="qwen3-4b-instruct-2507-full-sft")
+    parser.add_argument("--experiment-name", default="qwen3-4b-instruct-2507-lora-sft")
     parser.add_argument("--run-name")
     parser.add_argument(
         "--resume-mode", choices=("disable", "resume_path"), default="disable"
@@ -708,6 +753,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    validate_lora_options(args)
     run_name, output_dir = resolve_sft_run(args)
     args.experiment_name = run_name
     args.output_dir = output_dir
@@ -730,7 +776,7 @@ def main() -> None:
     identity["requested_model"] = requested_model
     if Path(args.model).parent.name == "snapshots":
         identity["resolved_revision"] = Path(args.model).name
-    train_path, val_path, _ = prepare_dataset(
+    train_path, val_path, prepared = prepare_dataset(
         source=args.data_jsonl,
         work_dir=args.work_dir,
         val_ratio=args.val_ratio,
@@ -740,7 +786,13 @@ def main() -> None:
     )
     if args.prepare_only:
         return
-    validate_training_runtime()
+    if prepared["train_rows"] < args.global_batch_size:
+        raise ValueError(
+            "Training data has fewer than one global batch; reduce --global-batch-size"
+        )
+    if not prepared["validation_rows"]:
+        val_path = None
+    runtime = validate_training_runtime()
     command = build_training_command(args, train_path, val_path)
     print("Launching:\n" + shlex.join(command), flush=True)
     if args.dry_run:
@@ -750,15 +802,15 @@ def main() -> None:
     sys.path.insert(0, str(repository_root() / "agentic_rl/src"))
     from tau2_agentic_rl.base_identity import capture_base_identity, save_base_identity
 
-    if any(item.split("=", 1)[0].lstrip("+") == "model.path" for item in args.extra_config):
-        raise ValueError("use --model, not an untracked model.path override")
     base_identity = capture_base_identity(args.model)
+    run_identity = build_run_identity(
+        args, prepared, train_path, val_path, base_identity, runtime
+    )
     if args.resume_mode == "resume_path":
-        from tau2_agentic_rl.base_identity import find_base_identity
-        saved = json.loads(find_base_identity(args.resume_from_path).read_text(encoding="utf-8"))
-        if saved["files"] != base_identity["files"]:
-            raise ValueError("SFT resume base identity changed")
+        validate_resume(args.resume_from_path, run_identity)
+    validate_output(output_dir, run_identity, args.resume_from_path)
     save_base_identity(output_dir, base_identity)
+    save_run_identity(output_dir, run_identity)
     subprocess.run(command, check=True)
 
 
