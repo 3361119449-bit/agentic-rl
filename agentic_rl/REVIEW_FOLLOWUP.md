@@ -1,5 +1,34 @@
 # 复审修复与验收边界
 
+## 2026-09-07：pass^4、RL 恢复身份与跨版本 tokenizer 回归
+
+本轮基于 `93d4bb8`，只修改报告、RL 恢复保护及测试/文档，不改变数据、奖励权重、
+学习率、LoRA 配置或 SFT 训练算法。
+
+- RL 报告改为官方 Tau2 pass^k 的 `comb(c,k)/comb(n,k)`，与独立 SFT 报告一致。
+  4 次中仅成功 1 次时 pass^1=0.25、pass^4=0。旧版 RL 的 pass@4 报告需要从
+  完整原始轨迹重新汇总；新报告显式带 `metric_definition` 和公式，原有字段名保留。
+- RL 启动保存 `rl_resume_identity.json`，真实 trainer 保存 checkpoint 时一并快照。
+  训练阶段、train/dev Parquet 内容、标注/AgentLoop 配置内容、最终命令中的种子、
+  epochs、总训练步数及其他训练 overrides 都被绑定。换到空目录也核对原 checkpoint，
+  不能借此修改学习率或训练数据。拒绝恢复发生在 GPU 子进程和首次输出写入之前。
+- 缺少 checkpoint 自身身份记录的旧版/不完整 checkpoint 拒绝直接恢复，不从今天的
+  配置补造身份。原模型文件保留；可导出/合并权重开启新实验，但不是精确恢复。
+- 真实 Qwen 测试的参考编码显式使用固定 veRL 包装器的 `return_dict=False`，兼容
+  Transformers 4/5；没有因此修改已正确指定该参数的生产 prompt 编码器。
+  CI 增加 4.57.1 / 5.10.4 双版本矩阵，并在真实 RL 依赖解析环境中运行 tokenizer 测试，
+  防止“CPU 旧版本通过、实际 RL 新版本未覆盖”。
+
+回归覆盖公式边界与 SFT/RL 一致性、实际 launcher 的首次启动/同配置恢复/跨目录恢复、
+变更 CLI 或同路径数据后拒绝、拒绝路径不改写旧 run、旧 checkpoint 无清单拒绝，
+以及实际 trainer 保存方法中的身份快照。本地完整 CPU 回归在 Transformers 4.57.1
+和 5.10.4 下各 **200 项通过**；LoRA SFT 隔离检查 **8 项通过、3 项缺少完整依赖跳过**；
+独立 Tau2 rollout/SFT 流程 **3 项通过、1 项未启用 Hub tokenizer 集成而跳过**，lint 通过。
+完整 Linux 依赖层的最终结果见本轮提交后的 Actions 记录；GPU/API、真实梯度更新、
+权重同步、BF16 合并等价与 GPU 断点恢复仍未验收。
+
+以下为历史复审记录；旧 pass@k 和旧恢复说明以本节及最新 README 为准。
+
 ## 2026-09-05：针对 `044f4c5` 的再审
 
 此前“已可直接进入 GPU smoke”的结论过早：两处固定依赖启动错误确实存在，
@@ -79,7 +108,7 @@ python scripts/evaluate_airline.py \
 
 相同模型和全部参数的中断重试：在同一条命令后加 `--resume`。每次启动最多初始轮加 2 轮补齐，可用 `--max-refill-rounds` 修改重试上限。每个 slot 的环境 seed 和每轮生成 seed 固定；这不能保证外部 API 或不同 GPU 调度完全确定性。
 
-最终 test 必须有 20 个任务 × 4 条有效轨迹 = 80 条；少一个 slot 也不输出最终 pass@1/pass@4。基础设施故障会保留记录、重试缺失 slot；合法模型失败不会重试到成功。非空 tag 不能新建；同 tag 恢复时模型权重、adapter、代码、配置、标注和采样身份必须一致。旧版无 manifest 的目录不能直接混入新评估。
+最终 test 必须有 20 个任务 × 4 条有效轨迹 = 80 条；少一个 slot 也不输出最终 pass^1/pass^4。基础设施故障会保留记录、重试缺失 slot；合法模型失败不会重试到成功。非空 tag 不能新建；同 tag 恢复时模型权重、adapter、代码、配置、标注和采样身份必须一致。旧版无 manifest 的目录不能直接混入新评估。
 
 ```bash
 # 进行中只看缺失信息，不输出任何最终分数
@@ -89,7 +118,10 @@ python scripts/summarize_evaluation.py \
 
 若主机被强制关闭留下 `evaluation.lock`，先确认旧评估进程及其 Ray worker 已完全停止，再人工移走该锁并使用 `--resume`；不要在旧进程仍运行时强行解除锁。
 
-RL 恢复的路径相对项目而不是 veRL checkout。继续相同实验必须保持 `--run-name` 和运行配置；改配置请使用新的 run name。`runtime_config.yaml` 固化实际配置，每次启动另存 `launches/<id>.json`，不覆盖前一次启动记录。
+RL 恢复的路径相对项目而不是 veRL checkout。继续相同实验须通过原 checkpoint 的
+`rl_resume_identity.json` 校验；可换为空的新 run 目录，但仍必须保持训练身份。
+改训练配置应导出/合并权重后开启新实验，不传 `--resume-from-path`。
+`runtime_config.yaml` 固化实际配置，每次启动另存 `launches/<id>.json`，不覆盖前一次启动记录。
 
 ## PPO 审计：已接入与尚未证明的内容
 

@@ -1,4 +1,4 @@
-"""Report final pass@1/pass@4 only for a complete, single-identity evaluation."""
+"""Report Tau2 pass^1/pass^4 only for a complete, single-identity evaluation."""
 
 from __future__ import annotations
 
@@ -12,14 +12,13 @@ from typing import Any
 from tau2_agentic_rl.evaluation import evaluation_coverage
 
 
-def _pass_at_k(successes: int, samples: int, k: int) -> float:
+def pass_hat_k(samples: int, successes: int, k: int) -> float:
+    """Tau2 consistency: all k trials succeed, not at least one (pass@k)."""
+    if not 0 <= successes <= samples or k < 1:
+        raise ValueError("require 0 <= successes <= samples and k >= 1")
     if samples < k:
-        raise ValueError(f"pass@{k} needs at least {k} valid samples")
-    return (
-        1.0
-        if samples - successes < k
-        else 1 - math.comb(samples - successes, k) / math.comb(samples, k)
-    )
+        raise ValueError(f"pass^{k} needs at least {k} valid samples")
+    return math.comb(successes, k) / math.comb(samples, k)
 
 
 def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str, Any]:
@@ -53,16 +52,19 @@ def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str,
         groups[str(row["task_id"])].append(row)
     per_task = []
     for task, rows in sorted(groups.items(), key=lambda item: int(item[0])):
-        official = sum(row["official_scores"]["reward"] == 1.0 for row in rows)
+        # Match the pinned Tau2 is_successful tolerance.
+        official = sum(
+            1 - 1e-6 <= row["official_scores"]["reward"] <= 1 + 1e-6 for row in rows
+        )
         strict = sum(row["custom_reward"]["strict_success"] == 1.0 for row in rows)
         per_task.append(
             {
                 "task_id": task,
                 "samples": len(rows),
-                "official_pass1": _pass_at_k(official, len(rows), 1),
-                "official_pass4": _pass_at_k(official, len(rows), 4),
-                "custom_strict_pass1": _pass_at_k(strict, len(rows), 1),
-                "custom_strict_pass4": _pass_at_k(strict, len(rows), 4),
+                "official_pass1": pass_hat_k(len(rows), official, 1),
+                "official_pass4": pass_hat_k(len(rows), official, 4),
+                "custom_strict_pass1": pass_hat_k(len(rows), strict, 1),
+                "custom_strict_pass4": pass_hat_k(len(rows), strict, 4),
             }
         )
     keys = (
@@ -73,6 +75,8 @@ def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str,
     )
     return {
         "status": "complete",
+        "metric_definition": "tau2_pass_hat_k",
+        "metric_formula": "comb(successes, k) / comb(samples, k)",
         "manifest_id": manifest["manifest_id"],
         "tasks": len(per_task),
         **coverage,

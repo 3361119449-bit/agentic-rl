@@ -8,7 +8,7 @@
 - `custom_reward.strict_success`：本项目严格成功；
 - `custom_reward.train_reward`：只用于 GRPO 的训练奖励。
 
-`R_tau2_official != S_custom_strict != R_train`，最终报告脚本只输出 pass@1 和 pass@4，不把训练奖励冒充官方成功率。
+`R_tau2_official != S_custom_strict != R_train`，最终报告脚本只输出 Tau2 pass^1 和 pass^4，不把训练奖励冒充官方成功率。
 
 最新复审修复、评估断点续跑、PPO 审计开关与尚未完成的 GPU 验收见
 [REVIEW_FOLLOWUP.md](REVIEW_FOLLOWUP.md)。CPU 测试通过不代表 GPU 端到端验收已完成。
@@ -35,7 +35,7 @@
 - train/internal-dev/test 物理分离，test 标注与训练配置分开；
 - 每条轨迹原子化保存，可离线重新打分。
 - 每个实验使用独立 run 目录且默认禁用自动续训；
-- 基础设施失败单独落盘，不计作模型失败或 pass@k 样本。
+- 基础设施失败单独落盘，不计作模型失败或 pass^k 样本。
 - 冻结评估身份与样本 slot；最终 test 必须补齐 20 × 4 = 80 条有效轨迹才输出分数。
 
 ## 目录
@@ -201,7 +201,7 @@ worker 意外死亡时额度不会自动回收；取消时也要等后台工作�
 
 评分只读 cleanup 前的 `environment_transcript`；`messages` 是裁剪后的 actor 上下文，
 `token_turns` 是原始策略输出，不可混当沟通证据。Judge 单独失败保留同 ID/seed/slot 的
-`scoring_inputs`，`--resume` 只重试评分；评分仍失败时不输出最终 pass@1/pass@4。
+`scoring_inputs`，`--resume` 只重试评分；评分仍失败时不输出最终 pass^1/pass^4。
 
 ## 真实初始 prompt 长度预检
 
@@ -332,7 +332,8 @@ python scripts/train_airline_grpo.py \
 `full_train` 已包含原先 6 条 internal-dev，因此这时出现的 internal-dev
 数值只能叫训练集监控指标，不能再叫独立验证结果。
 
-如需继续中断的同一个实验，必须显式指定其 run name 和 checkpoint：
+如需继续中断的同一个实验，显式指定 checkpoint，并保留原来的阶段、seed、epochs
+和全部训练 overrides（下例适用于原本使用默认 seed=42、epochs=15 的实验）：
 
 ```bash
 python scripts/train_airline_grpo.py \
@@ -342,7 +343,15 @@ python scripts/train_airline_grpo.py \
 ```
 
 恢复也允许保存到另一个原本为空（或尚不存在）的新 run 目录；目标目录、底座
-身份、目标已有配置的校验都发生在第一次写文件之前。另一个非空 run 仍会被拒绝。
+身份、原 checkpoint 的训练身份和目标已有配置都在第一次写文件前校验。
+另一个非空 run 仍会被拒绝。`rl_resume_identity.json` 保存于 run 目录及每个新
+checkpoint 中，绑定阶段、训练/验证 Parquet 内容指纹、标注/AgentLoop 配置文件、
+实际种子、epochs、总训练步数覆盖及其他训练 overrides。换目录不允许绕过校验。
+`--extra` 不得改写 seed 或 epochs；应使用 `--seed`、`--epochs`。
+
+旧 checkpoint 若缺少自己的 `rl_resume_identity.json`，不能直接恢复 optimizer /
+dataloader 状态，也不能从当前配置或 run 目录补造身份。已有模型权重没有被删除，
+仍可在满足原底座身份校验的前提下导出/合并后开启新实验；这不等于精确续训。
 `--resume-from-path` 无论是否换目录，都表示继续 checkpoint 的 optimizer/scheduler
 和训练计数；**不等于仅加载模型权重开启新实验**。后者应先导出/合并所需模型，
 设置新的 `MERGED_SFT_MODEL` 和 run name，不传 `--resume-from-path`。
@@ -371,7 +380,7 @@ python scripts/evaluate_airline.py \
   --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
 ```
 
-只汇总 pass@1 和 pass@4：
+只汇总 Tau2 pass^1 和 pass^4：
 
 ```bash
 python scripts/summarize_evaluation.py \
@@ -382,6 +391,17 @@ python scripts/summarize_evaluation.py \
   outputs/evaluations/sft_grpo/trajectories \
   --output outputs/reports/sft_grpo_pass1_pass4.json
 ```
+
+两条评估路径与 `training/tau2_rollout_sft/report_pass1_pass4.py` 使用同一口径：
+每任务的 pass^k = `comb(成功次数, k) / comb(有效次数, k)`，最后对任务等权平均。
+恰好运行 4 次时，pass^4 只有四次全部成功才为 1；只成功 1 次时 pass^1=0.25、
+pass^4=0。它不是“至少一次成功”的 pass@4，定义见
+[固定 Tau2 官方实现](https://github.com/sierra-research/tau2-bench/blob/a2c024725189473d2d7cea3a5cfdbcc67478e41f/src/tau2/metrics/agent_metrics.py)。
+
+JSON 保留 `official_pass1` / `official_pass4` 等字段名，并新增
+`metric_definition: tau2_pass_hat_k` 和 `metric_formula`。2026-09-07 此修复之前的
+RL 汇总文件使用 pass@4，**不能直接与修复后的 pass^4 比较**。使用上面的汇总命令
+从已有完整轨迹重新输出一份报告即可，不必重新 rollout 或请求 DeepSeek；不要只改旧报告标签。
 
 ## 动态采样实现说明
 
@@ -402,7 +422,8 @@ veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num
 每个 checkpoint 内还保存自己的 `step_counters.json`，恢复时优先读取它并
 验证 optimizer step；旧 run 级计数仅在恰好匹配该 checkpoint 时兼容。
 训练 YAML 是所列超参数的来源，支持 `--config`；实际配置保存为
-`runtime_config.yaml`，每次启动记录保存在 `launches/`。
+`runtime_config.yaml`，每次启动记录保存在 `launches/`；恢复另外核对原 checkpoint
+中的 `rl_resume_identity.json`，不能只比较 YAML 而忽略 CLI 参数和数据内容。
 
 这段扩展依赖 veRL v0.9.0 的受保护接口，因此训练启动器会先检查完整 commit SHA；版本不符会直接终止。
 
@@ -437,5 +458,5 @@ Judge 缓存键包含模型、provider/base URL、完整消息、rubric/prompt/s
 版本、解码参数和 scorer 版本；缓存及轨迹均使用临时文件加原子替换。
 未知工具与非法 Schema 不进入 Tau2，超长 observation 会在进入训练上下文
 前确定性截断并记录。Tau2 的 timeout、max_steps、agent/user/infra error 等
-终止原因会原样区分；基础设施失败轨迹保存审计信息后抛出，不进入 pass@k
+终止原因会原样区分；基础设施失败轨迹保存审计信息后抛出，不进入 pass^k
 分母。

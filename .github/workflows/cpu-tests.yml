@@ -13,8 +13,13 @@ permissions:
 
 jobs:
   tests:
+    name: CPU and tokenizer (Transformers ${{ matrix.transformers }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        transformers: ['4.57.1', '5.10.4']
     env:
       PYTHONPATH: src
       QWEN_TOKENIZER_PATH: /tmp/agentic-rl-qwen-tokenizer
@@ -29,7 +34,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install CPU dependencies (no model weights, GPU or API key)
-        run: python -m pip install -e '.[test]' transformers==4.57.1 jinja2 ruff==0.16.6
+        run: python -m pip install -e '.[test]' 'transformers==${{ matrix.transformers }}' jinja2 ruff==0.16.6
       - name: Fetch pinned real Qwen tokenizer
         run: >-
           python -c "import os; from huggingface_hub import snapshot_download;
@@ -47,8 +52,7 @@ jobs:
     timeout-minutes: 35
     env:
       PYTHONPATH: src
-      HF_HUB_OFFLINE: '1'
-      TRANSFORMERS_OFFLINE: '1'
+      QWEN_TOKENIZER_PATH: /tmp/rl-qwen-tokenizer
     defaults:
       run:
         working-directory: agentic_rl
@@ -68,8 +72,17 @@ jobs:
           python -m pip install --no-cache-dir -e '.[test]' -e '/tmp/verl-contract' 'vllm==0.24.0' 'TransferQueue==0.1.8'
           python -m pip check
           python -m pip freeze
+      - name: Fetch pinned Qwen tokenizer for the actual resolved RL stack
+        run: >-
+          python -c "import os; from huggingface_hub import snapshot_download;
+          snapshot_download('Qwen/Qwen3-4B-Instruct-2507',
+          revision='cdbee75f17c01a7cc42f958dc650907174af0554',
+          local_dir=os.environ['QWEN_TOKENIZER_PATH'],
+          allow_patterns=['tokenizer*', '*.jinja', 'config.json', 'special_tokens_map.json'])"
       - name: Real runner import, Hydra validation and multi-worker concurrency
-        run: python -m pytest contract_tests -v --tb=short
+        env:
+          HF_HUB_OFFLINE: '1'
+        run: python -m pytest contract_tests tests/test_qwen_chat_stream.py -v --tb=short
 
   real-sft-lora-contract:
     runs-on: ubuntu-latest

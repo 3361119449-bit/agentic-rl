@@ -100,6 +100,10 @@ def effective_project_config(
             "actor_rollout_ref.model.path",
             "data.train_files",
             "data.val_files",
+            "data.seed",
+            "actor_rollout_ref.actor.data_loader_seed",
+            "actor_rollout_ref.rollout.seed",
+            "trainer.total_epochs",
         }:
             raise ValueError(f"use dedicated CLI arguments instead of --extra {key}")
         if separator and normalized in reverse:

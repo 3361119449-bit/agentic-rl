@@ -7,6 +7,7 @@ from scripts.train_airline_grpo import build_command, prepare_run_directory
 from tau2_agentic_rl.base_identity import capture_base_identity, save_base_identity
 from tau2_agentic_rl.checkpoints import resolve_resume_path, restore_step_clock
 from tau2_agentic_rl.config import load_yaml
+from tau2_agentic_rl.rl_resume import save_resume_identity
 from tau2_agentic_rl.training_config import effective_project_config
 
 
@@ -109,7 +110,19 @@ def resume_fixture(root):
     ):
         (base / name).write_text("{}", encoding="utf-8")
     save_base_identity(path.parent.parent, capture_base_identity(base))
+    save_resume_identity(path.parent.parent, fixture_identity())
+    save_resume_identity(path, fixture_identity())
     return path, base
+
+
+def fixture_identity():
+    return {
+        "schema_version": 1,
+        "stage": "smoke",
+        "runtime_config": {"fixture": 1},
+        "training_overrides": {},
+        "files": {},
+    }
 
 
 @pytest.mark.parametrize("destination", ["same", "new_empty", "new_absent"])
@@ -118,7 +131,9 @@ def test_resume_destination_accepts_same_or_new_empty_run(scratch_dir, destinati
     target = path.parent.parent if destination == "same" else scratch_dir / "new"
     if destination == "new_empty":
         target.mkdir()
-    runtime = prepare_run_directory(target, path, str(base), {"fixture": 1})
+    runtime = prepare_run_directory(
+        target, path, str(base), {"fixture": 1}, resume_identity=fixture_identity()
+    )
     assert load_yaml(runtime) == {"fixture": 1}
     assert (target / "base_model_identity.json").is_file()
     assert (path / "actor/model_world_size_1_rank_0.pt").is_file()
@@ -130,7 +145,9 @@ def test_cross_run_nonempty_destination_rejected_without_writes(scratch_dir):
     target.mkdir()
     (target / "keep.txt").write_text("original", encoding="utf-8")
     with pytest.raises(ValueError, match="nonempty"):
-        prepare_run_directory(target, path, str(base), {})
+        prepare_run_directory(
+            target, path, str(base), {}, resume_identity=fixture_identity()
+        )
     assert [p.name for p in target.iterdir()] == ["keep.txt"]
     assert (target / "keep.txt").read_text(encoding="utf-8") == "original"
 
@@ -154,6 +171,7 @@ def test_rejected_resume_or_fresh_run_does_not_modify_existing_files(
             None if failure == "fresh_nonempty" else path,
             str(base),
             {"fixture": "new"},
+            resume_identity=fixture_identity(),
         )
     after = {
         p.relative_to(target): p.read_bytes() for p in target.rglob("*") if p.is_file()

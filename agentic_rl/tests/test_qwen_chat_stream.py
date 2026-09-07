@@ -42,7 +42,11 @@ def encode(tokenizer, messages, generation=True):
         else None
     )
     return tokenizer.apply_chat_template(
-        messages, tools=tools, tokenize=True, add_generation_prompt=generation
+        messages,
+        tools=tools,
+        tokenize=True,
+        add_generation_prompt=generation,
+        return_dict=False,  # Match the pinned veRL wrapper on Transformers 4/5.
     )
 
 
@@ -162,7 +166,7 @@ def test_real_qwen_initial_prompt_is_encoded_without_left_truncation(tokenizer):
     ]
     full = encode_full_chat(tokenizer, messages)
     expected = tokenizer.apply_chat_template(
-        messages, tokenize=True, add_generation_prompt=True
+        messages, tokenize=True, add_generation_prompt=True, return_dict=False
     )
     assert len(full) > 8192 and full == expected
     assert "POLICY MUST SURVIVE" in tokenizer.decode(full[:40])

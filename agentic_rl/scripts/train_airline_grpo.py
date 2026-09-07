@@ -19,6 +19,12 @@ from tau2_agentic_rl.base_identity import (
 )
 from tau2_agentic_rl.checkpoints import resolve_resume_path, restore_step_clock
 from tau2_agentic_rl.config import expand_env, load_yaml
+from tau2_agentic_rl.rl_resume import (
+    MANIFEST,
+    build_resume_identity,
+    require_same_identity,
+    save_resume_identity,
+)
 from tau2_agentic_rl.training_config import effective_project_config, training_overrides
 
 TAU2_COMMIT = "a2c024725189473d2d7cea3a5cfdbcc67478e41f"
@@ -65,6 +71,8 @@ def build_command(
     project_config: dict | None = None,
 ) -> list[str]:
     """Translate the plan to veRL v0.9.0 Hydra overrides."""
+    if total_epochs < 1 or seed < 0:
+        raise ValueError("epochs must be positive and seed must be nonnegative")
     agent_config = project_root / "configs" / "rl" / "agent_loop_v1.yaml"
     run_root = run_root or project_root / "outputs" / "runs" / run_name
     project = effective_project_config(
@@ -159,12 +167,22 @@ def validate_run_destination(run_root: Path, resume_from_path: Path | None) -> N
 
 
 def prepare_run_directory(
-    run_root: Path, resume_from_path: Path | None, model_path: str, project: dict
+    run_root: Path,
+    resume_from_path: Path | None,
+    model_path: str,
+    project: dict,
+    *,
+    resume_identity: dict,
 ) -> Path:
     """Validate destination, base and runtime config before the first write."""
     import yaml
 
     validate_run_destination(run_root, resume_from_path)
+    if resume_from_path is not None:
+        # Check the source checkpoint even when the destination is a NEW run.
+        require_same_identity(resume_from_path, resume_identity)
+    if (run_root / MANIFEST).exists():
+        require_same_identity(run_root, resume_identity)
     base_identity = capture_base_identity(model_path)
     if resume_from_path is not None:
         saved = json.loads(
@@ -178,6 +196,7 @@ def prepare_run_directory(
 
     run_root.mkdir(parents=True, exist_ok=True)
     save_base_identity(run_root, base_identity)
+    save_resume_identity(run_root, resume_identity)
     if not runtime_path.exists():
         runtime_path.write_text(
             yaml.safe_dump(project, sort_keys=False), encoding="utf-8"
@@ -277,8 +296,15 @@ def main() -> None:
     print(shlex.join(command))
     if not args.dry_run:
         project = expand_env(project)
+        resume_identity = build_resume_identity(
+            project_root, project, command, stage=args.stage
+        )
         runtime_path = prepare_run_directory(
-            run_root, args.resume_from_path, model_path, project
+            run_root,
+            args.resume_from_path,
+            model_path,
+            project,
+            resume_identity=resume_identity,
         )
         os.environ["AGENTIC_RL_CONFIG"] = str(runtime_path)
         launches = run_root / "launches"

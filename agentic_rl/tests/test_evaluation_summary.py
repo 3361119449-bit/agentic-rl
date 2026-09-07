@@ -1,8 +1,10 @@
+import importlib.util
 import json
+from pathlib import Path
 
 import pytest
 
-from scripts.summarize_evaluation import summarize
+from scripts.summarize_evaluation import pass_hat_k, summarize
 from tau2_agentic_rl.evaluation import (
     evaluation_coverage,
     evaluation_lock,
@@ -61,7 +63,49 @@ def test_final_test_requires_all_twenty_tasks_and_eighty_valid_slots(scratch_dir
     assert result["infrastructure_failures"] == 1
     assert result["tasks"] == 20
     assert result["aggregate"]["official_pass1"] == 0.25
-    assert result["aggregate"]["official_pass4"] == 1.0
+    assert result["aggregate"]["official_pass4"] == 0.0
+    assert result["aggregate"]["custom_strict_pass1"] == 0.25
+    assert result["aggregate"]["custom_strict_pass4"] == 0.0
+    assert result["metric_definition"] == "tau2_pass_hat_k"
+
+
+@pytest.mark.parametrize("successes", range(5))
+def test_tau2_pass_four_requires_all_four_successes(successes):
+    assert pass_hat_k(4, successes, 1) == successes / 4
+    assert pass_hat_k(4, successes, 4) == float(successes == 4)
+
+
+def test_rl_and_standalone_sft_report_use_identical_tau2_formula():
+    path = Path(__file__).parents[2] / "training/tau2_rollout_sft/report_pass1_pass4.py"
+    spec = importlib.util.spec_from_file_location("sft_pass_report", path)
+    report = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(report)
+    for samples in (4, 8, 16):
+        for successes in range(samples + 1):
+            for k in (1, 4):
+                assert pass_hat_k(samples, successes, k) == report.pass_hat_k(
+                    samples, successes, k
+                )
+    assert pass_hat_k(8, 4, 4) == 1 / 70
+
+
+@pytest.mark.parametrize("counts", [(3, 3, 4), (4, 5, 4), (4, -1, 1), (4, 2, 0)])
+def test_pass_hat_rejects_invalid_counts(counts):
+    with pytest.raises(ValueError):
+        pass_hat_k(*counts)
+
+
+def test_macro_average_and_official_success_tolerance(scratch_dir):
+    _, records, manifest = setup_evaluation(scratch_dir, count=2)
+    for task in range(2):
+        for slot in range(4):
+            path = write_sample(records, manifest, task, slot)
+            row = json.loads(path.read_text(encoding="utf-8"))
+            row["official_scores"]["reward"] = 1 - 5e-7 if task == 0 else 0.0
+            row["custom_reward"]["strict_success"] = float(task == 0)
+            path.write_text(json.dumps(row), encoding="utf-8")
+    result = summarize(records)
+    assert set(result["aggregate"].values()) == {0.5}
 
 
 def test_missing_whole_task_is_not_dropped_from_macro_average(scratch_dir):

@@ -40,6 +40,7 @@ from verl.utils.tracking import (
 from tau2_agentic_rl.checkpoints import restore_step_clock
 from tau2_agentic_rl.dynamic_sampling import TrainingStepClock
 from tau2_agentic_rl.ppo_audit import audit_update
+from tau2_agentic_rl.rl_resume import snapshot_resume_identity
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +286,7 @@ class CappedPPOTrainerSync(PPOTrainerSync):
             / f"global_step_{self.global_steps}"
         )
         self._write_step_counters(self.step_clock, checkpoint / "step_counters.json")
+        snapshot_resume_identity(checkpoint.parent.parent, checkpoint)
 
     def _write_step_counters(
         self, clock: TrainingStepClock, path: Path | None = None

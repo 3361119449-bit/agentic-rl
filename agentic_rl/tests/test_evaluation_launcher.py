@@ -115,7 +115,8 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
         assert batches[1][0] == batches[0][0]
     result = json.loads((root / "summary.json").read_text(encoding="utf-8"))
     assert result["valid_samples"] == 80
-    assert result["aggregate"]["official_pass4"] == (0.05 if scoring_only else 0)
+    assert result["aggregate"]["official_pass1"] == (0.0125 if scoring_only else 0)
+    assert result["aggregate"]["official_pass4"] == 0
     with pytest.raises(FileExistsError):
         evaluate_airline.main()
     monkeypatch.setattr(sys, "argv", argv + ["--resume"])
