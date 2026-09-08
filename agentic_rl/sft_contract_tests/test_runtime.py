@@ -356,6 +356,19 @@ def test_real_parquet_parent_dataset_and_qwen_masks(tmp_path):
     assert not row["loss_mask"][: len(prompt)].any()
     assert row["loss_mask"][len(prompt) :].all()
     assert len(row["input_ids"]) <= 16384
+    # Exercise the converter -> Parquet -> real SFT dataset contract as well.
+    converter_path = (
+        Path(__file__).parents[2]
+        / "training/tau2_rollout_sft/convert_tau2_results_to_sft.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "sft_converter_contract", converter_path
+    )
+    converter = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(converter)
+    assert converter.token_length(
+        tokenizer, normalized + [mod.normalize_message(answer)], tools
+    ) == len(row["input_ids"])
     # A same-size manual edit to the prepared Parquet cannot bypass the cache.
     data = bytearray(train.read_bytes())
     data[-1] ^= 1

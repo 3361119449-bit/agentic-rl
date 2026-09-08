@@ -168,7 +168,9 @@ def token_length(
 ) -> int:
     encoded = tokenizer.apply_chat_template(
         messages,
-        tools=tools,
+        # SFT preparation stores recursively sorted tools_json. Qwen's template
+        # preserves key order, so count that exact stream, not the raw schema.
+        tools=json.loads(json.dumps(tools, sort_keys=True)),
         tokenize=True,
         return_dict=False,  # Transformers 5 otherwise returns a BatchEncoding.
         add_generation_prompt=False,

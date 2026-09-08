@@ -323,6 +323,14 @@ Markdown still contain only `pass^1` and `pass^4`.
 
 ## Offline regression checks
 
+The converter counts tool schemas with the same recursive key ordering as SFT's
+prepared `tools_json`. Qwen renders keys in insertion order, so counting raw
+schemas could incorrectly reject a sample at the 16,384-token boundary even
+when the training input fits. CPU regressions cover that exact boundary; the
+real SFT contract job also compares converter length against the actual
+Parquet-backed dataset input. This does not rewrite existing datasets: rerun
+conversion from the original rollout results to recover previously rejected rows.
+
 The normal `agentic_rl` CPU suite includes the standalone converter and reporter
 regressions. With its test dependencies installed, run from `agentic_rl/`:
 

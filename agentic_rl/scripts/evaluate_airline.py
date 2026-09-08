@@ -121,7 +121,7 @@ def build_evaluation_command(
     return command
 
 
-def main() -> None:
+def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--tau2-root", type=Path, default=os.environ.get("TAU2_ROOT"))
     parser.add_argument("--verl-root", type=Path, default=os.environ.get("VERL_ROOT"))
@@ -133,13 +133,17 @@ def main() -> None:
         default="official_test",
     )
     parser.add_argument("--samples", type=int, default=4)
-    parser.add_argument("--tag", default="frozen_test")
+    parser.add_argument("--tag", type=_safe_run_name, default="frozen_test")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--extra", action="append", default=[])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--max-refill-rounds", type=int, default=2)
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main() -> None:
+    args = parse_args()
 
     if args.tau2_root is None or args.verl_root is None or not args.model_path:
         raise RuntimeError("set TAU2_ROOT, VERL_ROOT, and MERGED_SFT_MODEL/model-path")
@@ -164,7 +168,6 @@ def main() -> None:
             raise ValueError(
                 "evaluation --extra only accepts memory utilization or worker count"
             )
-    args.tag = _safe_run_name(args.tag)
     if args.lora_adapter is not None:
         args.lora_adapter = args.lora_adapter.resolve()
         required = [

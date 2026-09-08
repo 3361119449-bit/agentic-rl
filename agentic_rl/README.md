@@ -258,6 +258,10 @@ python scripts/profile_sft_baseline.py \
 
 完成后会把组内方差、全 0/全 1、组件均值、工具错误、长度和逐任务统计写入 `outputs/reports/sft_baseline_profile.json`。
 
+多组实验可传入 `--tag areal_then_tau2`；评估轨迹目录和画像报告使用同一个
+规范化后的 tag，避免误读默认目录的旧结果。传入 `--samples` 时画像分组大小
+同步变化；`--dry-run` 只展示评估命令，不读取或覆盖已有画像。
+
 Stage 0/1，先运行 CPU 不变量测试，再做真实 API/GPU 轨迹和人工 reward 审计：
 
 ```bash

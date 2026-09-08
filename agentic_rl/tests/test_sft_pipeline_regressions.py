@@ -114,6 +114,47 @@ def test_token_count_is_full_chat_length_not_encoding_field_count(converter, tok
     assert converter.token_length(tokenizer, messages, []) == expected
 
 
+def test_converter_counts_canonical_sft_schema_at_exact_16k_boundary(
+    converter, tokenizer
+):
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "lookup",
+                "description": "Look up a reservation",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                    "required": ["id"],
+                },
+            },
+        }
+    ]
+    messages = [
+        {"role": "system", "content": "Follow policy."},
+        {"role": "user", "content": "Look up ABC"},
+        {"role": "assistant", "content": "airline " * 16231},
+    ]
+
+    def count(schemas):
+        return len(
+            tokenizer.apply_chat_template(
+                messages,
+                tools=schemas,
+                tokenize=True,
+                return_dict=False,
+                add_generation_prompt=False,
+                enable_thinking=False,
+            )
+        )
+
+    # Same semantics, different Qwen tokens: raw order used to falsely reject it.
+    assert count(tools) == 16385
+    assert count(json.loads(json.dumps(tools, sort_keys=True))) == 16384
+    assert converter.token_length(tokenizer, messages, tools) == 16384
+
+
 def test_conversion_keeps_short_prefix_but_filters_long_answer(
     converter,
     tokenizer,
@@ -200,7 +241,7 @@ def test_conversion_keeps_short_prefix_but_filters_long_answer(
     row = rows[0]
     ids = tokenizer.apply_chat_template(
         row["messages"] + [row["answer"]],
-        tools=tools,
+        tools=json.loads(json.dumps(tools, sort_keys=True)),
         tokenize=True,
         return_dict=False,
         add_generation_prompt=False,
