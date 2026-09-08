@@ -99,8 +99,12 @@ results/context commit mismatch.
 Install the Qwen tokenizer in the environment running the converter:
 
 ```bash
-python -m pip install "transformers>=4.51.0"
+python -m pip install "transformers==4.57.1"
 ```
+
+This matches the SFT environment. Conversion is also regression-tested with
+Transformers 5.10.4: it explicitly requests token IDs (`return_dict=False`),
+so the length is not the number of fields in a `BatchEncoding`.
 
 Convert the full run:
 
@@ -129,6 +133,12 @@ The conversion is intentionally strict:
 
 `--skip-token-count` exists only for offline structural tests and must not be
 used for a production dataset.
+
+If you previously converted Tau2 rollouts using Transformers 5 and the old
+converter (for example, `metadata.token_count` is always `2`), rerun conversion
+to a **new output filename** and regenerate the step-matched AReaL sample from
+that corrected reference. Do not merely edit the recorded token counts: some
+rows may need to be removed. Existing datasets are not rewritten automatically.
 
 ## 5. Build the step-matched AReaL continuation control
 
@@ -297,10 +307,47 @@ python training/tau2_rollout_sft/report_pass1_pass4.py \
 ```
 
 The reporter reproduces Tau2's official estimator
-`C(successes, k) / C(trials, k)`, averages it across tasks, excludes official
-`infrastructure_error` runs, and refuses to report pass^4 if any task has fewer
-than four usable trials. Its JSON and Markdown outputs contain only `pass^1`
-and `pass^4`.
+`C(successes, k) / C(trials, k)` and averages it across all 20 official test tasks.
+Before writing metrics it requires the pinned Tau2 commit, airline domain,
+the exact test-task list, and every trial declared by `info.num_trials` (at
+least four). Trial numbers are zero-based. Simulation IDs must be unique, and
+each task/trial may have only one usable result with a finite official reward.
+
+Official `infrastructure_error` attempts do not count as model failures or as
+usable samples. Their missing slots must be completed before reporting; a retry
+may fill the same slot with a different simulation ID. Missing whole tasks,
+duplicate usable trials, train IDs, partial runs and unscored records are
+rejected, without writing final metrics. Both monolithic JSON and the official
+`results.json` + `simulations/` directory format are supported. Final JSON and
+Markdown still contain only `pass^1` and `pass^4`.
+
+## Offline regression checks
+
+The normal `agentic_rl` CPU suite includes the standalone converter and reporter
+regressions. With its test dependencies installed, run from `agentic_rl/`:
+
+```bash
+export QWEN_TOKENIZER_PATH=/path/to/local/qwen3-4b-instruct-2507-tokenizer
+export HF_HUB_OFFLINE=1
+python -m pytest tests/test_process_dedup.py tests/test_sft_pipeline_regressions.py
+```
+
+The two Transformers CI jobs run these checks with the pinned real Qwen
+tokenizer (no model weights, GPU training, user-simulator API or Judge calls).
+If `QWEN_TOKENIZER_PATH` is unset, real-tokenizer tests are skipped locally.
+
+The full local offline check on 2026-09-08 used Python 3.13.3 on Windows and
+both Transformers 4.57.1 and 5.10.4. Each environment returned **230 passed,
+1 skipped** using:
+
+```bash
+python -B -m pytest -p no:cacheprovider tests ../training/tau2_rollout_sft/test_pipeline.py -ra
+```
+
+The skip is the legacy `RUN_QWEN_INTEGRATION` opt-in test; the new local-tokenizer
+tests did run. Ruff checks of the core code/new regressions and syntax/undefined-
+name checks of the standalone utilities passed, as did `git diff --check`.
+No existing dataset, model weights or live API rollout was changed by validation.
 
 ## Leakage boundary
 

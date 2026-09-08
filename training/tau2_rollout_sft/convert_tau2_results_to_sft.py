@@ -170,6 +170,7 @@ def token_length(
         messages,
         tools=tools,
         tokenize=True,
+        return_dict=False,  # Transformers 5 otherwise returns a BatchEncoding.
         add_generation_prompt=False,
         enable_thinking=False,
     )

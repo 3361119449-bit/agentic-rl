@@ -266,6 +266,11 @@ python scripts/verify_qwen_tool_roundtrip.py
 python scripts/run_reward_audit.py data/audits/reward_audit.v1.json
 ```
 
+CPU 回归包含全部 `ToolErrorKind` 的扣分覆盖，以及“普通文本 + 工具调用”从
+格式校验到最终奖励的路径。该格式错误按现有配置扣 0.10，不应抛出评分异常
+或被当作基础设施失败。另覆盖独立 Tau2→SFT 转换的超长过滤和 SFT 消融报告的
+完整 test/trial 校验；真实 tokenizer 用例需要设置 `QWEN_TOKENIZER_PATH`。
+
 第二条命令使用真实 Qwen tokenizer/chat template、veRL `hermes` parser 和
 Tau2 的只读 `list_all_airports` 工具，必须得到恰好一个调用、执行成功且
 数据库哈希不变。

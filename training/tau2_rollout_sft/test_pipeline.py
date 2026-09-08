@@ -150,9 +150,9 @@ class PipelineTests(unittest.TestCase):
 
     def test_official_pass1_pass4_formula(self) -> None:
         simulations = []
-        for trial in range(4):
-            simulations.append(simulation("0", trial, 1.0))
-            simulations.append(simulation("1", trial, 1.0 if trial < 2 else 0.0))
+        for index, task in enumerate(sorted(report_pass1_pass4.OFFICIAL_TEST_IDS, key=int)):
+            for trial in range(4):
+                simulations.append(simulation(task, trial, float(index < 10 or trial < 2)))
         self.assertEqual(
             report_pass1_pass4.compute(simulations),
             {"pass^1": 0.75, "pass^4": 0.5},

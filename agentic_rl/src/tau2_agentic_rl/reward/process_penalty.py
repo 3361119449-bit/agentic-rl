@@ -13,6 +13,7 @@ BASE_ERROR_PRECEDENCE = (
     "model_caused_execution_error",
     "confirmation_required",
     "multiple_tool_calls",
+    "mixed_content_and_tool_call",
 )
 
 

@@ -2,8 +2,13 @@
 
 This repository contains the cleaned AReaL Tau2 airline SFT dataset and its reproducibility artifacts.
 
-Latest RL review fixes, frozen evaluation/resume commands, CPU and real veRL/Ray
-contract CI (105 + 5 tests passed on code commit `151d850`), and remaining
+Local offline verification on 2026-09-08: 230 tests passed and one legacy opt-in
+test skipped on each of Transformers 4.57.1 and 5.10.4, including the new real
+Qwen tokenizer regressions. Static checks passed. This validates the mixed-tool
+reward fix, 16K SFT filtering and complete-test reporting, not GPU training or
+paid API rollouts. Reproduction: [pipeline checks](training/tau2_rollout_sft/README.md#offline-regression-checks).
+
+Historical RL review fixes, frozen evaluation/resume commands and remaining
 GPU acceptance requirements: [review follow-up](agentic_rl/REVIEW_FOLLOWUP.md).
 
 ## Dataset
