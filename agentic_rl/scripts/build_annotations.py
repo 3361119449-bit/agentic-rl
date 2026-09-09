@@ -54,7 +54,6 @@ def _policy_rows(ids: set[str]) -> list[dict[str, Any]]:
             "task_id": task_id,
             "policy_rubric_version": POLICY_RUBRIC_VERSION,
             "deterministic_rules": [
-                "confirmation_before_database_write",
                 "one_tool_call_per_assistant_turn",
             ],
             "judge_checks": policy_checks(task_id),

@@ -6,12 +6,15 @@ from collections import Counter
 from math import ceil
 
 from tau2_agentic_rl.budget import ContextBudget
-from tau2_agentic_rl.tooling import CONFIRMATION_PROTOCOL
 
 
-def initial_messages(policy: str, incoming: list[dict]) -> list[dict]:
+def initial_messages(system_prompt: str, incoming: list[dict]) -> list[dict]:
+    if not system_prompt or any(m.get("role") == "system" for m in incoming):
+        raise ValueError(
+            "require the SFT system prompt and no environment system override"
+        )
     return [
-        {"role": "system", "content": f"{policy}\n\n{CONFIRMATION_PROTOCOL}"},
+        {"role": "system", "content": system_prompt},
         *incoming,
     ]
 
@@ -95,7 +98,7 @@ def summarize_initial_prompts(rows, expected_task_ids):
     failed = [row for row in rows if row.get("status") != "ok"]
     missing = sorted(set(map(str, expected_task_ids)) - measured)
     return {
-        "measurement": "actual_runtime_initial_prompt_with_policy_tools_and_confirmation",
+        "measurement": "actual_runtime_initial_prompt_with_sft_system_and_tools",
         "quantile_method": "nearest_rank",
         "measured_samples": len(values),
         "samples_per_task": dict(Counter(row["task_id"] for row in rows)),

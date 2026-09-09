@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+from tau2_agentic_rl.agent_policy import load_agent_system_prompt
 from tau2_agentic_rl.policy_rules import policy_checks
 
 try:
@@ -83,7 +84,6 @@ def verify(project_root: Path, tau2_data: Path) -> dict[str, Any]:
         assert {str(row["task_id"]) for row in policy_rows} == expected_ids
         for row in policy_rows:
             assert row["deterministic_rules"] == [
-                "confirmation_before_database_write",
                 "one_tool_call_per_assistant_turn",
             ]
             assert row["judge_checks"] == policy_checks(str(row["task_id"]))
@@ -93,6 +93,7 @@ def verify(project_root: Path, tau2_data: Path) -> dict[str, Any]:
     )
     assert config["project"]["tau2_commit"] == TAU2_COMMIT
     assert config["project"]["verl_commit"] == VERL_COMMIT
+    load_agent_system_prompt(config, project_root)
     dynamic = config["dynamic_sampling"]
     assert (
         dynamic["conceptual_gen_batch_size"]

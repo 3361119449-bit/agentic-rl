@@ -31,22 +31,9 @@ def evaluate_mandatory_policy(
         for event in events
         if (event.success or event.db_effect is True) and event.name in MUTATING_TOOLS
     ]
-    confirmation_failures = [
-        event.event_id for event in write_events if event.confirmed_before is not True
-    ]
-    results = [
-        PolicyCheckResult(
-            rule_id="confirmation_before_database_write",
-            applicable=bool(write_events),
-            passed=not confirmation_failures,
-            evidence_event_ids=confirmation_failures,
-            reason=(
-                "all database writes followed explicit user confirmation"
-                if not confirmation_failures
-                else "one or more database writes lacked prior confirmation"
-            ),
-        )
-    ]
+    # SFT policy makes prior confirmation advisory. Legacy confirmation fields
+    # remain readable in saved records but do not gate the current reward.
+    results = []
 
     partial_writes = [event.event_id for event in write_events if not event.success]
     results.append(

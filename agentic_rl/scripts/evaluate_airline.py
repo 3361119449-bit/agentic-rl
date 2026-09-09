@@ -34,6 +34,7 @@ except ModuleNotFoundError:  # Direct python scripts/evaluate_airline.py.
         _safe_run_name,
     )
 
+from tau2_agentic_rl.agent_policy import load_agent_system_prompt
 from tau2_agentic_rl.base_identity import validate_adapter_base
 from tau2_agentic_rl.config import load_runtime_config
 from tau2_agentic_rl.evaluation import (
@@ -210,6 +211,7 @@ def main() -> None:
     os.environ["AGENTIC_RL_PROJECT_ROOT"] = str(project_root)
     os.environ["MERGED_SFT_MODEL"] = args.model_path
     project = load_runtime_config(config_path)
+    load_agent_system_prompt(project, project_root)
     split_path = project_root / "data/splits/airline_internal_dev.v1.json"
     split_data = json.loads(split_path.read_text(encoding="utf-8"))
     task_ids = (

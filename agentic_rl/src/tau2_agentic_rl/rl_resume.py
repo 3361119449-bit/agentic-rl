@@ -6,6 +6,7 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
+from tau2_agentic_rl.agent_policy import load_agent_system_prompt, prompt_sha256
 from tau2_agentic_rl.versions import sha256_file
 
 MANIFEST = "rl_resume_identity.json"
@@ -48,6 +49,13 @@ def build_resume_identity(
     for key in RELOCATABLE_OVERRIDES:
         overrides.pop(key, None)
     runtime = deepcopy(project)
+    # Content-bound, independent of path relocation. Missing/changed artifacts
+    # fail before optimizer state can be restored.
+    runtime["agent_policy"] = {
+        "system_prompt_sha256": prompt_sha256(
+            load_agent_system_prompt(project, project_root)
+        )
+    }
     runtime.pop("outputs", None)
     runtime.get("model", {}).pop("sft_input", None)
     for name, value in runtime.get("annotations", {}).items():

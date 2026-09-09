@@ -2,7 +2,7 @@ from tau2_agentic_rl.reward.score import score_trajectory
 from tau2_agentic_rl.schemas import JudgeResult, OfficialScores, ToolEvent
 
 
-def test_unconfirmed_write_hard_gates_reward() -> None:
+def test_unconfirmed_write_is_not_an_areal_policy_violation() -> None:
     action = {
         "action_id": "a",
         "name": "cancel_reservation",
@@ -26,8 +26,12 @@ def test_unconfirmed_write_hard_gates_reward() -> None:
         official=OfficialScores(reward=1, db_applicable=True, db_score=1),
         judge=JudgeResult(),
     )
-    assert result.policy_gate is False
-    assert result.train_reward == 0.0
+    assert result.policy_gate is True
+    assert result.train_reward == 1.0
+    assert all(
+        c["rule_id"] != "confirmation_before_database_write"
+        for c in result.details["policy_checks"]
+    )
 
 
 def test_multiple_calls_in_one_turn_hard_gate_reward() -> None:

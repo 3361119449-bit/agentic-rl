@@ -1,9 +1,8 @@
 [
   {
     "task_id": "2",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -14,10 +13,6 @@
       {
         "criterion_id": "2:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "2:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "2:policy:single_action_turn",
@@ -36,8 +31,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "2:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "2:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "2:policy:insurance_timing",
@@ -99,9 +98,8 @@
   },
   {
     "task_id": "6",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -112,10 +110,6 @@
       {
         "criterion_id": "6:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "6:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "6:policy:single_action_turn",
@@ -134,8 +128,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "6:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "6:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "6:policy:insurance_timing",
@@ -197,9 +195,8 @@
   },
   {
     "task_id": "8",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -210,10 +207,6 @@
       {
         "criterion_id": "8:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "8:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "8:policy:single_action_turn",
@@ -232,8 +225,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "8:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "8:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "8:policy:insurance_timing",
@@ -295,9 +292,8 @@
   },
   {
     "task_id": "13",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -308,10 +304,6 @@
       {
         "criterion_id": "13:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "13:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "13:policy:single_action_turn",
@@ -330,8 +322,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "13:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "13:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "13:policy:insurance_timing",
@@ -393,9 +389,8 @@
   },
   {
     "task_id": "16",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -406,10 +401,6 @@
       {
         "criterion_id": "16:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "16:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "16:policy:single_action_turn",
@@ -428,8 +419,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "16:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "16:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "16:policy:insurance_timing",
@@ -491,9 +486,8 @@
   },
   {
     "task_id": "18",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -504,10 +498,6 @@
       {
         "criterion_id": "18:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "18:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "18:policy:single_action_turn",
@@ -526,8 +516,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "18:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "18:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "18:policy:insurance_timing",
@@ -589,9 +583,8 @@
   },
   {
     "task_id": "19",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -602,10 +595,6 @@
       {
         "criterion_id": "19:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "19:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "19:policy:single_action_turn",
@@ -624,8 +613,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "19:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "19:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "19:policy:insurance_timing",
@@ -687,9 +680,8 @@
   },
   {
     "task_id": "22",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -700,10 +692,6 @@
       {
         "criterion_id": "22:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "22:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "22:policy:single_action_turn",
@@ -722,8 +710,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "22:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "22:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "22:policy:insurance_timing",
@@ -785,9 +777,8 @@
   },
   {
     "task_id": "24",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -798,10 +789,6 @@
       {
         "criterion_id": "24:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "24:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "24:policy:single_action_turn",
@@ -820,8 +807,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "24:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "24:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "24:policy:insurance_timing",
@@ -883,9 +874,8 @@
   },
   {
     "task_id": "25",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -896,10 +886,6 @@
       {
         "criterion_id": "25:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "25:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "25:policy:single_action_turn",
@@ -918,8 +904,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "25:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "25:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "25:policy:insurance_timing",
@@ -981,9 +971,8 @@
   },
   {
     "task_id": "26",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -994,10 +983,6 @@
       {
         "criterion_id": "26:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "26:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "26:policy:single_action_turn",
@@ -1016,8 +1001,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "26:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "26:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "26:policy:insurance_timing",
@@ -1079,9 +1068,8 @@
   },
   {
     "task_id": "29",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -1092,10 +1080,6 @@
       {
         "criterion_id": "29:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "29:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "29:policy:single_action_turn",
@@ -1114,8 +1098,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "29:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "29:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "29:policy:insurance_timing",
@@ -1177,9 +1165,8 @@
   },
   {
     "task_id": "30",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -1190,10 +1177,6 @@
       {
         "criterion_id": "30:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "30:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "30:policy:single_action_turn",
@@ -1212,8 +1195,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "30:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "30:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "30:policy:insurance_timing",
@@ -1275,9 +1262,8 @@
   },
   {
     "task_id": "31",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -1288,10 +1274,6 @@
       {
         "criterion_id": "31:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "31:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "31:policy:single_action_turn",
@@ -1310,8 +1292,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "31:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "31:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "31:policy:insurance_timing",
@@ -1373,9 +1359,8 @@
   },
   {
     "task_id": "32",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -1386,10 +1371,6 @@
       {
         "criterion_id": "32:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "32:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "32:policy:single_action_turn",
@@ -1408,8 +1389,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "32:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "32:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "32:policy:insurance_timing",
@@ -1471,9 +1456,8 @@
   },
   {
     "task_id": "35",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -1484,10 +1468,6 @@
       {
         "criterion_id": "35:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "35:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "35:policy:single_action_turn",
@@ -1506,8 +1486,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "35:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "35:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "35:policy:insurance_timing",
@@ -1569,9 +1553,8 @@
   },
   {
     "task_id": "37",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -1582,10 +1565,6 @@
       {
         "criterion_id": "37:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "37:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "37:policy:single_action_turn",
@@ -1604,8 +1583,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "37:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "37:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "37:policy:insurance_timing",
@@ -1667,9 +1650,8 @@
   },
   {
     "task_id": "44",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -1680,10 +1662,6 @@
       {
         "criterion_id": "44:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "44:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "44:policy:single_action_turn",
@@ -1702,8 +1680,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "44:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "44:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "44:policy:insurance_timing",
@@ -1765,9 +1747,8 @@
   },
   {
     "task_id": "45",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -1778,10 +1759,6 @@
       {
         "criterion_id": "45:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "45:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "45:policy:single_action_turn",
@@ -1800,8 +1777,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "45:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "45:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "45:policy:insurance_timing",
@@ -1863,9 +1844,8 @@
   },
   {
     "task_id": "48",
-    "policy_rubric_version": "tau2-airline-policy-atomic-v2",
+    "policy_rubric_version": "areal-airline-policy-atomic-v3",
     "deterministic_rules": [
-      "confirmation_before_database_write",
       "one_tool_call_per_assistant_turn"
     ],
     "judge_checks": [
@@ -1876,10 +1856,6 @@
       {
         "criterion_id": "48:policy:user_identity",
         "description": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "48:policy:confirmation_details",
-        "description": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "48:policy:single_action_turn",
@@ -1898,8 +1874,12 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
+        "criterion_id": "48:policy:travel_certificate_new_booking_only",
+        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
         "criterion_id": "48:policy:baggage_pricing",
-        "description": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "48:policy:insurance_timing",

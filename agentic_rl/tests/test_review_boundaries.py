@@ -86,7 +86,7 @@ def test_failed_partial_write_blocks_safety_without_completing_action():
     assert not evaluate_task_safety([event], []).passed
     checks = {c.rule_id: c for c in evaluate_mandatory_policy([event], [])}
     assert not checks["failed_tool_with_database_mutation"].passed
-    assert not checks["confirmation_before_database_write"].passed
+    assert "confirmation_before_database_write" not in checks
     required = [{"action_id": "a", "name": event.name, "arguments": event.arguments}]
     assert evaluate_required_actions(required, [event]).component.value == 0
 

@@ -13,6 +13,8 @@ from jsonschema import Draft202012Validator
 from tau2_agentic_rl.reward.required_actions import MUTATING_TOOLS
 from tau2_agentic_rl.versions import sha256_json
 
+# Legacy-only parser helpers below remain for old audit records/tests. The
+# AReaL-policy actor never imports, appends, or enforces this retired protocol.
 CONFIRMATION_PROTOCOL = """
 Database-write confirmation protocol:
 Before calling any database-mutating tool, describe the exact operation to the

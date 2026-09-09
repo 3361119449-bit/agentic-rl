@@ -17,6 +17,11 @@ from verl.experimental.agent_loop.agent_loop import (
 from verl.experimental.agent_loop.tool_parser import ToolParser
 from verl.tools.base_tool import OpenAIFunctionToolSchema
 
+from tau2_agentic_rl.agent_policy import (
+    extract_airline_policy,
+    load_agent_system_prompt,
+    prompt_sha256,
+)
 from tau2_agentic_rl.annotations import load_task_mapping
 from tau2_agentic_rl.budget import ContextBudget
 from tau2_agentic_rl.chat_stream import render_environment_turn
@@ -37,6 +42,7 @@ from tau2_agentic_rl.initial_prompt import (
 )
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
+from tau2_agentic_rl.policy_rules import validate_policy_rows
 from tau2_agentic_rl.reward.required_actions import (
     arguments_equal,
     load_action_dependencies,
@@ -48,7 +54,6 @@ from tau2_agentic_rl.schemas import TokenTurn, ToolEvent, TrajectoryRecord
 from tau2_agentic_rl.storage import TrajectoryStore
 from tau2_agentic_rl.token_alignment import validate_aligned_response
 from tau2_agentic_rl.tooling import (
-    ConfirmationTracker,
     execute_validated_tool_call,
     synthetic_tool_error,
     validate_tool_call,
@@ -132,6 +137,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             )
         )
         annotations = self.project["annotations"]
+        self.agent_system_prompt = load_agent_system_prompt(self.project, self.root)
         self.required_actions = load_required_actions(
             self.root / annotations["required_actions"]
         )
@@ -141,6 +147,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         self.semantic = load_task_mapping(self.root / annotations["semantic_checks"])
         self.transfer = load_task_mapping(self.root / annotations["transfer_rules"])
         self.policy_rules = load_task_mapping(self.root / annotations["policy_rules"])
+        validate_policy_rows(self.policy_rules)
         self.store = TrajectoryStore(
             self.root / self.project["outputs"]["trajectories"]
         )
@@ -342,10 +349,10 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             raise RuntimeError(
                 "Tau2 environment reset failed; audit record saved"
             ) from exc
-        messages = initial_messages(environment.policy, incoming)
-        confirmation = ConfirmationTracker()
+        messages = []
         prompt_measurement = None
         try:
+            messages = initial_messages(self.agent_system_prompt, incoming)
             schemas = environment.tool_schemas
             schemas_by_name = {
                 item["function"]["name"]: item["function"]["parameters"]
@@ -555,111 +562,51 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                         result=checked.detail,
                     )
                 else:
-                    proposal = None
-                    authorized = True
-                    if call.name in {
-                        "book_reservation",
-                        "cancel_reservation",
-                        "send_certificate",
-                        "update_reservation_baggages",
-                        "update_reservation_flights",
-                        "update_reservation_passengers",
-                    }:
-                        authorized, proposal = confirmation.authorize(
-                            call.name,
-                            checked.arguments,
+                    # AReaL SFT recommends confirmation but does not require an
+                    # action_proposal tag. Schema-valid writes reach Tau2 as-is.
+                    before_tool_hash = environment.safe_db_hash()
+                    try:
+                        step = await execute_validated_tool_call(
+                            checked, environment.step_tool
                         )
-                    if not authorized:
-                        detail = (
-                            "Database write blocked. Present this exact action to the "
-                            "user, obtain a new explicit confirmation, then retry it "
-                            "without changing any argument."
+                    except Exception as exc:
+                        after_tool_hash = environment.safe_db_hash()
+                        changed = (
+                            before_tool_hash != after_tool_hash
+                            if before_tool_hash is not None
+                            and after_tool_hash is not None
+                            else None
                         )
-                        step = _local_step(
-                            environment,
-                            synthetic_tool_error(
-                                call.name, "confirmation_required", detail
-                            ),
-                        )
-                        event = ToolEvent(
-                            event_id=f"{trajectory_id}:{len(tool_events)}",
-                            sequence=len(tool_events),
-                            turn_id=assistant_turns,
-                            name=call.name,
-                            arguments=checked.arguments,
-                            confirmed_before=False,
-                            error_kind="confirmation_required",
-                            result=detail,
-                        )
-                    else:
-                        before_tool_hash = environment.safe_db_hash()
-                        try:
-                            step = await execute_validated_tool_call(
-                                checked, environment.step_tool
+                        tool_events.append(
+                            ToolEvent(
+                                event_id=f"{trajectory_id}:{len(tool_events)}",
+                                sequence=len(tool_events),
+                                turn_id=assistant_turns,
+                                name=call.name,
+                                arguments=checked.arguments,
+                                success=False,
+                                db_effect=changed,
+                                result=f"environment exception: {type(exc).__name__}: {exc}",
                             )
-                        except Exception as exc:
-                            after_tool_hash = environment.safe_db_hash()
-                            changed = (
-                                before_tool_hash != after_tool_hash
-                                if before_tool_hash is not None
-                                and after_tool_hash is not None
-                                else None
-                            )
-                            if proposal is not None and changed is not False:
-                                confirmation.consume(proposal.proposal_hash)
-                            tool_events.append(
-                                ToolEvent(
-                                    event_id=f"{trajectory_id}:{len(tool_events)}",
-                                    sequence=len(tool_events),
-                                    turn_id=assistant_turns,
-                                    name=call.name,
-                                    arguments=checked.arguments,
-                                    success=False,
-                                    db_effect=changed,
-                                    confirmed_before=proposal is not None,
-                                    confirmation_consumed=proposal is not None
-                                    and changed is not False,
-                                    confirmation_proposal_hash=proposal.proposal_hash
-                                    if proposal
-                                    else None,
-                                    confirmation_turn_id=proposal.confirmation_turn_id
-                                    if proposal
-                                    else None,
-                                    result=f"environment exception: {type(exc).__name__}: {exc}",
-                                )
-                            )
-                            infrastructure_error = ("tau2_tool_step", exc)
-                            termination_reason = "infrastructure_error"
-                            break
-                        event = ToolEvent(
-                            event_id=f"{trajectory_id}:{len(tool_events)}",
-                            sequence=len(tool_events),
-                            turn_id=assistant_turns,
-                            name=call.name,
-                            arguments=checked.arguments,
-                            success=step.tool_success is True,
-                            db_effect=step.db_changed,
-                            confirmed_before=(True if proposal is not None else None),
-                            confirmation_proposal_hash=(
-                                proposal.proposal_hash if proposal is not None else None
-                            ),
-                            confirmation_turn_id=(
-                                proposal.confirmation_turn_id
-                                if proposal is not None
-                                else None
-                            ),
-                            error_kind=(
-                                None
-                                if step.tool_success is not False
-                                else "model_caused_execution_error"
-                            ),
-                            result=step.tool_result,
                         )
-                        if proposal is not None and (
-                            event.success or event.db_effect is True
-                        ):
-                            confirmation.consume(proposal.proposal_hash)
-                            event.confirmation_consumed = True
+                        infrastructure_error = ("tau2_tool_step", exc)
+                        termination_reason = "infrastructure_error"
+                        break
+                    event = ToolEvent(
+                        event_id=f"{trajectory_id}:{len(tool_events)}",
+                        sequence=len(tool_events),
+                        turn_id=assistant_turns,
+                        name=call.name,
+                        arguments=checked.arguments,
+                        success=step.tool_success is True,
+                        db_effect=step.db_changed,
+                        error_kind=(
+                            None
+                            if step.tool_success is not False
+                            else "model_caused_execution_error"
+                        ),
+                        result=step.tool_result,
+                    )
                 _mark_repetition(event, tool_events)
                 tool_events.append(event)
             else:
@@ -669,12 +616,6 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     infrastructure_error = ("tau2_text_step", exc)
                     termination_reason = "infrastructure_error"
                     break
-                confirmation.observe_visible_assistant_text(decoded, assistant_turns)
-                for index, reply in enumerate(step.messages):
-                    if reply.get("role") == "user":
-                        confirmation.observe_user_reply(
-                            str(reply.get("content", "")), len(messages) + index
-                        )
 
             progress()
             if step.messages:
@@ -731,7 +672,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         scoring_inputs = {
             "judge": {
                 "task": environment.task,
-                "policy": environment.policy,
+                "policy": extract_airline_policy(self.agent_system_prompt),
                 "trajectory": {
                     "messages": trajectory_for_judge,
                     "tool_events": [event.model_dump() for event in tool_events],
@@ -822,6 +763,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             judge_result=judge_result,
             custom_reward=custom_reward,
             metadata={
+                "agent_system_prompt_sha256": prompt_sha256(self.agent_system_prompt),
                 "initial_prompt": prompt_measurement,
                 "queue_wait_seconds": queue_wait_seconds,
                 "interaction_termination_reason": interaction_termination_reason,

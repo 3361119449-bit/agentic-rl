@@ -247,6 +247,9 @@ def main() -> None:
     config_path = project_root / "configs" / "rl" / "airline_grpo_v1.yaml"
     config_path = (args.config or config_path).resolve()
     project = effective_project_config(load_yaml(config_path), args.extra)
+    from tau2_agentic_rl.agent_policy import load_agent_system_prompt
+
+    load_agent_system_prompt(project, project_root)
     if args.resume_from_path is not None:
         args.resume_from_path = resolve_resume_path(project_root, args.resume_from_path)
         restore_step_clock(

@@ -8,7 +8,10 @@ import json
 import os
 from pathlib import Path
 
+from tau2_agentic_rl.agent_policy import load_agent_system_prompt
+from tau2_agentic_rl.config import load_yaml
 from tau2_agentic_rl.environment.tau2_gym import Tau2GymAdapter
+from tau2_agentic_rl.initial_prompt import initial_messages
 from tau2_agentic_rl.tooling import validate_tool_call
 
 
@@ -17,6 +20,8 @@ async def verify(args: argparse.Namespace) -> None:
     from verl.experimental.agent_loop.tool_parser import ToolParser
     from verl.tools.base_tool import OpenAIFunctionToolSchema
 
+    root = Path(__file__).resolve().parents[1]
+    system_prompt = load_agent_system_prompt(load_yaml(args.config), root)
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=False)
     environment = Tau2GymAdapter(
         task_id=args.task_id,
@@ -33,8 +38,7 @@ async def verify(args: argparse.Namespace) -> None:
             item["function"]["name"]: item["function"]["parameters"] for item in schemas
         }
         conversation = [
-            {"role": "system", "content": environment.policy},
-            *incoming,
+            *initial_messages(system_prompt, incoming),
             {
                 "role": "assistant",
                 "content": "",
@@ -99,6 +103,13 @@ async def verify(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=(
+            Path(__file__).resolve().parents[1] / "configs/rl/airline_grpo_v1.yaml"
+        ),
+    )
     parser.add_argument("--model", default="Qwen/Qwen3-4B-Instruct-2507")
     parser.add_argument("--task-id", default="0")
     parser.add_argument("--user-model", default=os.environ.get("DEEPSEEK_USER_MODEL"))

@@ -21,6 +21,7 @@ except ModuleNotFoundError:
     from prepare_tau2_dataset import SMOKE_IDS
     from train_airline_grpo import TAU2_COMMIT, _require_exact_checkout
 
+from tau2_agentic_rl.agent_policy import load_agent_system_prompt, prompt_sha256
 from tau2_agentic_rl.budget import ContextBudget
 from tau2_agentic_rl.config import load_runtime_config
 from tau2_agentic_rl.environment.tau2_gym import Tau2GymAdapter
@@ -59,6 +60,7 @@ def recorded_measurements(root, task_ids):
 
 
 async def measure_live(args, task_ids, project, tokenizer):
+    system_prompt = load_agent_system_prompt(project, ROOT)
     rollout, user = project["rollout"], project["user_simulator"]
     budget = ContextBudget(
         max_context_tokens=int(rollout["max_context_length"]),
@@ -79,12 +81,16 @@ async def measure_live(args, task_ids, project, tokenizer):
             max_steps=int(rollout["max_hard_turns"]) * 3,
         )
         seed = index  # Matches prepare_tau2_dataset._row for this split.
-        row = {"task_id": task_id, "environment_seed": seed}
+        row = {
+            "task_id": task_id,
+            "environment_seed": seed,
+            "agent_system_prompt_sha256": prompt_sha256(system_prompt),
+        }
         try:
             incoming = await environment.reset(seed=seed)
             ids = encode_full_chat(
                 tokenizer,
-                initial_messages(environment.policy, incoming),
+                initial_messages(system_prompt, incoming),
                 tools=environment.tool_schemas,
             )
             row.update(

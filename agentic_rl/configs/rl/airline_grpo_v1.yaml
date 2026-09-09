@@ -2,8 +2,12 @@ project:
   domain: airline
   tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
   verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
-  annotation_version: v1
-  reward_version: v1
+  annotation_version: v2-areal-policy
+  reward_version: v2-areal-policy
+
+agent_policy:
+  path: configs/prompts/areal_airline_sft.v1.json
+  system_prompt_sha256: 121cad8bac61dc66ff58177383492b736380d9006aee4c5249e08f1315eef7d9
 
 model:
   base: Qwen/Qwen3-4B-Instruct-2507
@@ -93,7 +97,6 @@ reward:
     unknown_tool: 0.10
     schema_invalid: 0.08
     model_caused_execution_error: 0.08
-    confirmation_required: 0.08
     multiple_tool_calls: 0.10
     mixed_content_and_tool_call: 0.10
     unchanged_retry: 0.06

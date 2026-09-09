@@ -7,12 +7,21 @@ from types import SimpleNamespace
 
 import pytest
 
+from tau2_agentic_rl.agent_policy import load_agent_system_prompt
 from tau2_agentic_rl.budget import ContextBudget
 from tau2_agentic_rl.concurrency import QueueWaitError, SharedBudget
+from tau2_agentic_rl.config import load_yaml
 from tau2_agentic_rl.environment.tau2_gym import GymStep
 from tau2_agentic_rl.reward.score import RewardConfig
 from tau2_agentic_rl.schemas import JudgeCheck, JudgeResult
 from tau2_agentic_rl.storage import TrajectoryStore
+
+
+def sft_prompt():
+    root = Path(__file__).parents[1]
+    return load_agent_system_prompt(
+        load_yaml(root / "configs/rl/airline_grpo_v1.yaml"), root
+    )
 
 
 def production_loop_class():
@@ -127,6 +136,7 @@ def test_truncated_output_not_delivered_or_judged_and_full_observation_preserved
             )
 
     loop = cls.__new__(cls)
+    loop.agent_system_prompt = sft_prompt()
     loop.project = {
         "user_simulator": {"model": "fake", "temperature": 0},
         "outputs": {"user_cache": "cache"},
@@ -178,6 +188,7 @@ def test_truncated_output_not_delivered_or_judged_and_full_observation_preserved
 def minimal_loop(scratch_dir):
     cls, scope = production_loop_class()
     loop = cls.__new__(cls)
+    loop.agent_system_prompt = sft_prompt()
     loop.root, loop.hard_turn_limit = scratch_dir, 24
     loop.project = {
         "user_simulator": {"model": "fake", "temperature": 0},
@@ -196,6 +207,148 @@ def minimal_loop(scratch_dir):
     loop.budget = ContextBudget()
     loop.rollout_config = SimpleNamespace(prompt_length=8192)
     return loop, scope
+
+
+def test_sft_prompt_and_valid_write_reach_backend_without_confirmation(scratch_dir):
+    from tau2_agentic_rl.agent_policy import extract_airline_policy, prompt_sha256
+    from tau2_agentic_rl.policy_rules import policy_checks
+
+    loop, scope = minimal_loop(scratch_dir)
+    called = []
+    schema = {
+        "type": "function",
+        "function": {
+            "name": "cancel_reservation",
+            "parameters": {
+                "type": "object",
+                "properties": {"reservation_id": {"type": "string"}},
+                "required": ["reservation_id"],
+            },
+        },
+    }
+
+    class Environment:
+        task, tool_schemas, tool_names = {}, [schema], {"cancel_reservation"}
+
+        def __init__(self, **kwargs):
+            self.messages = [{"role": "user", "content": "Cancel A."}]
+
+        @property
+        def policy(self):
+            raise AssertionError("official policy must not reach actor or Judge")
+
+        async def reset(self, **kwargs):
+            return list(self.messages)
+
+        async def step_tool(self, name, arguments):
+            called.append((name, arguments))
+            self.messages.append(
+                {
+                    "role": "assistant",
+                    "tool_calls": [{"name": name, "arguments": arguments}],
+                }
+            )
+            return GymStep(
+                messages=[],
+                reward=1,
+                terminated=True,
+                info={},
+                db_changed=True,
+                tool_success=True,
+                tool_result="cancelled",
+            )
+
+        async def force_cleanup_stop(self):
+            pass
+
+        def safe_db_hash(self):
+            return "after" if called else "before"
+
+        def initial_db_hash(self):
+            return "before"
+
+        def full_trajectory(self):
+            return self.messages
+
+        def tau2_termination_reason(self):
+            return "user_stop"
+
+        def official_reward_payload(self):
+            return 1, {
+                "reward_basis": ["DB"],
+                "db_check": {"db_match": True, "db_reward": 1},
+            }
+
+        def user_prompt_hashes(self):
+            return []
+
+    async def render(messages, **kwargs):
+        assert messages[0] == {"role": "system", "content": sft_prompt()}
+        return [1, 2]
+
+    async def generate(**kwargs):
+        return SimpleNamespace(
+            token_ids=[4, 9], log_probs=[-1.0, -1.0], extra_fields={}
+        )
+
+    async def parse(*args):
+        return "", [
+            SimpleNamespace(
+                name="cancel_reservation", arguments='{"reservation_id":"A"}'
+            )
+        ]
+
+    async def snapshot(*args):
+        return {}
+
+    class Judge:
+        async def evaluate(self, **inputs):
+            assert inputs["policy"] == extract_airline_policy(sft_prompt())
+            assert inputs["mandatory_policy_checks"] == policy_checks("0")
+            return (
+                JudgeResult(
+                    mandatory_policy_checks=[
+                        JudgeCheck(criterion_id=c["criterion_id"], passed=True)
+                        for c in policy_checks("0")
+                    ]
+                ),
+                "raw",
+                "hash",
+                "cache",
+            )
+
+    loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
+    loop.tokenizer = SimpleNamespace(
+        eos_token_id=9,
+        decode=lambda _: (
+            '<tool_call>{"name":"cancel_reservation","arguments":{"reservation_id":"A"}}</tool_call><|im_end|>'
+        ),
+    )
+    loop.tool_parser = SimpleNamespace(extract_tool_calls=parse)
+    loop._render_full_chat = render
+    loop.server_manager = SimpleNamespace(generate=generate)
+    loop.shared_budget = SimpleNamespace(acall=snapshot)
+    loop.judge, loop.reward_config = Judge(), RewardConfig()
+    loop.semantic, loop.transfer = {"0": {}}, {"0": {}}
+    loop.policy_rules = {"0": {"judge_checks": policy_checks("0")}}
+    loop.required_actions = {
+        "0": [
+            {
+                "action_id": "a",
+                "name": "cancel_reservation",
+                "arguments": {"reservation_id": "A"},
+            }
+        ]
+    }
+    loop.action_dependencies = {}
+    scope["Tau2GymAdapter"] = Environment
+    output = asyncio.run(loop._run_trajectory({}, extra_info={"task_id": "0"}))
+    record = next(loop.store.records())
+    assert called == [("cancel_reservation", {"reservation_id": "A"})]
+    assert record.tool_events[0].confirmed_before is None  # Never fabricate a yes.
+    assert record.tool_events[0].success
+    assert record.custom_reward.train_reward == output.reward_score == 1
+    assert record.metadata["agent_system_prompt_sha256"] == prompt_sha256(sft_prompt())
 
 
 def test_full_initial_prompt_rejected_before_generation_and_audited(scratch_dir):
@@ -221,7 +374,7 @@ def test_full_initial_prompt_rejected_before_generation_and_audited(scratch_dir)
             return "final"
 
     async def full(messages, **kwargs):
-        assert messages[0]["content"].startswith("full policy")
+        assert messages[0]["content"] == sft_prompt()
         return list(range(8193))
 
     scope["Tau2GymAdapter"] = Environment

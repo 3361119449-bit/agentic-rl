@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from tau2_agentic_rl.agent_policy import load_agent_system_prompt, prompt_sha256
 from tau2_agentic_rl.annotations import load_task_mapping
 from tau2_agentic_rl.config import load_yaml
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
@@ -30,6 +31,7 @@ def main() -> None:
 
     config = load_yaml(args.config)
     root = args.project_root.resolve()
+    expected_prompt_hash = prompt_sha256(load_agent_system_prompt(config, root))
     if args.records_dir.resolve() == args.output_dir.resolve():
         raise ValueError("offline rescoring must not overwrite source trajectories")
     if args.output_dir.exists() and any(args.output_dir.iterdir()):
@@ -46,6 +48,10 @@ def main() -> None:
     count = 0
     for path in sorted(args.records_dir.glob("*.json")):
         record = TrajectoryRecord.model_validate_json(path.read_text(encoding="utf-8"))
+        if record.metadata.get("agent_system_prompt_sha256") != expected_prompt_hash:
+            raise ValueError(
+                f"record was not generated with the bound SFT system prompt: {path}"
+            )
         if record.official_scores is None or record.judge_result is None:
             raise ValueError(f"record lacks frozen scorer inputs: {path}")
         expected_rubric = rubric_fingerprint(

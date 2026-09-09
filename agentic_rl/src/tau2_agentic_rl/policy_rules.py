@@ -1,19 +1,19 @@
-"""Auditable hard-policy checks derived from the pinned Airline policy.md.
+"""Auditable checks for the policy in the frozen AReaL SFT system message.
 
 These are policy checks, not reference-action or task-completion targets. A rule
 whose trigger is absent passes with a short 'not applicable' explanation.
 """
 
-POLICY_RUBRIC_VERSION = "tau2-airline-policy-atomic-v2"
+POLICY_RUBRIC_VERSION = "areal-airline-policy-atomic-v3"
 POLICY_RULES = {
     "information_grounding": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations.",
     "user_identity": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools.",
-    "confirmation_details": "Before every database update, present all action details and obtain a subsequent explicit user yes for those details. A rejected tool attempt is not a user-visible proposal.",
     "single_action_turn": "Each assistant turn is either user-facing text or at most one tool call, never both.",
     "booking_cabin": "A new reservation uses one cabin class and the same flights for all passengers and all segments.",
     "booking_passengers": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth.",
     "booking_payment_limits": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable.",
-    "baggage_pricing": "When adding bags, apply the official membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need.",
+    "travel_certificate_new_booking_only": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes.",
+    "baggage_pricing": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need.",
     "insurance_timing": "Insurance costs $30 per passenger and cannot be added after the initial booking.",
     "flight_change_eligibility": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy.",
     "cabin_change_eligibility": "Do not change cabin if any reserved flight has already been flown. Otherwise cabin-only changes (including basic economy) retain flights and change all segments to the same cabin.",
@@ -40,3 +40,16 @@ def policy_checks(task_id: str) -> list[dict[str, str]]:
         }
         for rule_id, description in POLICY_RULES.items()
     ]
+
+
+def validate_policy_rows(rows: dict) -> None:
+    """Reject stale official-policy rubrics before they can reach a live Judge."""
+    for task_id, row in rows.items():
+        if (
+            row.get("policy_rubric_version") != POLICY_RUBRIC_VERSION
+            or row.get("judge_checks") != policy_checks(str(task_id))
+            or row.get("deterministic_rules") != ["one_tool_call_per_assistant_turn"]
+        ):
+            raise ValueError(
+                f"task {task_id}: stale policy rubric; rebuild SFT-policy annotations"
+            )

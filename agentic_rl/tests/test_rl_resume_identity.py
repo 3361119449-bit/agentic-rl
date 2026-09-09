@@ -44,7 +44,17 @@ def identity_fixture(root, *, seed=42, epochs=15, stage="internal_dev", extra=No
 
 @pytest.mark.parametrize(
     "change",
-    ["stage", "seed", "epochs", "train", "dev", "extra", "learning_rate", "annotation"],
+    [
+        "stage",
+        "seed",
+        "epochs",
+        "train",
+        "dev",
+        "extra",
+        "learning_rate",
+        "annotation",
+        "agent_policy",
+    ],
 )
 def test_changed_training_identity_is_rejected_even_in_new_destination(
     scratch_dir, change
@@ -64,6 +74,10 @@ def test_changed_training_identity_is_rejected_even_in_new_destination(
         changed["runtime_config"]["optimizer"]["lr"] *= 2
     elif change == "annotation":
         changed["files"]["annotations.required_actions"] = "changed"
+    elif change == "agent_policy":
+        changed["runtime_config"]["agent_policy"]["system_prompt_sha256"] = (
+            "old-official-policy"
+        )
     destination = scratch_dir / "new-run"
     with pytest.raises(ValueError, match="resume identity changed"):
         launcher.prepare_run_directory(

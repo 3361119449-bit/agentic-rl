@@ -27,7 +27,7 @@ class ProcessPenaltyConfig:
             "unknown_tool": 0.10,
             "schema_invalid": 0.08,
             "model_caused_execution_error": 0.08,
-            "confirmation_required": 0.08,
+            "confirmation_required": 0.0,  # Legacy error kind; no current penalty.
             "multiple_tool_calls": 0.10,
             "mixed_content_and_tool_call": 0.10,
             "unchanged_retry": 0.06,
@@ -51,6 +51,8 @@ def compute_process_penalty(
     total = 0.0
 
     for event in events:
+        if event.error_kind == "confirmation_required":
+            continue  # Retired protocol rejection is not an SFT-policy violation.
         if event.error_kind:
             kind = next(
                 item for item in BASE_ERROR_PRECEDENCE if item == event.error_kind

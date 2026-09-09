@@ -151,8 +151,9 @@ def test_live_loop_uses_the_budgeted_renderer_after_successful_text_delivery():
     ).read_text(encoding="utf-8")
     assert "turn_separator=self.turn_separator" in source
     assert source.index("await environment.step_text(decoded)") < source.index(
-        "confirmation.observe_visible_assistant_text"
+        "messages.extend(bounded_messages)"
     )
+    assert "confirmation.authorize" not in source
     assert "validate_tool_turn(decoded, len(calls))" in source
 
 

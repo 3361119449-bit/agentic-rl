@@ -81,6 +81,9 @@ def main() -> None:
     project_root = Path(__file__).resolve().parents[1]
     config_path = args.project_config.resolve()
     config = load_runtime_config(config_path)
+    from tau2_agentic_rl.agent_policy import load_agent_system_prompt, prompt_sha256
+
+    agent_prompt_hash = prompt_sha256(load_agent_system_prompt(config, project_root))
     versions = {}
     for name in PACKAGES:
         try:
@@ -97,6 +100,7 @@ def main() -> None:
         "model": _model_metadata(args.model_path),
         "user_simulator_model": config["user_simulator"]["model"],
         "judge_model": config["judge"]["model"],
+        "agent_system_prompt_sha256": agent_prompt_hash,
         "judge_system_prompt_sha256": _sha256_bytes(
             JUDGE_SYSTEM_PROMPT.encode("utf-8")
         ),

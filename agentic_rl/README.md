@@ -20,7 +20,7 @@
 - 每条 rollout 创建独立 `AgentGymEnv` 和 Airline DB；
 - Qwen3-4B-Instruct 的 JSON `<tool_call>` 固定使用 veRL `hermes` 解析器；
 - 未知工具、非法 JSON/Schema 和多工具调用在进入 Tau2 前被确定性阻断；
-- 写操作确认绑定到成功发送给用户的纯文本精确提案，只能消费一次；条件式或修改参数的 Yes 不授权旧操作；
+- RL/评估逐字使用 AReaL SFT 系统提示词，不追加官方政策或 `action_proposal` 协议；确认仅为建议，不拦截、不扣分；
 - Qwen 原始生成 token ID、vLLM old log-prob 和 turn 边界原样保存；
 - 只有 Qwen 输出 token 的 `response_mask=1`，工具、用户、模板 token 均为 0；
 - 多轮 observation 包含 Qwen `turn_separator`，完整计入上下文预算；
@@ -48,6 +48,39 @@ src/tau2_agentic_rl/     AgentLoop、Tau2 适配、奖励、Judge、动态采样
 scripts/                 数据准备、训练、评估、审计、LoRA 合并
 tests/                   CPU 单元测试
 ```
+
+## SFT、RL 与评估的统一政策（2026-09-09）
+
+`configs/prompts/areal_airline_sft.v1.json` 是当前清洗后 AReaL 数据中
+**10,649 条样本共同的完整 system 消息**，不是重新撰写的官方提示词。
+RL、冻结评估、初始长度预检和工具往返测试都使用它；启动时按配置中的
+`system_prompt_sha256` 验证内容。文件缺失、变化或旧配置缺少绑定时直接报错，
+不会回退到 Tau2 官方政策。Qwen 仍根据真实工具定义渲染工具模板。
+
+本轮明确采用 SFT 的规则：写数据库前取得用户确认只是建议，**缺少确认不算违规**。
+不要求 `<action_proposal>`，不做确认标签硬拦截，也不通过确定性 policy gate、
+过程扣分或 LLM Judge 的其他条目变相处罚。确认航班事实、补偿资格等不同规则仍保留。
+Judge 使用上述 system 消息的 `<policy>` 正文，并移除了原 `confirmation_details`
+检查。参数校验、一次一个工具、其他政策检查和任务完成奖励继续生效。
+SFT 比官方政策额外明确的“旅行券仅限新预订，不得用于任何订单更新”也有独立
+Judge 检查，覆盖航班、行李、乘客和舱位更新。
+
+原始 SFT JSONL 未被修改。提取代码会扫描全部样本并拒绝混合 system 消息，
+可用以下命令输出另一份核验文件（输出必须不存在）：
+
+```bash
+python scripts/export_sft_system_prompt.py --output /tmp/areal_sft_prompt_check.json
+python -m pytest tests/test_sft_agent_policy.py tests/test_rollout_integration.py
+```
+
+该绑定针对本仓库现有 AReaL SFT 数据。旧的 `training/tau2_rollout_sft/`
+官方轨迹生成流程仍使用它导出的上下文；**它生成的 SFT 不自动视为提示词一致**。
+如果使用该分支或其他 SFT 数据，先用提取脚本检查提示词，不要混用后声称完全一致。
+
+本轮更新自定义奖励版本为 `v2-areal-policy`，并更新 Judge/政策 rubric 版本。
+旧政策下的 RL checkpoint 不应继续恢复优化器；请用原 SFT 起点启动新实验。
+旧评估结果和 Judge 缓存不能混入新实验。Tau2 官方任务、工具、数据库、用户模拟器
+及官方评分算法未修改，最终仍报告官方 pass^1/pass^4，但需披露 agent 使用 AReaL 政策。
 
 ## AutoDL 安装
 
@@ -206,7 +239,7 @@ worker 意外死亡时额度不会自动回收；取消时也要等后台工作�
 ## 真实初始 prompt 长度预检
 
 Parquet 的 `Initialize isolated Tau2 Airline task ...` 只是占位符，不能代表实际
-上下文。运行时会完整编码 Policy、确认协议、工具定义、初始化得到的用户/工具消息，
+上下文。运行时会完整编码 SFT 系统提示词、工具定义、初始化得到的用户/工具消息，
 保留所有 token，并在第一次生成前检查：
 
 ```text

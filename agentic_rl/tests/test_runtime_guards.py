@@ -139,8 +139,8 @@ def test_prompt_summary_keeps_missing_and_reset_failures_visible():
 
 def test_preflight_uses_same_real_reset_inputs_and_cleans_up(monkeypatch, scratch_dir):
     from scripts import check_initial_prompts as script
+    from tau2_agentic_rl.agent_policy import load_agent_system_prompt
     from tau2_agentic_rl.config import load_yaml
-    from tau2_agentic_rl.tooling import CONFIRMATION_PROTOCOL
 
     calls = []
     tools = [{"type": "function", "function": {"name": "lookup"}}]
@@ -162,7 +162,10 @@ def test_preflight_uses_same_real_reset_inputs_and_cleans_up(monkeypatch, scratc
 
     def encode(messages, **kwargs):
         assert messages == [
-            {"role": "system", "content": f"actual policy\n\n{CONFIRMATION_PROTOCOL}"},
+            {
+                "role": "system",
+                "content": load_agent_system_prompt(project, script.ROOT),
+            },
             {"role": "user", "content": "actual initial user"},
         ]
         assert kwargs["tools"] == tools and kwargs["truncation"] is False

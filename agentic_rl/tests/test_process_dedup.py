@@ -55,6 +55,9 @@ def test_every_valid_tool_error_has_a_base_penalty(kind):
     expected = ProcessPenaltyConfig().penalties[kind]
     result = compute_process_penalty([event], assistant_turns=1)
     assert result.penalty == pytest.approx(expected)
+    if kind == "confirmation_required":
+        assert result.events == []  # Retired protocol, readable only for old logs.
+        return
     assert result.events == [{"event_id": "e", "kind": kind, "penalty": expected}]
 
 
