@@ -313,6 +313,15 @@ the exact test-task list, and every trial declared by `info.num_trials` (at
 least four). Trial numbers are zero-based. Simulation IDs must be unique, and
 each task/trial may have only one usable result with a finite official reward.
 
+The reporter shares the pinned test IDs and success predicate with the main RL
+reporter in `agentic_rl/src/tau2_agentic_rl/pass_metrics.py`. Run it from a complete
+repository checkout; it still needs only Python's standard library, not an
+installed RL package or GPU dependencies. Rewards must be numeric, non-boolean,
+finite and in `[0,1]`. Success uses Tau2's inclusive interval
+`1-1e-6 <= reward <= 1+1e-6`, including the exact lower boundary `0.999999`.
+Older standalone reports containing that boundary reward should be regenerated
+from the existing trajectories; no new rollout or model training is needed.
+
 Official `infrastructure_error` attempts do not count as model failures or as
 usable samples. Their missing slots must be completed before reporting; a retry
 may fill the same slot with a different simulation ID. Missing whole tasks,

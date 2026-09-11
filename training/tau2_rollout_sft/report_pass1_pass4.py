@@ -6,35 +6,21 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from pathlib import Path
 from typing import Any
 
-# Official airline test split at this repository's pinned Tau2 revision.
-EXPECTED_TAU2_COMMIT = "a2c024725189473d2d7cea3a5cfdbcc67478e41f"
-OFFICIAL_TEST_IDS = frozenset(
-    {
-        "2",
-        "6",
-        "8",
-        "13",
-        "16",
-        "18",
-        "19",
-        "22",
-        "24",
-        "25",
-        "26",
-        "29",
-        "30",
-        "31",
-        "32",
-        "35",
-        "37",
-        "44",
-        "45",
-        "48",
-    }
+# Keep direct CLI use working without installing the RL package or GPU deps.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "agentic_rl/src"))
+
+from tau2_agentic_rl.pass_metrics import (  # noqa: E402
+    OFFICIAL_TEST_IDS,
+    TAU2_COMMIT,
+    official_success,
+    validate_official_test_ids,
 )
+
+EXPECTED_TAU2_COMMIT = TAU2_COMMIT
 
 
 def parse_args() -> argparse.Namespace:
@@ -71,18 +57,11 @@ def validate_metadata(root: dict[str, Any]) -> int:
     environment = info.get("environment_info")
     if not isinstance(environment, dict) or environment.get("domain_name") != "airline":
         raise ValueError("only official airline test results may be reported")
-    if info.get("git_commit") != EXPECTED_TAU2_COMMIT:
-        raise ValueError("results must use the pinned Tau2 commit")
     tasks = root.get("tasks")
     if not isinstance(tasks, list) or any(not isinstance(task, dict) for task in tasks):
         raise ValueError("results must declare all official test tasks")
     task_ids = [task.get("id") for task in tasks]
-    if (
-        any(not isinstance(task, str) for task in task_ids)
-        or len(task_ids) != len(OFFICIAL_TEST_IDS)
-        or set(task_ids) != OFFICIAL_TEST_IDS
-    ):
-        raise ValueError("results tasks must be exactly the 20 official test IDs")
+    validate_official_test_ids(task_ids, info.get("git_commit"))
     trials = info.get("num_trials")
     if type(trials) is not int or trials < 4:
         raise ValueError("results must declare num_trials >= 4")
@@ -92,13 +71,7 @@ def validate_metadata(root: dict[str, Any]) -> int:
 def successful(simulation: dict[str, Any]) -> bool:
     reward_info = simulation.get("reward_info")
     reward = reward_info.get("reward") if isinstance(reward_info, dict) else None
-    if (
-        type(reward) not in (int, float)
-        or not math.isfinite(reward)
-        or not 0 <= reward <= 1
-    ):
-        raise ValueError("usable trials need a finite official reward in [0, 1]")
-    return math.isclose(float(reward), 1.0, abs_tol=1e-6)
+    return official_success(reward)
 
 
 def pass_hat_k(num_trials: int, successes: int, k: int) -> float:

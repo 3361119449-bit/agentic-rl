@@ -10,12 +10,16 @@ from tau2_agentic_rl.evaluation import (
     evaluation_lock,
     initialize_evaluation,
 )
+from tau2_agentic_rl.pass_metrics import OFFICIAL_TEST_IDS, TAU2_COMMIT
 
 
 def setup_evaluation(scratch_dir, count=20):
     identity = {
         "model_files": {"model.safetensors": "model-A"},
-        "task_ids": [str(i) for i in range(count)],
+        "task_ids": sorted(OFFICIAL_TEST_IDS, key=int)
+        if count == 20
+        else [str(i) for i in range(count)],
+        "tau2_commit": TAU2_COMMIT,
         "samples_per_task": 4,
         "record_split": "test" if count == 20 else "internal_dev",
         "split": "official_test" if count == 20 else "internal_dev",
@@ -47,17 +51,21 @@ def write_sample(records, manifest, task, slot, *, failed=False, name=None):
 
 def test_final_test_requires_all_twenty_tasks_and_eighty_valid_slots(scratch_dir):
     _, records, manifest = setup_evaluation(scratch_dir)
-    for task in range(20):
+    tasks = manifest["identity"]["task_ids"]
+    last_task = tasks[-1]
+    for task in tasks:
         for slot in range(4):
-            if (task, slot) != (19, 3):
+            if (task, slot) != (last_task, 3):
                 write_sample(records, manifest, task, slot)
-    write_sample(records, manifest, 19, 3, failed=True, name="failed-api-attempt")
+    write_sample(
+        records, manifest, last_task, 3, failed=True, name="failed-api-attempt"
+    )
     with pytest.raises(ValueError, match="no final metrics"):
         summarize(records)
     partial = summarize(records, allow_incomplete=True)
     assert "aggregate" not in partial and "per_task" not in partial
-    assert partial["missing_slots"] == [{"task_id": "19", "sample_index": 3}]
-    write_sample(records, manifest, 19, 3, name="refill")
+    assert partial["missing_slots"] == [{"task_id": last_task, "sample_index": 3}]
+    write_sample(records, manifest, last_task, 3, name="refill")
     result = summarize(records)
     assert result["valid_samples"] == 80
     assert result["infrastructure_failures"] == 1

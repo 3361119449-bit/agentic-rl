@@ -440,6 +440,19 @@ python scripts/summarize_evaluation.py \
 pass^4=0。它不是“至少一次成功”的 pass@4，定义见
 [固定 Tau2 官方实现](https://github.com/sierra-research/tau2-bench/blob/a2c024725189473d2d7cea3a5cfdbcc67478e41f/src/tau2/metrics/agent_metrics.py)。
 
+两份报告共用 `tau2_agentic_rl.pass_metrics` 的官方 ID 集合、版本校验和成功判定。
+主线启动与离线汇总都会核对**准确的 20 个官方 test ID**及固定 Tau2 commit，
+不只检查数量。官方 reward 和自定义 strict_success 必须是 `[0,1]` 内的有限数值；
+`NaN`、无穷大、布尔值、字符串、缺失字段和越界值会报错，不会自动计作模型失败
+或触发补采。正常基础设施失败记录允许评分为空，仍按原规则补齐缺失槽位。
+官方成功判定逐字采用包含边界的 `1-1e-6 <= reward <= 1+1e-6`，
+因此 `0.999999` 在主线和独立报告中都判成功。pass^k 公式没有改变。
+
+已有完整且合法的记录可以离线重新汇总，无需重训或重新生成轨迹。旧独立报告若
+包含容差边界奖励，应重新汇总；缺少官方版本或评分无效的记录必须先核对原始证据，
+不要补造身份字段或把异常分数改成零。评估运行的代码 hash 仍参与 `--resume` 校验：
+更新代码后不能直接混续旧评估；未完成运行应保留原代码完成，或使用新 tag。
+
 JSON 保留 `official_pass1` / `official_pass4` 等字段名，并新增
 `metric_definition: tau2_pass_hat_k` 和 `metric_formula`。2026-09-07 此修复之前的
 RL 汇总文件使用 pass@4，**不能直接与修复后的 pass^4 比较**。使用上面的汇总命令

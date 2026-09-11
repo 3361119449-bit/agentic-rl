@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from tau2_agentic_rl.evaluation import evaluation_coverage
+from tau2_agentic_rl.pass_metrics import official_success
 
 
 def pass_hat_k(samples: int, successes: int, k: int) -> float:
@@ -52,10 +53,7 @@ def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str,
         groups[str(row["task_id"])].append(row)
     per_task = []
     for task, rows in sorted(groups.items(), key=lambda item: int(item[0])):
-        # Match the pinned Tau2 is_successful tolerance.
-        official = sum(
-            1 - 1e-6 <= row["official_scores"]["reward"] <= 1 + 1e-6 for row in rows
-        )
+        official = sum(official_success(row["official_scores"]["reward"]) for row in rows)
         strict = sum(row["custom_reward"]["strict_success"] == 1.0 for row in rows)
         per_task.append(
             {

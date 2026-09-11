@@ -125,3 +125,70 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
     (model / "model.safetensors").write_bytes(b"different-model")
     with pytest.raises(ValueError, match="identity changed"):
         evaluate_airline.main()
+
+
+def test_launcher_rejects_wrong_twenty_test_ids_before_model_hashing_or_launch(
+    monkeypatch,
+    scratch_dir,
+):
+    source = Path(__file__).parents[1]
+    for directory in ("configs", "data/splits"):
+        shutil.copytree(source / directory, scratch_dir / directory)
+    split_path = scratch_dir / "data/splits/airline_internal_dev.v1.json"
+    split = json.loads(split_path.read_text(encoding="utf-8"))
+    split["official_test"] = [str(task) for task in range(20)]
+    split_path.write_text(json.dumps(split), encoding="utf-8")
+    model = scratch_dir / "model"
+    model.mkdir()
+    (model / "config.json").write_text("{}", encoding="utf-8")
+    (model / "model.safetensors").write_bytes(b"fixture")
+    monkeypatch.setattr(
+        evaluate_airline, "__file__", str(scratch_dir / "scripts/evaluate_airline.py")
+    )
+    monkeypatch.setattr(evaluate_airline, "_require_exact_checkout", lambda *args: None)
+    for key in (
+        "DEEPSEEK_USER_MODEL",
+        "DEEPSEEK_JUDGE_MODEL",
+        "DEEPSEEK_API_KEY",
+        "DEEPSEEK_BASE_URL",
+    ):
+        monkeypatch.setenv(key, "fixture")
+    # Restore all launcher environment writes after the preflight test.
+    for key in (
+        "AGENTIC_RL_CONFIG",
+        "TRAJECTORY_OUTPUT_DIR",
+        "JUDGE_CACHE_DIR",
+        "USER_CACHE_DIR",
+        "AGENTIC_RL_PROJECT_ROOT",
+        "MERGED_SFT_MODEL",
+    ):
+        monkeypatch.setenv(key, "")
+    monkeypatch.setattr(
+        evaluate_airline,
+        "fingerprint_directory",
+        lambda *args: pytest.fail("must reject before hashing"),
+    )
+    monkeypatch.setattr(
+        evaluate_airline.subprocess,
+        "run",
+        lambda *args, **kwargs: pytest.fail("must not launch"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evaluate",
+            "--tau2-root",
+            str(scratch_dir),
+            "--verl-root",
+            str(scratch_dir),
+            "--model-path",
+            str(model),
+            "--tag",
+            "must-not-create",
+            "--dry-run",
+        ],
+    )
+    with pytest.raises(ValueError, match="20 official test IDs"):
+        evaluate_airline.main()
+    assert not (scratch_dir / "outputs/evaluations/must-not-create").exists()

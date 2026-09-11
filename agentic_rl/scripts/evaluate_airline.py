@@ -44,6 +44,7 @@ from tau2_agentic_rl.evaluation import (
     initialize_evaluation,
 )
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
+from tau2_agentic_rl.pass_metrics import validate_official_test_ids
 from tau2_agentic_rl.schemas import TrajectoryRecord
 from tau2_agentic_rl.scoring_retry import retry_scoring
 from tau2_agentic_rl.storage import TrajectoryStore
@@ -224,8 +225,8 @@ def main() -> None:
         "official_train": "train",
         "internal_dev": "internal_dev",
     }[args.split]
-    if test_mode and len(task_ids) != 20:
-        raise ValueError("frozen test must contain 20 tasks")
+    if test_mode:
+        validate_official_test_ids(task_ids, TAU2_COMMIT)
     identity = {
         "model_path": args.model_path,
         "model_files": fingerprint_directory(Path(args.model_path)),
