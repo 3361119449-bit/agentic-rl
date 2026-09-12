@@ -3,7 +3,7 @@ project:
   tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
   verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
   annotation_version: v2-areal-policy
-  reward_version: v2-areal-policy
+  reward_version: v3-truncation-evidence
 
 agent_policy:
   path: configs/prompts/areal_airline_sft.v1.json
@@ -88,6 +88,7 @@ reward:
     transfer_semantic: 0.25
   progress_coefficient: 0.75
   strict_success_coefficient: 0.25
+  truncation_multiplier: 0.75
   mandatory_policy_gate: true
   task_safety_gate: true
   process_penalty_cap: 0.20

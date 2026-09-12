@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import isfinite
 from typing import Any
 
+from tau2_agentic_rl.judge.evidence import validate_evidence_turn_ids
 from tau2_agentic_rl.reward.mandatory_policy import (
     evaluate_mandatory_policy,
     evaluate_task_safety,
@@ -29,7 +31,18 @@ from tau2_agentic_rl.schemas import (
     OfficialScores,
     PolicyCheckResult,
     RewardResult,
+    TerminationReason,
     ToolEvent,
+)
+
+TRUNCATED_TERMINATIONS = frozenset(
+    {
+        "budget_exhausted",
+        "generation_truncated",
+        "hard_turn_limit",
+        "max_steps",
+        "context_window_exceeded",
+    }
 )
 
 
@@ -55,9 +68,16 @@ class RewardConfig:
     )
     progress_coefficient: float = 0.75
     strict_coefficient: float = 0.25
+    truncation_multiplier: float = 0.75
     enable_mandatory_policy_gate: bool = True
     enable_task_safety_gate: bool = True
     process: ProcessPenaltyConfig = field(default_factory=ProcessPenaltyConfig)
+
+    def __post_init__(self) -> None:
+        if not isfinite(self.truncation_multiplier) or not (
+            0.0 <= self.truncation_multiplier <= 1.0
+        ):
+            raise ValueError("truncation_multiplier must be finite and within [0, 1]")
 
 
 def build_reward_config(project_config: dict[str, Any]) -> RewardConfig:
@@ -84,6 +104,9 @@ def build_reward_config(project_config: dict[str, Any]) -> RewardConfig:
         ),
         strict_coefficient=float(
             reward.get("strict_success_coefficient", defaults.strict_coefficient)
+        ),
+        truncation_multiplier=float(
+            reward.get("truncation_multiplier", defaults.truncation_multiplier)
         ),
         enable_mandatory_policy_gate=bool(
             reward.get("mandatory_policy_gate", defaults.enable_mandatory_policy_gate)
@@ -145,10 +168,17 @@ def score_trajectory(
     judge: JudgeResult,
     transfer_rule: dict[str, Any] | None = None,
     action_dependencies: list[list[str]] | None = None,
+    termination_reason: TerminationReason | None = None,
     config: RewardConfig | None = None,
 ) -> RewardResult:
     """Compute custom training reward while preserving official score separately."""
     config = config or RewardConfig()
+    validate_evidence_turn_ids(
+        judge,
+        {"messages": messages, "tool_events": [event.model_dump() for event in events]},
+    )
+    truncated = termination_reason in TRUNCATED_TERMINATIONS
+    multiplier = config.truncation_multiplier if truncated else 1.0
     process = compute_process_penalty(events, assistant_turns, config.process)
     policy_checks = evaluate_mandatory_policy(
         events,
@@ -197,7 +227,7 @@ def score_trajectory(
             strict = 0.0
         return RewardResult(
             branch="human_transfer",
-            train_reward=reward,
+            train_reward=reward * multiplier,
             strict_success=strict,
             progress=progress,
             policy_gate=policy_gate and valid,
@@ -205,6 +235,10 @@ def score_trajectory(
             process_penalty=process.penalty,
             components=components,
             details={
+                "termination_reason": termination_reason,
+                "trajectory_truncated": truncated,
+                "truncation_multiplier": multiplier,
+                "reward_before_truncation": reward,
                 "transfer_valid": valid,
                 "policy_checks": [item.model_dump() for item in policy_checks],
                 "task_safety_check": task_safety_check.model_dump(),
@@ -242,7 +276,7 @@ def score_trajectory(
         strict = 0.0
     return RewardResult(
         branch="normal",
-        train_reward=reward,
+        train_reward=reward * multiplier,
         strict_success=strict,
         progress=progress,
         policy_gate=policy_gate,
@@ -250,6 +284,10 @@ def score_trajectory(
         process_penalty=process.penalty,
         components=components,
         details={
+            "termination_reason": termination_reason,
+            "trajectory_truncated": truncated,
+            "truncation_multiplier": multiplier,
+            "reward_before_truncation": reward,
             "required_actions": action_result.model_dump(),
             "policy_checks": [item.model_dump() for item in policy_checks],
             "task_safety_check": task_safety_check.model_dump(),

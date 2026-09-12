@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -72,12 +72,15 @@ class ToolEvent(BaseModel):
     result: str | None = None
 
 
+EvidenceTurnId = Annotated[int, Field(strict=True, ge=0)]
+
+
 class JudgeCheck(BaseModel):
     """One binary, auditable judge decision."""
 
     criterion_id: str
     passed: bool
-    evidence_turn_ids: list[int] = Field(default_factory=list)
+    evidence_turn_ids: list[EvidenceTurnId] = Field(default_factory=list)
     short_reason: str = ""
 
 
@@ -86,7 +89,7 @@ class TransferCheck(BaseModel):
 
     applicable: bool = False
     valid: bool = False
-    evidence_turn_ids: list[int] = Field(default_factory=list)
+    evidence_turn_ids: list[EvidenceTurnId] = Field(default_factory=list)
     short_reason: str = ""
 
 

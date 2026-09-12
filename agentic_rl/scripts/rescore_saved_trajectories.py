@@ -76,6 +76,7 @@ def main() -> None:
             judge=record.judge_result,
             transfer_rule=transfer[record.task_id],
             action_dependencies=dependencies.get(record.task_id, []),
+            termination_reason=record.termination_reason,
             config=reward_config,
         )
         metadata = dict(record.metadata)

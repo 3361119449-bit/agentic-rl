@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 
 from tau2_agentic_rl.concurrency import api_budget
+from tau2_agentic_rl.judge.evidence import validate_evidence_turn_ids
 from tau2_agentic_rl.judge.prompts import (
     JUDGE_PROMPT_VERSION,
     JUDGE_RUBRIC_VERSION,
@@ -38,7 +39,7 @@ class JudgeConfig:
     prompt_version: str = JUDGE_PROMPT_VERSION
     rubric_version: str = JUDGE_RUBRIC_VERSION
     schema_version: str = JUDGE_SCHEMA_VERSION
-    scorer_code_version: str = "tau2-agentic-rl-scorer-v2"
+    scorer_code_version: str = "tau2-agentic-rl-scorer-v3"
 
 
 class DeepSeekJudge:
@@ -146,6 +147,7 @@ class DeepSeekJudge:
             )
         if not transferred and result.transfer_check.valid:
             raise ValueError("judge cannot mark a non-executed transfer as valid")
+        validate_evidence_turn_ids(result, inputs.get("trajectory", {}))
 
     async def evaluate(self, **inputs: Any) -> tuple[JudgeResult, str, str, str]:
         """Return result, raw response, prompt hash, and full cache-key hash."""

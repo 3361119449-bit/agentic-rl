@@ -27,9 +27,13 @@ Communication completion requires delivered assistant text in messages, never
 raw model output or a rejected tool attempt. Actions require successful executed
 tool_events; a failed event with db_effect=true is a safety violation, not a
 completed action. Rejected attempts are policy/process evidence only.
+Every evidence_turn_ids entry must be a nonnegative integer explicitly present
+as a messages.turn_idx or tool_events.turn_id in TRAJECTORY_DATA. These are two
+different evidence views; do not invent IDs, infer array indices, or cite unsent
+actor text absent from both views. Empty evidence lists do not assert support.
 """
 
-JUDGE_PROMPT_VERSION = "areal-airline-judge-prompt-v5"
+JUDGE_PROMPT_VERSION = "areal-airline-judge-prompt-v6"
 JUDGE_RUBRIC_VERSION = "areal-airline-rubric-v3"
 JUDGE_SCHEMA_VERSION = "1.0"
 

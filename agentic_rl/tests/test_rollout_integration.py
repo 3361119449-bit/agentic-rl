@@ -182,6 +182,10 @@ def test_truncated_output_not_delivered_or_judged_and_full_observation_preserved
     )
     assert record.official_scores.reward == 0
     assert 0 < record.custom_reward.train_reward < 1
+    assert record.custom_reward.details["truncation_multiplier"] == 0.75
+    assert output.reward_score == pytest.approx(
+        record.custom_reward.details["reward_before_truncation"] * 0.75
+    )
     assert record.messages[-1]["content"] == "Unsent refund explanation"
     assert record.messages[-2]["content"] == "[truncated]"
     assert record.environment_transcript[-1]["content"] == full_observation

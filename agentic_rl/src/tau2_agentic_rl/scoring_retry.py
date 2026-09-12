@@ -48,6 +48,7 @@ async def retry_scoring(record, judge, store):
             judge=result,
             transfer_rule=inputs["judge"]["transfer_rule"],
             action_dependencies=inputs["action_dependencies"],
+            termination_reason=trajectory["termination_reason"],
             config=build_reward_config(inputs["reward_project_config"]),
         )
         record.judge_result = result

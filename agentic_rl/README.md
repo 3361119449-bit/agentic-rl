@@ -26,7 +26,7 @@
 - 多轮 observation 包含 Qwen `turn_separator`，完整计入上下文预算；
 - 16,384 token 生成前预算检查，15 轮软阈值、24 轮硬终止；
 - DeepSeek 用户模拟器与 Judge 使用独立 prompt、缓存和重试；
-- Judge 每条完整轨迹只调用一次，输出二值条目，并严格核对 criterion ID；
+- Judge 每条完整轨迹执行一次评分流程（失败有界重试），输出二值条目，核对 criterion ID 及 evidence_turn_ids 是否存在；
 - 官方 DB/COMMUNICATE、必须动作、语义、强制 Policy gate 和过程扣分的双分支奖励；
 - GRPO 组大小 8、组内标准差归一化、Clip-Higher 0.20/0.28、dual clip 10；
 - PPO epoch=2、old policy 固定为 vLLM rollout log-prob、token-mean、无 KL、无 Critic；
@@ -77,7 +77,7 @@ python -m pytest tests/test_sft_agent_policy.py tests/test_rollout_integration.p
 官方轨迹生成流程仍使用它导出的上下文；**它生成的 SFT 不自动视为提示词一致**。
 如果使用该分支或其他 SFT 数据，先用提取脚本检查提示词，不要混用后声称完全一致。
 
-本轮更新自定义奖励版本为 `v2-areal-policy`，并更新 Judge/政策 rubric 版本。
+该次政策对齐更新自定义奖励版本为 `v2-areal-policy`，并更新 Judge/政策 rubric 版本。
 旧政策下的 RL checkpoint 不应继续恢复优化器；请用原 SFT 起点启动新实验。
 旧评估结果和 Judge 缓存不能混入新实验。Tau2 官方任务、工具、数据库、用户模拟器
 及官方评分算法未修改，最终仍报告官方 pass^1/pass^4，但需披露 agent 使用 AReaL 政策。
@@ -497,6 +497,42 @@ python scripts/rescore_saved_trajectories.py \
   --config configs/rl/airline_grpo_v1.yaml \
   --reward-version v2
 ```
+
+## 截断折扣与 Judge 证据校验（2026-09-12）
+
+当前自定义奖励版本为 `v3-truncation-evidence`。训练和评估配置均显式设置
+`reward.truncation_multiplier: 0.75`，普通任务、转人工两个分支一致：
+
+```text
+最终 train_reward = 原有加权、过程扣分、裁剪及政策/安全门控后的奖励 × 截断系数
+截断系数 = 0.75（轨迹被截断）或 1.0（其他终止情况）
+```
+
+判定依据是会话的 `termination_reason`，包含 `generation_truncated`、
+`budget_exhausted`、`hard_turn_limit`、`max_steps`、`context_window_exceeded`。
+单个 observation 被裁短但会话正常结束，不算整个轨迹截断；API 超时或其他
+基础设施错误沿用原失败处理，不用折扣代替重试。折扣只乘一次，不改各分项、
+`strict_success`、官方评分或 pass^k 公式。审计字段记录在 `custom_reward.details`
+中的 `trajectory_truncated`、`termination_reason`、`reward_before_truncation`
+和 `truncation_multiplier`。在线评分、冻结轨迹重试、离线重评分使用同一实现，
+重复离线计算不会把旧奖励再次乘 0.75。
+
+Judge 的 `semantic_checks`、`transfer_semantic_checks`、`mandatory_policy_checks`
+及 `transfer_check` 的所有 `evidence_turn_ids` 必须是严格非负整数，并出现在
+**实际传给 Judge 的** `messages.turn_idx` 或 `tool_events.turn_id` 中。
+前者是环境会话编号，后者是 assistant 生成轮编号，可能包含未送进环境的被拒绝
+工具尝试；这是两个证据视图，不强行当成同一消息编号。不会通过数组下标、数字
+字符串或布尔值补造合法引用。空列表不新增“必须有证据”的要求，但原有的
+“失败的 policy 条目必须有证据及具体理由”继续保留。
+
+这个检查只验证 ID 存在，**不证明证据在语义上支持判定**。模型响应引用不存在的
+ID 时按 Judge 格式错误有界重试，耗尽后保持评分失败待处理，不改成模型零分或
+重采用户会话。缓存读取和离线重评分也会拒绝无效引用，不自动删除或修补证据。
+Judge prompt / scorer 缓存版本已更新（v6 / v3）；旧 Judge rubric 指纹不兼容时
+离线重评分会要求重新 Judge，不能伪造新版指纹绕过检查。
+
+这次不改 SFT 数据、agent 系统提示词、工具规则或官方评分。新旧 reward / Judge
+版本应使用分开的实验与评估 tag，不绕过恢复身份校验。未自动启动 GPU 或 API 作业。
 
 ## RL / 评估的 EOS 文本边界
 

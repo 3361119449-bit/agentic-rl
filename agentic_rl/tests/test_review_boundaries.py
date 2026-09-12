@@ -50,9 +50,11 @@ def test_external_stop_keeps_progress_but_not_official_success(reason):
         required_actions=[],
         official=official,
         judge=JudgeResult(),
+        termination_reason=reason,
     )
     assert official.reward == 0 and official.db_score == 1
-    assert custom.train_reward == 1  # Existing partial/completion formula is unchanged.
+    assert custom.train_reward == 0.75
+    assert custom.details["reward_before_truncation"] == 1
 
 
 def test_full_interaction_snapshot_excludes_unsent_and_later_cleanup():

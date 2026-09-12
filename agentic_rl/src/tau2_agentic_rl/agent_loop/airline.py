@@ -729,6 +729,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     judge=judge_result,
                     transfer_rule=transfer_rule,
                     action_dependencies=self.action_dependencies.get(task_id, []),
+                    termination_reason=interaction_termination_reason,
                     config=self.reward_config,
                 )
             except Exception as exc:
