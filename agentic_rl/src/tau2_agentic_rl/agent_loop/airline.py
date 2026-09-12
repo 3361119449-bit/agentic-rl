@@ -499,9 +499,14 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 infrastructure_error = ("tool_parser", exc)
                 termination_reason = "infrastructure_error"
                 break
+            if not calls:
+                # The final token was verified as EOS above. Exclude only that
+                # transport delimiter from visible text, not arbitrary special
+                # tokens or tool syntax. Raw tokens/log-probs remain unchanged.
+                content = self.tokenizer.decode(output.token_ids[:-1])
             assistant_message: dict[str, Any] = {
                 "role": "assistant",
-                "content": content if calls else decoded,
+                "content": content,
                 "turn_idx": assistant_turns,
                 "raw_generated_text": decoded,
             }
@@ -516,6 +521,10 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             messages.append(assistant_message)
 
             turn_error = validate_tool_turn(decoded, len(calls))
+            if not calls and not content.strip():
+                # EOS-only/blank replies are model output errors, not Tau2/API
+                # failures. Do not send an empty action to the user simulator.
+                turn_error = turn_error or "parse_error"
             if turn_error:
                 event = ToolEvent(
                     event_id=f"{trajectory_id}:{len(tool_events)}",
@@ -531,8 +540,9 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     synthetic_tool_error(
                         "invalid_tool_turn",
                         turn_error,
-                        "No call was executed. Emit one complete JSON tool call, "
-                        "with no accompanying text or additional tool blocks.",
+                        "No action was delivered. Emit a nonempty text reply or "
+                        "one complete JSON tool call, never both and never "
+                        "additional tool blocks.",
                     ),
                 )
             elif calls:
@@ -611,7 +621,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 tool_events.append(event)
             else:
                 try:
-                    step = await environment.step_text(decoded)
+                    step = await environment.step_text(content)
                 except Exception as exc:
                     infrastructure_error = ("tau2_text_step", exc)
                     termination_reason = "infrastructure_error"

@@ -3,11 +3,17 @@
 import asyncio
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from test_rollout_integration import minimal_loop
 
 from tau2_agentic_rl.chat_stream import render_environment_turn
+from tau2_agentic_rl.environment.tau2_gym import Tau2GymAdapter
 from tau2_agentic_rl.initial_prompt import encode_full_chat
+from tau2_agentic_rl.judge.prompts import build_judge_messages
+from tau2_agentic_rl.reward.score import RewardConfig
+from tau2_agentic_rl.schemas import JudgeResult
 
 
 @pytest.fixture(scope="module")
@@ -150,7 +156,7 @@ def test_live_loop_uses_the_budgeted_renderer_after_successful_text_delivery():
         Path(__file__).parents[1] / "src/tau2_agentic_rl/agent_loop/airline.py"
     ).read_text(encoding="utf-8")
     assert "turn_separator=self.turn_separator" in source
-    assert source.index("await environment.step_text(decoded)") < source.index(
+    assert source.index("await environment.step_text(content)") < source.index(
         "messages.extend(bounded_messages)"
     )
     assert "confirmation.authorize" not in source
@@ -180,3 +186,208 @@ def test_untruncated_encoder_rejects_template_truncation_override(tokenizer):
             [{"role": "user", "content": "hi"}],
             template_kwargs={"truncation": True},
         )
+
+
+@pytest.fixture
+def text_loop(tokenizer, scratch_dir):
+    """Real actor/adapter/renderers; only inference and Tau2 backend are fake."""
+    loop, scope = minimal_loop(scratch_dir)
+    captured = {"actions": [], "prompts": [], "judge": []}
+
+    class Message(SimpleNamespace):
+        def model_dump(self, **kwargs):
+            return vars(self).copy()
+
+    class Backend:
+        def __init__(self):
+            self.messages = [Message(role="user", content="Explain refunds.")]
+            self.info = {"task": {}, "tools": []}
+            self.done = False
+            self._agent = SimpleNamespace(observation=self.messages)
+            self._orchestrator = SimpleNamespace(
+                trajectory=self.messages,
+                environment=SimpleNamespace(get_db_hash=lambda: "unchanged"),
+            )
+            self._simulation_done = SimpleNamespace(is_set=lambda: self.done)
+
+        def step(self, action):
+            if action == "###STOP###":
+                self.done = True
+            else:
+                captured["actions"].append(action)
+                self.messages.append(Message(role="assistant", content=action))
+                self.done = len(captured["actions"]) == 2
+                if not self.done:
+                    self.messages.append(
+                        Message(role="user", content="Please continue.")
+                    )
+            if self.done:
+                self.info["simulation_run"] = {"termination_reason": "user_stop"}
+            return None, 0.0, self.done, False, self.info
+
+    backend = Backend()
+
+    class Environment(Tau2GymAdapter):
+        async def reset(self, seed=None):
+            self.env, self.info = backend, backend.info
+            self._initial_db_hash = self.db_hash()
+            return self._take_new_observations()
+
+    async def parse(ids, schemas):
+        # Parser text is not assumed to be sanitized. Actual EOS ID defines the
+        # transport boundary, independently of the parser's text return value.
+        return tokenizer.decode(ids), []
+
+    async def snapshot(*args):
+        return {}
+
+    class Judge:
+        async def evaluate(self, **inputs):
+            captured["judge"] = build_judge_messages(**inputs)
+            return JudgeResult(), "fixture", "fixture", "fixture"
+
+    scope["Tau2GymAdapter"] = Environment
+    loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
+    loop.tokenizer = tokenizer
+    loop.apply_chat_template_kwargs = {}
+    loop.system_prompt = []
+    loop.turn_separator = boundary(tokenizer)
+    loop.response_length = 16384
+    loop.tool_parser = SimpleNamespace(extract_tool_calls=parse)
+    loop.shared_budget = SimpleNamespace(acall=snapshot)
+    loop.judge, loop.reward_config = Judge(), RewardConfig()
+    loop.semantic, loop.transfer, loop.policy_rules = {"0": {}}, {"0": {}}, {"0": {}}
+    loop.required_actions, loop.action_dependencies = {"0": []}, {}
+    return loop, backend, captured
+
+
+@pytest.mark.parametrize("evaluation", [False, True], ids=["rl", "evaluation"])
+def test_text_eos_never_reaches_tau2_or_judge_but_training_stream_is_intact(
+    tokenizer, text_loop, monkeypatch, evaluation
+):
+    loop, backend, captured = text_loop
+    if evaluation:
+        monkeypatch.setenv("EVALUATION_MANIFEST_ID", "offline-fixture")
+    else:
+        monkeypatch.delenv("EVALUATION_MANIFEST_ID", raising=False)
+    replies = ["Let me check.", "Your refund is being processed. 退款正在处理中。"]
+    generated = [
+        tokenizer.encode(text, add_special_tokens=False) + [tokenizer.eos_token_id]
+        for text in replies
+    ]
+    old_logprobs = [[-0.01 * (i + 1) for i in range(len(ids))] for ids in generated]
+
+    async def generate(**kwargs):
+        index = len(captured["prompts"])
+        expected_history = [
+            {"role": "system", "content": loop.agent_system_prompt},
+            *[message.model_dump() for message in backend.messages],
+        ]
+        # Check the actual NEXT generation input, not just saved display text.
+        assert kwargs["prompt_ids"] == encode_full_chat(
+            tokenizer, expected_history, tools=[]
+        )
+        if evaluation:
+            assert kwargs["sampling_params"]["seed"] == 42 + index * 100003
+        else:
+            assert "seed" not in kwargs["sampling_params"]
+        captured["prompts"].append(list(kwargs["prompt_ids"]))
+        return SimpleNamespace(
+            token_ids=generated[index], log_probs=old_logprobs[index], extra_fields={}
+        )
+
+    loop.server_manager = SimpleNamespace(generate=generate)
+    output = asyncio.run(
+        loop._run_trajectory({}, extra_info={"task_id": "0", "environment_seed": 42})
+    )
+    record = next(loop.store.records())
+    assert record.termination_reason == "user_stop"
+    assert captured["actions"] == replies
+    assert "<|im_end|>" not in str(record.environment_transcript)
+    assert "<|im_end|>" not in str(captured["judge"])
+    assert record.scoring_inputs["judge"]["trajectory"]["messages"] == (
+        record.environment_transcript
+    )
+    assistant_messages = [m for m in record.messages if m["role"] == "assistant"]
+    for index, (message, turn) in enumerate(
+        zip(assistant_messages, record.token_turns, strict=True)
+    ):
+        assert message["content"] == replies[index]
+        assert message["raw_generated_text"] == replies[index] + "<|im_end|>"
+        assert turn.prompt_token_ids == captured["prompts"][index]
+        assert turn.output_token_ids == generated[index]
+        assert turn.output_old_log_probs == old_logprobs[index]
+    assert output.prompt_ids + output.response_ids == (
+        captured["prompts"][-1] + generated[-1]
+    )
+    observation_length = (
+        len(captured["prompts"][1]) - len(output.prompt_ids) - len(generated[0])
+    )
+    assert observation_length > 0
+    assert output.response_mask == (
+        [1] * len(generated[0]) + [0] * observation_length + [1] * len(generated[1])
+    )
+    assert output.response_logprobs == (
+        old_logprobs[0] + [0.0] * observation_length + old_logprobs[1]
+    )
+
+
+@pytest.mark.parametrize("text", ["", " \n\t"], ids=["eos_only", "whitespace_only"])
+def test_blank_completed_reply_is_local_model_error_not_user_api_failure(
+    tokenizer, text_loop, text
+):
+    loop, _, captured = text_loop
+    loop.hard_turn_limit = 1
+    tokens = tokenizer.encode(text, add_special_tokens=False) + [tokenizer.eos_token_id]
+
+    async def generate(**kwargs):
+        return SimpleNamespace(
+            token_ids=tokens, log_probs=[-1.0] * len(tokens), extra_fields={}
+        )
+
+    loop.server_manager = SimpleNamespace(generate=generate)
+    output = asyncio.run(loop._run_trajectory({}, extra_info={"task_id": "0"}))
+    record = next(loop.store.records())
+    assert not captured["actions"]  # Only cleanup, never an empty Tau2 action.
+    assert record.metadata["failure_phase"] is None
+    assert record.termination_reason == "hard_turn_limit"
+    assert record.tool_events[0].error_kind == "parse_error"
+    assert record.environment_transcript == [
+        {"role": "user", "content": "Explain refunds.", "turn_idx": 0}
+    ]
+    assert record.messages[2]["content"] == text
+    assert record.messages[2]["raw_generated_text"] == text + "<|im_end|>"
+    assert record.messages[3]["role"] == "tool"
+    assert record.token_turns[0].output_token_ids == tokens
+    assert output.response_ids[: len(tokens)] == tokens
+    assert output.response_mask[: len(tokens)] == [1] * len(tokens)
+    assert output.response_logprobs[: len(tokens)] == [-1.0] * len(tokens)
+
+
+def test_only_actual_terminal_eos_is_removed_not_literal_marker_text(
+    tokenizer, text_loop
+):
+    loop, _, captured = text_loop
+    loop.hard_turn_limit = 1
+    # Ordinary token pieces can spell a marker without emitting its special ID.
+    # Global string replacement would silently alter this intentional content.
+    pieces = ["The literal marker is ", "<", "|im_end|", ">"]
+    tokens = [
+        token
+        for piece in pieces
+        for token in tokenizer.encode(piece, add_special_tokens=False)
+    ] + [tokenizer.eos_token_id]
+    assert tokens.count(tokenizer.eos_token_id) == 1
+
+    async def generate(**kwargs):
+        return SimpleNamespace(
+            token_ids=tokens, log_probs=[-1.0] * len(tokens), extra_fields={}
+        )
+
+    loop.server_manager = SimpleNamespace(generate=generate)
+    asyncio.run(loop._run_trajectory({}, extra_info={"task_id": "0"}))
+    record = next(loop.store.records())
+    assert captured["actions"] == ["".join(pieces)]
+    assert record.messages[2]["content"] == "".join(pieces)
+    assert record.messages[2]["raw_generated_text"] == "".join(pieces) + "<|im_end|>"
+    assert record.token_turns[0].output_token_ids == tokens

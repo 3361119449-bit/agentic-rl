@@ -64,7 +64,7 @@ def test_truncated_output_not_delivered_or_judged_and_full_observation_preserved
             return list(self.messages)
 
         async def step_text(self, content):
-            assert content == "Let me check.<|im_end|>"
+            assert content == "Let me check."
             self.messages += [
                 {"role": "assistant", "content": content},
                 {"role": "user", "content": full_observation},
@@ -126,6 +126,7 @@ def test_truncated_output_not_delivered_or_judged_and_full_observation_preserved
             assert transcript[-1]["content"] == full_observation
             assert "Unsent refund explanation" not in str(transcript)
             assert "###STOP###" not in str(transcript)
+            assert "<|im_end|>" not in str(transcript)
             return (
                 JudgeResult(
                     semantic_checks=[JudgeCheck(criterion_id="explain", passed=False)]
@@ -151,9 +152,11 @@ def test_truncated_output_not_delivered_or_judged_and_full_observation_preserved
     loop.root, loop.hard_turn_limit = scratch_dir, 24
     loop.tokenizer = SimpleNamespace(
         eos_token_id=9,
-        decode=lambda ids: (
-            "Let me check.<|im_end|>" if ids[-1] == 9 else "Unsent refund explanation"
-        ),
+        decode=lambda ids: {
+            (4, 9): "Let me check.<|im_end|>",
+            (4,): "Let me check.",
+            (3,): "Unsent refund explanation",
+        }[tuple(ids)],
     )
     loop.tool_parser = SimpleNamespace(extract_tool_calls=parse)
     loop._render_full_chat = template
@@ -183,6 +186,14 @@ def test_truncated_output_not_delivered_or_judged_and_full_observation_preserved
     assert record.messages[-2]["content"] == "[truncated]"
     assert record.environment_transcript[-1]["content"] == full_observation
     assert record.metadata["initial_prompt"]["initial_prompt_tokens"] == 2
+    delivered = record.messages[2]
+    assert delivered["content"] == "Let me check."
+    assert delivered["raw_generated_text"] == "Let me check.<|im_end|>"
+    assert record.token_turns[0].output_token_ids == [4, 9]
+    assert record.token_turns[0].output_old_log_probs == [-1.0, -1.0]
+    assert output.response_ids == [4, 9, 5, 6, 3]
+    assert output.response_mask == [1, 1, 0, 0, 1]
+    assert output.response_logprobs == [-1.0, -1.0, 0.0, 0.0, -1.0]
 
 
 def minimal_loop(scratch_dir):

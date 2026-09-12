@@ -498,6 +498,30 @@ python scripts/rescore_saved_trajectories.py \
   --reward-version v2
 ```
 
+## RL / 评估的 EOS 文本边界
+
+Qwen 的生成 token 包含终止符 `<|im_end|>`。RL 与评估共用的 actor loop
+在确认最后一个 token 确实是 EOS 后，只把它从**对外纯文本的解码输入**中排除。
+发给 Tau2 User Simulator 的正文及 Judge 的实际会话记录不再包含这个模板终止符；
+不是事后清洗 Judge transcript。系统提示词仍逐字使用 AReaL SFT 版本。
+
+`raw_generated_text`、`token_turns`、返回 veRL 的 token ID、old log-prob 和
+response mask 保留原始 EOS，下一轮仍接续原始 token 流。不会全局替换字符串、
+删除正文中有意写出的字面标记或跳过所有特殊 token；工具解析和整轮格式校验仍
+读取原始输出。只有 EOS / 空白的回复走本地 `parse_error` 反馈，不发送空动作给
+用户模拟器，也不计作 API 故障。未生成 EOS 的截断回复仍不执行、不对外发送。
+原始输出与被拒绝工具事件中的审计文本可能仍含 EOS，不能据此认定发生对外泄漏。
+
+已把终止符发进 `environment_transcript` 的旧轨迹必须保留原样：用户模拟器的
+后续反应可能已受影响，删字符串或只重跑 Judge **不能恢复干净的评估条件**。
+正式 pass^1 / pass^4 应使用修复后的代码和**新的评估 tag**重新 rollout，不能
+把新旧轨迹混合汇总或绕过 `--resume` 的代码身份校验。前文“可以离线重新汇总”
+只适用于交互本身未受污染、仅统计口径需要修正的记录。
+
+这个推理传输问题本身不要求重训 SFT 或重新导出已有正常 checkpoint；如果已用
+受影响的 rollout 做过 RL 更新，应将其视为不同实验条件，不能声称修复代码后
+旧训练结果就自动等价。更新仓库不会自动发起重评或训练。
+
 ## 正式训练前仍必须人工完成
 
 - 填入 DeepSeek Pro 的精确、可复现模型 ID；
