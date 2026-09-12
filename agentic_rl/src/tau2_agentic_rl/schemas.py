@@ -197,4 +197,6 @@ class TrajectoryRecord(BaseModel):
     official_scores: OfficialScores | None = None
     judge_result: JudgeResult | None = None
     custom_reward: RewardResult | None = None
+    user_sim_inputs: dict[str, Any] | None = None
+    user_sim_result: dict[str, Any] | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)

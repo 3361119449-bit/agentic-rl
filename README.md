@@ -11,6 +11,13 @@ paid API rollouts. Reproduction: [pipeline checks](training/tau2_rollout_sft/REA
 Historical RL review fixes, frozen evaluation/resume commands and remaining
 GPU acceptance requirements: [review follow-up](agentic_rl/REVIEW_FOLLOWUP.md).
 
+RL/evaluation update (2026-09-12): official pass evaluation now defaults to no
+Agent reward Judge (`--reward-judge` opts in). RL training also supports
+`--no-reward-judge` for an official-reward-only ablation (RL defaults to Judge on).
+A separate outcome-blind User
+Simulator compliance check screens every collected episode and replaces invalid
+episodes before DAPO or pass aggregation. See [configuration, criteria and offline screening](agentic_rl/README.md#user-simulator-整条轨迹合规过滤2026-09-12).
+
 ## Dataset
 
 Path: `datasets/tau2_airline_sft_strict_cleaned/`

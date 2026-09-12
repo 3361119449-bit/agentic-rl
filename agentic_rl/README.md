@@ -31,7 +31,7 @@
 - GRPO 组大小 8、组内标准差归一化、Clip-Higher 0.20/0.28、dual clip 10；
 - PPO epoch=2、old policy 固定为 vLLM rollout log-prob、token-mean、无 KL、无 Critic；
 - RL LoRA `r=32, alpha=64, dropout=0, all-linear`；
-- 自定义有界动态采样：每个候选批 8 个任务组，每组 8 条轨迹，最多 3 批（192 条）；若不足 4 个混合奖励组，该候选优化步不更新参数，清空后换一批任务；
+- 自定义有界动态采样：每个候选批 8 个任务组，每组 8 条合规轨迹，最多 3 批（192 个候选槽位，用户模拟器违规重采另计）；若不足 4 个混合奖励组，该候选优化步不更新参数，清空后换一批任务；
 - train/internal-dev/test 物理分离，test 标注与训练配置分开；
 - 每条轨迹原子化保存，可离线重新打分。
 - 每个实验使用独立 run 目录且默认禁用自动续训；
@@ -144,7 +144,8 @@ set +a
 
 - `MERGED_SFT_MODEL`：AReaL Airline SFT LoRA 合并后的完整模型目录；
 - `DEEPSEEK_USER_MODEL`：服务商中 DeepSeek Pro 的精确模型 ID；
-- `DEEPSEEK_JUDGE_MODEL`：Judge 的精确模型 ID；
+- `DEEPSEEK_JUDGE_MODEL`：Agent 奖励 Judge 的精确模型 ID；训练默认使用，评估默认不使用；仅开启 Agent Judge 时必填；
+- `DEEPSEEK_USER_SIM_JUDGE_MODEL`：独立用户模拟器合规检查模型的精确 ID；训练和评估必填，可与奖励 Judge 使用同一型号，但提示词、输入与缓存独立；
 - `DEEPSEEK_BASE_URL` 与 `DEEPSEEK_API_KEY`。
 
 代码会拒绝 `FIX_EXACT_MODEL_ID`。计划书没有给出精确 DeepSeek 型号，所以实现没有擅自猜测别名。不要提交 `.env`。
@@ -336,7 +337,8 @@ python scripts/train_airline_grpo.py \
   --extra +trainer.ppo_audit=true
 ```
 
-一次更新可能先生成 64–192 条候选轨迹；收不满组还可能再次尝试，另有训练前验证。
+一次更新可能先收集 64–192 个候选轨迹槽位；用户模拟器违规重采另计，
+默认每槽位最多 3 次完整尝试。收不满组还可能再次尝试，另有训练前验证。
 这不是单请求测试。先用默认超参数完成真实更新、checkpoint、导出和 internal-dev
 评估闭环，不要直接运行正式 15 epoch，也不要用 official-test 反复联调：
 
@@ -446,7 +448,12 @@ python scripts/summarize_evaluation.py \
   --output outputs/reports/sft_grpo_pass1_pass4.json
 ```
 
-两条评估路径与 `training/tau2_rollout_sft/report_pass1_pass4.py` 使用同一口径：
+以上命令默认**关闭 Agent 奖励 Judge**，只报告 `official_pass1` / `official_pass4`。
+也可显式传入 `--no-reward-judge`；需要原 Agent Judge / `custom_strict_pass1` /
+`custom_strict_pass4` 时传入 `--reward-judge`，并使用新的 `--tag`。
+这不关闭下面的 **User Simulator 合规检查**，后者仍会调用独立的检查模型。
+
+两条评估路径与 `training/tau2_rollout_sft/report_pass1_pass4.py` 使用相同的数学公式：
 每任务的 pass^k = `comb(成功次数, k) / comb(有效次数, k)`，最后对任务等权平均。
 恰好运行 4 次时，pass^4 只有四次全部成功才为 1；只成功 1 次时 pass^1=0.25、
 pass^4=0。它不是“至少一次成功”的 pass@4，定义见
@@ -460,7 +467,7 @@ pass^4=0。它不是“至少一次成功”的 pass@4，定义见
 官方成功判定逐字采用包含边界的 `1-1e-6 <= reward <= 1+1e-6`，
 因此 `0.999999` 在主线和独立报告中都判成功。pass^k 公式没有改变。
 
-已有完整且合法的记录可以离线重新汇总，无需重训或重新生成轨迹。旧独立报告若
+同一评估身份下已有完整且合法的记录可以离线重新汇总，无需重训或重新生成轨迹。旧独立报告若
 包含容差边界奖励，应重新汇总；缺少官方版本或评分无效的记录必须先核对原始证据，
 不要补造身份字段或把异常分数改成零。评估运行的代码 hash 仍参与 `--resume` 校验：
 更新代码后不能直接混续旧评估；未完成运行应保留原代码完成，或使用新 tag。
@@ -470,15 +477,104 @@ JSON 保留 `official_pass1` / `official_pass4` 等字段名，并新增
 RL 汇总文件使用 pass@4，**不能直接与修复后的 pass^4 比较**。使用上面的汇总命令
 从已有完整轨迹重新输出一份报告即可，不必重新 rollout 或请求 DeepSeek；不要只改旧报告标签。
 
+## User Simulator 整条轨迹合规过滤（2026-09-12）
+
+**训练和评估都支持独立 Agent Judge 开关**：`--reward-judge` / `--no-reward-judge`。
+训练未传开关时遵循 YAML `judge.enabled`（默认 true），评估默认 false。
+训练关闭时 `reward_score` 与 DAPO 使用的 `train_reward` 都取审计后的官方奖励，
+不计算原 Agent Judge 驱动的自定义复合奖励，也不伪造 `custom_reward` 或 strict 指标。
+该分支仍保留既有官方截断处理（外部预算截断的官方 reward 计零），不会返回未打折的自定义奖励。
+因此关闭 Judge 的 RL 属于**官方奖励消融**，要使用独立 run，不能中途切换后恢复旧 checkpoint。
+用户合规过滤不受 Agent Judge 开关影响。例如：
+
+```bash
+python scripts/train_airline_grpo.py --stage internal_dev \
+  --run-name official_reward_ablation --no-reward-judge --dry-run
+# 正常训练：去掉 --dry-run；如需 Agent Judge，改为 --reward-judge。
+```
+
+训练 GRPO / DAPO 与 `scripts/evaluate_airline.py` 共用 `user_sim_filter`，默认开启。
+它在一条完整交互收集结束后离线检查（包括因长度/轮数预算截断的已有完整记录），
+不修改 Agent 的 SFT 系统提示词，不给 User Simulator 追加纠错提示。
+只因为 **User Simulator 本身实质破坏任务环境** 才丢弃整条 trajectory：
+
+- `invented_fact`：编造 scenario、此前对话或 user tool 未提供的具体事实。
+- `scenario_contradiction`：与场景明确的已知/未知信息、来电原因或任务指令矛盾。
+- `goal_drift`：自行增加、删除或改变影响任务执行的目标/约束。
+- `withheld_known_information`：被明确询问关键已知事实，却持续隐藏或答非所问。
+- `conditional_behavior_violation`：提前执行或明显漏执行条件指令，并改变流程。
+- `invalid_termination`：错误使用 STOP / TRANSFER / OUT-OF-SCOPE，导致错误终止。
+
+Agent 失败、幻觉、政策违规、`official_reward=0` **绝不是过滤理由**。
+用户相信 Agent 已完成后 STOP、用户提出违反 airline policy 的要求、啰嗦重复、
+轻微 persona 或无实质影响的披露时机偏差均保留；外部截断本身不算用户错误终止。
+
+检查 API 采用严格输入白名单，仅收到实际 User Simulation Guidelines（含运行时 persona）、
+`user_scenario`、完整已发生对话和全部用户回复。不会收到 official reward、
+evaluation criteria、参考动作、目标 DB 状态或标准答案；也不发送 Agent 系统提示词、
+`raw_data` 或整份任务对象。实际对话中已经观察到的工具参数/结果保留。
+落盘审计可以保留官方评分，但它与检查 API 输入分开，是否重采只取决于用户合规结论。
+
+输出保存为 `user_sim_result`：`user_sim_valid`、`violation_type`、`severity`、
+`turn_ids`、`reason`。有效时为 `true/none/none`，违规时为 `false/<上述类型>/hard`；
+证据 ID 必须存在且指向用户回复。格式错误或不存在的证据触发同输入检查重试，
+不会当作违规。`user_sim_inputs` 与其哈希冻结输入；传输前先原子保存待检查轨迹。
+
+处理顺序是：完整交互 → 用户合规检查 → 合规才进入 Agent 奖励计算 / DAPO 分组
+（Agent Judge 关闭时直接使用官方分数）。所有候选轨迹都检查，不先按奖励或 DAPO 组内方差挑选。
+不合规轨迹留存审计，但其 token 不返回优化器，也不占有效 pass 样本；不是把它的奖励改成零。
+训练在同一 policy version 下重新生成整条交互；评估由驱动补同一 task/sample slot，
+换 seed、换独立用户缓存并记录尝试次数，避免命中原来的违规回复。
+
+`user_sim_filter.max_resamples: 2` 表示原始尝试之外最多重采两次；到上限仍不合规时
+令本条 rollout 报错/保留未完成评估，**不放行、不改成失败分、不无限重采本条**。
+温度为 0 的服务仍可能再次产生同样回复，换 seed/缓存不保证成功。
+检查 API 失败只重试同一冻结交互：评估 `--resume` 不会补采该 slot；训练的本条
+rollout 报错并保留 pending 审计，不向 PPO 返回它。训练 replay buffer 沿用已有的
+基础设施失败组处理：整组不参与优化，后续可以请求新的候选任务组；不会把该 pending
+对话标成用户违规或在本条重采循环中重放。历史 pending 的核验用离线脚本，
+不能把直接重跑训练当成已经完成了它的检查。
+离线/评估检查最多 4 个 worker，实际 HTTP 请求仍共用 `judge_api_max_inflight`。
+
+开启过滤后，报告是**以用户模拟器合规为条件的 pass^k**，公式和官方成功判定不变，
+但样本集合与未过滤的原始 Tau2 评估不同。报告记录开关、拒绝数、原因和待检查 slot；
+做消融时各组必须使用相同过滤模型/准则/重采上限，并披露这些统计。
+独立旧报告脚本 `training/tau2_rollout_sft/report_pass1_pass4.py` 不执行该过滤，
+不要把它的原始样本口径与新评估混用，也不要依据 test 得分调整过滤准则。
+更改代码/过滤配置或 Judge 开关后使用新 run/tag，不能绕过旧身份校验。
+
+已有磁盘轨迹也可逐条离线检查到新目录（不覆盖原文件）：
+
+```bash
+python scripts/screen_user_simulations.py \
+  outputs/runs/my_run/trajectories outputs/user_screened/my_run \
+  --config configs/rl/airline_grpo_v1.yaml --dry-run
+# 确认输入后去掉 --dry-run，才会请求检查 API。
+```
+
+输出为 `accepted/`、`rejected/`、`pending/` 和 `screening_report.json`，含重采计划。
+新记录已经保存指南；旧记录还必须提供 `--guidelines /path/to/exact_historical_guidelines.txt`，
+并具有固定 Tau2 版本、原始场景及完整对话，缺失时拒绝猜测。
+指南文件必须是当时实际使用的版本（含 persona 替换），不是随便取当前官方文件。
+历史重采必须使用该记录的**原始 checkpoint/policy**；这个离线脚本不会擅自用当前模型
+重采或将历史 `accepted/` 自动注入 on-policy DAPO。在线训练/评估的自动替换在上述
+同 policy 的 actor/评估驱动完成。
+
+本轮离线验证：Transformers 4.57.1 和 5.10.4 各 **444 passed / 1 skipped**，
+包含真实本地 Qwen tokenizer、实际 actor/启动器的隔离执行、两种 Agent Judge 开关、
+输入防泄漏、用户证据 ID、完整轨迹拒绝/重采、API pending 与评估 slot 补齐测试。
+跳过项是旧的远程 tokenizer opt-in 测试；Ruff 和 `git diff --check` 通过。
+没有启动 GPU 训练或真实付费 API，检查模型的语义误判率仍需在非 test 样本上人工抽查。
+
 ## 动态采样实现说明
 
 veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num_gen_batches`。本项目没有依赖该无上限行为，而是通过 `tau2_agentic_rl.verl_entrypoint` 构造 `CappedPPOTrainerSync`：
 
 1. 同一 policy version 先生成 8 个 prompt group；
-2. 每组由 8 条 trajectory 构成；
+2. 每组由 8 条用户模拟器合规的 trajectory 构成；违规整条重采，然后才进入奖励/组过滤；
 3. 仅保留 `train_reward` 组内不全同的 group；
 4. 不足 4 组时再生成一批 8 组；
-5. 最多 3 批，即 24 group / 192 trajectory；
+5. 最多 3 批，即 24 group / 192 个合规候选槽位；默认每槽最多尝试 3 次，因此含违规重采的物理轨迹上限为 576 条/候选尝试（另有验证）；
 6. 仍不足时清掉该候选批，不执行 backward/optimizer step，重新取任务；
 7. 收满 4 组后用 32 条 trajectory 做两个 PPO epoch，再同步 vLLM 权重。
 

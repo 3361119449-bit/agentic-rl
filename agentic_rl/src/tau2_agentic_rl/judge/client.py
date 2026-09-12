@@ -45,6 +45,9 @@ class JudgeConfig:
 class DeepSeekJudge:
     """One isolated, cached judge call per complete trajectory."""
 
+    result_model = JudgeResult
+    build_messages = staticmethod(build_judge_messages)
+
     def __init__(self, config: JudgeConfig):
         if config.model.startswith("FIX_EXACT_"):
             raise ValueError("set an exact judge model ID before running")
@@ -151,7 +154,7 @@ class DeepSeekJudge:
 
     async def evaluate(self, **inputs: Any) -> tuple[JudgeResult, str, str, str]:
         """Return result, raw response, prompt hash, and full cache-key hash."""
-        messages = build_judge_messages(**inputs)
+        messages = self.build_messages(**inputs)
         prompt_hash = sha256_json(messages)
         identity = self.cache_identity(messages)
         cache_key = sha256_json(identity)
@@ -160,7 +163,7 @@ class DeepSeekJudge:
             envelope = json.loads(cache_path.read_text(encoding="utf-8"))
             if envelope.get("identity") != identity:
                 raise RuntimeError("judge cache identity mismatch")
-            parsed = JudgeResult.model_validate(envelope["result"])
+            parsed = self.result_model.model_validate(envelope["result"])
             raw = str(envelope.get("raw_response", ""))
             self._validate_requested_criteria(parsed, inputs)
             return parsed, raw, prompt_hash, cache_key
@@ -189,7 +192,7 @@ class DeepSeekJudge:
                         )
                     response.raise_for_status()
                     raw = response.json()["choices"][0]["message"]["content"]
-                    parsed = JudgeResult.model_validate(json.loads(raw))
+                    parsed = self.result_model.model_validate(json.loads(raw))
                     self._validate_requested_criteria(parsed, inputs)
                     self._atomic_write(
                         cache_path,

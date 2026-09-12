@@ -36,7 +36,7 @@ except ModuleNotFoundError:  # Direct python scripts/evaluate_airline.py.
 
 from tau2_agentic_rl.agent_policy import load_agent_system_prompt
 from tau2_agentic_rl.base_identity import validate_adapter_base
-from tau2_agentic_rl.config import load_runtime_config
+from tau2_agentic_rl.config import expand_env, load_yaml
 from tau2_agentic_rl.evaluation import (
     evaluation_coverage,
     evaluation_lock,
@@ -48,6 +48,12 @@ from tau2_agentic_rl.pass_metrics import validate_official_test_ids
 from tau2_agentic_rl.schemas import TrajectoryRecord
 from tau2_agentic_rl.scoring_retry import retry_scoring_batch
 from tau2_agentic_rl.storage import TrajectoryStore
+from tau2_agentic_rl.user_simulation import (
+    build_user_sim_judge,
+    check_user_simulation,
+    filter_enabled,
+    replacement_seed,
+)
 from tau2_agentic_rl.versions import sha256_file, sha256_json
 
 
@@ -141,6 +147,12 @@ def parse_args(argv=None):
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--max-refill-rounds", type=int, default=2)
+    parser.add_argument(
+        "--reward-judge",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Enable Agent reward Judge/custom metrics (default: official pass only). User compliance screening stays enabled.",
+    )
     return parser.parse_args(argv)
 
 
@@ -185,11 +197,13 @@ def main() -> None:
         validate_adapter_base(args.lora_adapter, args.model_path)
     for name in (
         "DEEPSEEK_USER_MODEL",
-        "DEEPSEEK_JUDGE_MODEL",
+        "DEEPSEEK_USER_SIM_JUDGE_MODEL",
         "DEEPSEEK_API_KEY",
         "DEEPSEEK_BASE_URL",
     ):
         _require_env(name)
+    if args.reward_judge:
+        _require_env("DEEPSEEK_JUDGE_MODEL")
 
     project_root = Path(__file__).resolve().parents[1]
     test_mode = args.split == "official_test"
@@ -209,9 +223,17 @@ def main() -> None:
     os.environ["TRAJECTORY_OUTPUT_DIR"] = f"outputs/evaluations/{args.tag}/trajectories"
     os.environ["JUDGE_CACHE_DIR"] = f"outputs/evaluations/{args.tag}/judge_cache"
     os.environ["USER_CACHE_DIR"] = f"outputs/evaluations/{args.tag}/user_cache"
+    os.environ["USER_SIM_JUDGE_CACHE_DIR"] = (
+        f"outputs/evaluations/{args.tag}/user_sim_judge_cache"
+    )
     os.environ["AGENTIC_RL_PROJECT_ROOT"] = str(project_root)
     os.environ["MERGED_SFT_MODEL"] = args.model_path
-    project = load_runtime_config(config_path)
+    project = load_yaml(config_path)
+    if args.reward_judge:
+        project["judge"]["enabled"] = True
+    else:
+        project["judge"] = {"enabled": False}
+    project = expand_env(project)
     load_agent_system_prompt(project, project_root)
     split_path = project_root / "data/splits/airline_internal_dev.v1.json"
     split_data = json.loads(split_path.read_text(encoding="utf-8"))
@@ -252,7 +274,10 @@ def main() -> None:
         "tau2_commit": TAU2_COMMIT,
         "verl_commit": VERL_COMMIT,
         "user_model": project["user_simulator"]["model"],
-        "judge_model": project["judge"]["model"],
+        "judge_model": project["judge"].get("model"),
+        "reward_judge_enabled": args.reward_judge,
+        "user_sim_filter_enabled": filter_enabled(project),
+        "user_sim_filter": project.get("user_sim_filter", {}),
         "temperature": project["rollout"]["temperature"],
         "top_p": project["rollout"]["top_p"],
         "top_k": project["rollout"]["top_k"],
@@ -299,17 +324,51 @@ def main() -> None:
                 )
             os.environ["AGENTIC_RL_CONFIG"] = str(runtime_path)
             judge_config = project["judge"]
-            judge = DeepSeekJudge(
-                JudgeConfig(
-                    model=judge_config["model"],
-                    provider=judge_config.get("provider", "DeepSeek"),
-                    base_url=judge_config["base_url"],
-                    max_retries=int(judge_config["max_retries"]),
-                    cache_dir=str(project_root / project["outputs"]["judge_cache"]),
+            judge = (
+                DeepSeekJudge(
+                    JudgeConfig(
+                        model=judge_config["model"],
+                        provider=judge_config.get("provider", "DeepSeek"),
+                        base_url=judge_config["base_url"],
+                        max_retries=int(judge_config["max_retries"]),
+                        cache_dir=str(project_root / project["outputs"]["judge_cache"]),
+                    )
                 )
+                if args.reward_judge
+                else None
+            )
+            user_sim_judge = (
+                build_user_sim_judge(project, project_root)
+                if filter_enabled(project)
+                else None
             )
             store = TrajectoryStore(run_root / "trajectories")
             for refill in range(args.max_refill_rounds + 1):
+                coverage = evaluation_coverage(run_root / "trajectories", manifest)
+
+                async def retry_user_checks():
+                    pending = iter(coverage["user_sim_pending_records"])
+
+                    async def worker():
+                        for row in pending:
+                            try:
+                                await check_user_simulation(
+                                    TrajectoryRecord.model_validate(row),
+                                    user_sim_judge,
+                                    store,
+                                )
+                            except Exception as exc:
+                                print(
+                                    f"user-simulator check still pending: {row['trajectory_id']}: {type(exc).__name__}"
+                                )
+
+                    async with asyncio.TaskGroup() as group:
+                        for _ in range(
+                            min(4, len(coverage["user_sim_pending_records"]))
+                        ):
+                            group.create_task(worker())
+
+                asyncio.run(retry_user_checks())
                 coverage = evaluation_coverage(run_root / "trajectories", manifest)
                 asyncio.run(
                     retry_scoring_batch(
@@ -329,10 +388,20 @@ def main() -> None:
                 rows = []
                 for item in coverage["missing_slots"]:
                     task, slot = item["task_id"], item["sample_index"]
+                    attempt = item.get("user_sim_attempt", 0)
+                    if attempt > project["user_sim_filter"]["max_resamples"]:
+                        raise RuntimeError(
+                            "user-simulator replacement cap reached; evaluation remains incomplete"
+                        )
                     row = _row(
-                        task, record_split, args.seed + int(task) * args.samples + slot
+                        task,
+                        record_split,
+                        replacement_seed(
+                            args.seed + int(task) * args.samples + slot, attempt
+                        ),
                     )
                     row["extra_info"]["evaluation_sample_index"] = slot
+                    row["extra_info"]["user_sim_attempt"] = attempt
                     rows.append(row)
                 _write_parquet(rows, data_file)
                 result = subprocess.run(command, check=False, cwd=args.verl_root)

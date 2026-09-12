@@ -13,6 +13,7 @@ from tau2_agentic_rl.pass_metrics import (
     validate_unit_score,
 )
 from tau2_agentic_rl.scoring_retry import scoring_pending
+from tau2_agentic_rl.user_simulation import FILTER_VERSION, validate_saved_screen
 from tau2_agentic_rl.versions import sha256_file, sha256_json
 
 
@@ -84,6 +85,11 @@ def evaluation_coverage(records_dir: Path, manifest: dict[str, Any]) -> dict[str
     expected = {(task, slot) for task in tasks for slot in range(n)}
     valid: dict[tuple[str, int], dict] = {}
     pending: dict[tuple[str, int], dict] = {}
+    user_pending: dict[tuple[str, int], dict] = {}
+    user_rejected = []
+    replacement_attempts = {}
+    with_judge = identity.get("reward_judge_enabled", True)
+    with_filter = identity.get("user_sim_filter_enabled", False)
     failures = 0
     trajectory_ids = set()
     for path in sorted(records_dir.glob("*.json")):
@@ -102,6 +108,36 @@ def evaluation_coverage(records_dir: Path, manifest: dict[str, Any]) -> dict[str
         if row["trajectory_id"] in trajectory_ids:
             raise ValueError("duplicate trajectory ID")
         trajectory_ids.add(row["trajectory_id"])
+        if with_filter:
+            verdict = row.get("user_sim_result")
+            if verdict is not None:
+                verdict = validate_saved_screen(row)
+                if metadata.get("user_sim_filter_version") != FILTER_VERSION:
+                    raise ValueError("foreign/missing user-simulator filter version")
+                if not verdict.user_sim_valid:
+                    user_rejected.append(row)
+                    attempt = metadata.get("user_sim_attempt", 0)
+                    if type(attempt) is not int or attempt < 0:
+                        raise ValueError("invalid user-simulator replacement attempt")
+                    replacement_attempts[key] = max(
+                        replacement_attempts.get(key, 0), attempt + 1
+                    )
+                    continue  # Outcome-blind: never read reward to choose rejections.
+            elif row.get("user_sim_inputs") is not None:
+                if key in user_pending or key in valid or key in pending:
+                    raise ValueError(f"duplicate pending interaction for slot: {key}")
+                user_pending[key] = row
+                continue
+            elif row.get("termination_reason") in {
+                "infrastructure_error",
+                "infrastructure_failure",
+            }:
+                failures += 1
+                continue
+            else:
+                raise ValueError(
+                    "completed trajectory lacks required user-simulator screening"
+                )
         # Validate any saved score before classifying the slot. Corrupt scores
         # must not become model failures or infrastructure retries silently.
         for field, score_key in (
@@ -115,33 +151,46 @@ def evaluation_coverage(records_dir: Path, manifest: dict[str, Any]) -> dict[str
                 validate_unit_score(
                     score.get(score_key), name=f"{path.name}: {field}.{score_key}"
                 )
-        if scoring_pending(row):
-            if key in valid or key in pending:
+        if with_judge and scoring_pending(row):
+            if key in valid or key in pending or key in user_pending:
                 raise ValueError(f"duplicate interaction for valid slot: {key}")
             pending[key] = row
             continue
         if (
-            row.get("custom_reward") is None
+            (with_judge and row.get("custom_reward") is None)
             or row.get("official_scores") is None
             or row.get("termination_reason")
             in {"infrastructure_error", "infrastructure_failure"}
         ):
             failures += 1
             continue
-        if key in valid or key in pending:
+        if key in valid or key in pending or key in user_pending:
             raise ValueError(f"duplicate valid sample for task/slot: {key}")
         valid[key] = row
     missing = sorted(
-        expected - valid.keys() - pending.keys(), key=lambda key: (int(key[0]), key[1])
+        expected - valid.keys() - pending.keys() - user_pending.keys(),
+        key=lambda key: (int(key[0]), key[1]),
     )
     return {
-        "complete": not missing and not pending,
+        "complete": not missing and not pending and not user_pending,
         "expected_samples": len(expected),
         "valid_samples": len(valid),
         "infrastructure_failures": failures,
         "scoring_pending_records": list(pending.values()),
+        "user_sim_pending_records": list(user_pending.values()),
+        "user_sim_rejected_records": user_rejected,
+        "user_sim_rejections": len(user_rejected),
         "missing_slots": [
-            {"task_id": task, "sample_index": slot} for task, slot in missing
+            {
+                "task_id": task,
+                "sample_index": slot,
+                **(
+                    {"user_sim_attempt": replacement_attempts[(task, slot)]}
+                    if (task, slot) in replacement_attempts
+                    else {}
+                ),
+            }
+            for task, slot in missing
         ],
         "records": list(valid.values()),
     }

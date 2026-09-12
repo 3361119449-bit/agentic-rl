@@ -220,3 +220,13 @@ class Tau2GymAdapter:
         """Return hashes for every user-simulator request in this trajectory."""
         user = getattr(self.env, "_user", None)
         return list(getattr(user, "prompt_hashes", []))
+
+    def user_sim_context(self):
+        """Only the actual simulator guidelines and scenario, never task criteria."""
+        user = self.env._user
+        guidelines = user.global_simulation_guidelines
+        persona = user.persona_config.to_guidelines_text() or ""
+        if persona:
+            persona = f"\n\n{persona}\n"
+        guidelines = guidelines.replace("<PERSONA_GUIDELINES>", persona)
+        return guidelines, self.task["user_scenario"]

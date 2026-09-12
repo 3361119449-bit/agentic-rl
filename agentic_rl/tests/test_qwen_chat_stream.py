@@ -391,3 +391,90 @@ def test_only_actual_terminal_eos_is_removed_not_literal_marker_text(
     assert record.messages[2]["content"] == "".join(pieces)
     assert record.messages[2]["raw_generated_text"] == "".join(pieces) + "<|im_end|>"
     assert record.token_turns[0].output_token_ids == tokens
+
+
+@pytest.mark.parametrize("valid", [False, True])
+@pytest.mark.parametrize("reward_judge", [False, True])
+@pytest.mark.parametrize("official_reward", [0, 1])
+def test_complete_actor_screens_user_before_reward_and_never_returns_invalid_tokens(
+    tokenizer, text_loop, valid, reward_judge, official_reward
+):
+    from test_user_simulation import SCENARIO, verdict
+
+    from tau2_agentic_rl.user_simulation import (
+        UserSimulationRejected,
+        UserSimulationVerdict,
+    )
+
+    loop, backend, captured = text_loop
+    original_step = backend.step
+
+    def step(action):
+        obs, _, done, truncated, info = original_step(action)
+        return obs, float(official_reward), done, truncated, info
+
+    backend.step = step
+    loop.project["judge"] = {"enabled": reward_judge}
+    loop.project["user_sim_filter"] = {"enabled": True, "max_resamples": 2}
+    backend.info["task"] = {
+        "user_scenario": SCENARIO,
+        "evaluation_criteria": "HIDDEN_REFERENCE",
+        "expected_db_state": "HIDDEN_REFERENCE",
+    }
+    backend._user = SimpleNamespace(
+        global_simulation_guidelines="Actual guidelines",
+        persona_config=SimpleNamespace(to_guidelines_text=lambda: ""),
+    )
+    captured["quality"] = []
+
+    class QualityJudge:
+        async def evaluate(self, **inputs):
+            assert "HIDDEN_REFERENCE" not in str(inputs)
+            assert not captured["judge"]  # Agent reward judging has not happened.
+            captured["quality"].append(inputs)
+            return (
+                UserSimulationVerdict.model_validate(verdict(valid)),
+                "raw",
+                "hash",
+                "cache",
+            )
+
+    loop.user_sim_judge = QualityJudge()
+    if not reward_judge:
+        loop.judge = None  # Any accidental evaluate() call now fails the test.
+    tokens = tokenizer.encode("The request is complete.", add_special_tokens=False) + [
+        tokenizer.eos_token_id
+    ]
+
+    async def generate(**kwargs):
+        return SimpleNamespace(
+            token_ids=tokens, log_probs=[-1.0] * len(tokens), extra_fields={}
+        )
+
+    loop.server_manager = SimpleNamespace(generate=generate)
+    if not valid:
+        with pytest.raises(UserSimulationRejected):
+            asyncio.run(loop._run_trajectory({}, extra_info={"task_id": "0"}))
+        assert not captured["judge"]
+    else:
+        output = asyncio.run(loop._run_trajectory({}, extra_info={"task_id": "0"}))
+        assert output.response_ids
+        assert bool(captured["judge"]) == reward_judge
+        if not reward_judge:
+            assert output.reward_score == official_reward
+            assert output.extra_fields["reward_extra_info"] == {
+                "train_reward": official_reward,
+                "tau2_official_reward": official_reward,
+            }
+            assert "custom_strict_success" not in output.extra_fields
+    records = list(loop.store.records())
+    assert len(records) == 1
+    record = records[0]
+    assert record.user_sim_result["user_sim_valid"] == valid
+    assert (
+        record.official_scores.reward == official_reward
+    )  # Outcome never selects users.
+    assert (record.custom_reward is not None) == (valid and reward_judge)
+    assert len(captured["quality"]) == 1
+    assert len(captured["quality"][0]["inputs"]["user_replies"]) == 2
+    assert record.token_turns[0].output_token_ids == tokens

@@ -26,6 +26,7 @@ from tau2_agentic_rl.rl_resume import (
     save_resume_identity,
 )
 from tau2_agentic_rl.training_config import effective_project_config, training_overrides
+from tau2_agentic_rl.user_simulation import reward_judge_enabled
 
 TAU2_COMMIT = "a2c024725189473d2d7cea3a5cfdbcc67478e41f"
 VERL_COMMIT = "483b8a009ba3a97563edee3a19887e4862b8094a"
@@ -220,6 +221,12 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--extra", action="append", default=[])
     parser.add_argument("--config", type=Path)
+    parser.add_argument(
+        "--reward-judge",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override judge.enabled (RL default: enabled). Disabled uses official reward only; user compliance screening is independent.",
+    )
     args = parser.parse_args()
 
     if args.tau2_root is None or args.verl_root is None:
@@ -229,7 +236,7 @@ def main() -> None:
     _require_exact_checkout(args.verl_root, VERL_COMMIT, "veRL")
     model_path = _require_env("MERGED_SFT_MODEL")
     _require_env("DEEPSEEK_USER_MODEL")
-    _require_env("DEEPSEEK_JUDGE_MODEL")
+    _require_env("DEEPSEEK_USER_SIM_JUDGE_MODEL")
     _require_env("DEEPSEEK_API_KEY")
     _require_env("DEEPSEEK_BASE_URL")
 
@@ -247,6 +254,12 @@ def main() -> None:
     config_path = project_root / "configs" / "rl" / "airline_grpo_v1.yaml"
     config_path = (args.config or config_path).resolve()
     project = effective_project_config(load_yaml(config_path), args.extra)
+    if args.reward_judge is not None:
+        project["judge"]["enabled"] = args.reward_judge
+    if reward_judge_enabled(project):
+        _require_env("DEEPSEEK_JUDGE_MODEL")
+    else:
+        project["judge"] = {"enabled": False}
     from tau2_agentic_rl.agent_policy import load_agent_system_prompt
 
     load_agent_system_prompt(project, project_root)
@@ -266,6 +279,7 @@ def main() -> None:
         "CHECKPOINT_OUTPUT_DIR": run_root / "checkpoints",
         "JUDGE_CACHE_DIR": run_root / "judge_cache",
         "USER_CACHE_DIR": run_root / "user_cache",
+        "USER_SIM_JUDGE_CACHE_DIR": run_root / "user_sim_judge_cache",
         "METRICS_OUTPUT_DIR": run_root / "metrics",
         "REPORTS_OUTPUT_DIR": run_root / "reports",
     }

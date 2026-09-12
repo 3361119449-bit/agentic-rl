@@ -59,6 +59,15 @@ from tau2_agentic_rl.tooling import (
     validate_tool_call,
     validate_tool_turn,
 )
+from tau2_agentic_rl.user_simulation import (
+    UserSimulationRejected,
+    build_user_sim_judge,
+    check_user_simulation,
+    filter_enabled,
+    make_user_sim_inputs,
+    replacement_seed,
+    reward_judge_enabled,
+)
 from tau2_agentic_rl.versions import sha256_json
 
 
@@ -165,14 +174,23 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             per_turn_max_new_tokens=int(rollout["per_turn_max_new_tokens"]),
         )
         judge_config = self.project["judge"]
-        self.judge = DeepSeekJudge(
-            JudgeConfig(
-                model=judge_config["model"],
-                provider=judge_config.get("provider", "DeepSeek"),
-                base_url=judge_config["base_url"],
-                cache_dir=str(self.root / self.project["outputs"]["judge_cache"]),
-                max_retries=int(judge_config["max_retries"]),
+        self.judge = (
+            DeepSeekJudge(
+                JudgeConfig(
+                    model=judge_config["model"],
+                    provider=judge_config.get("provider", "DeepSeek"),
+                    base_url=judge_config["base_url"],
+                    cache_dir=str(self.root / self.project["outputs"]["judge_cache"]),
+                    max_retries=int(judge_config["max_retries"]),
+                )
             )
+            if reward_judge_enabled(self.project)
+            else None
+        )
+        self.user_sim_judge = (
+            build_user_sim_judge(self.project, self.root)
+            if filter_enabled(self.project)
+            else None
         )
         self.hard_turn_limit = int(rollout["max_hard_turns"])
         self.response_length = int(self.rollout_config.response_length)
@@ -235,7 +253,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             async with self.shared_budget.aslot("trajectories") as lease:
                 acquired = True
                 task = asyncio.create_task(
-                    self._run_trajectory(
+                    self._run_valid_trajectory(
                         sampling_params,
                         trajectory_id=trajectory_id,
                         lease=lease,
@@ -289,6 +307,42 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             )
             raise
 
+    async def _run_valid_trajectory(self, sampling_params, **kwargs):
+        """Replace invalid USER episodes before any tokens reach DAPO/PPO."""
+        if not filter_enabled(self.project):
+            return await self._run_trajectory(sampling_params, **kwargs)
+        max_replacements = self.project["user_sim_filter"].get("max_resamples", 2)
+        if type(max_replacements) is not int or max_replacements < 0:
+            raise ValueError(
+                "user_sim_filter.max_resamples must be a nonnegative integer"
+            )
+        base_extra = dict(kwargs.get("extra_info", {}) or {})
+        first_id = kwargs.get("trajectory_id") or uuid4().hex
+        base_seed = base_extra.get("environment_seed")
+        if base_seed is None:
+            base_seed = int(first_id[:8], 16) % (2**31 - 1)
+        start = base_extra.get("user_sim_attempt", 0)
+        # Evaluation refills invalid slots in the driver so attempts stay frozen
+        # and visible there. Training replaces them under the same policy lease.
+        rounds = 0 if os.environ.get("EVALUATION_MANIFEST_ID") else max_replacements
+        for offset in range(rounds + 1):
+            attempt = start + offset
+            current = {
+                **kwargs,
+                "trajectory_id": first_id if offset == 0 else uuid4().hex,
+                "extra_info": {
+                    **base_extra,
+                    "environment_seed": replacement_seed(base_seed, offset),
+                    "user_sim_attempt": attempt,
+                    "user_sim_parent_id": first_id,
+                },
+            }
+            try:
+                return await self._run_trajectory(sampling_params, **current)
+            except UserSimulationRejected:
+                if offset == rounds:
+                    raise
+
     async def _run_trajectory(
         self,
         sampling_params: dict[str, Any],
@@ -312,7 +366,11 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             user_model=user["model"],
             user_temperature=float(user["temperature"]),
             user_llm_args=user.get("llm_args", {}),
-            user_cache_dir=self.root / self.project["outputs"]["user_cache"],
+            user_cache_dir=(
+                self.root / self.project["outputs"]["user_cache"] / trajectory_id
+                if filter_enabled(self.project)
+                else self.root / self.project["outputs"]["user_cache"]
+            ),
             user_max_retries=int(user.get("max_retries", 2)),
             max_steps=self.hard_turn_limit * 3,
         )
@@ -659,6 +717,15 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
 
         trajectory_for_judge = snapshot_transcript(environment)
         interaction_termination_reason = termination_reason
+        user_sim_inputs = None
+        if filter_enabled(self.project) and infrastructure_error is None:
+            try:
+                guidelines, scenario = environment.user_sim_context()
+                user_sim_inputs = make_user_sim_inputs(
+                    guidelines, scenario, trajectory_for_judge
+                ).model_dump()
+            except Exception as exc:
+                infrastructure_error = ("user_sim_context", exc)
         final_db_hash = environment.safe_db_hash()
         await environment.force_cleanup_stop()
         official = None
@@ -680,6 +747,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         judge_prompt_hash = None
         judge_cache_key = None
         scoring_inputs = {
+            "reward_judge_enabled": reward_judge_enabled(self.project),
             "judge": {
                 "task": environment.task,
                 "policy": extract_airline_policy(self.agent_system_prompt),
@@ -700,7 +768,61 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "rollout": self.project["rollout"],
             },
         }
-        if infrastructure_error is None:
+        quality_record = None
+        if user_sim_inputs is not None and infrastructure_error is None:
+            quality_record = TrajectoryRecord(
+                trajectory_id=trajectory_id,
+                task_id=task_id,
+                split=split,
+                policy_version=policy_version,
+                annotation_version=self.project["project"]["annotation_version"],
+                reward_version=self.project["project"]["reward_version"],
+                environment_seed=seed,
+                termination_reason=termination_reason,
+                assistant_turns=assistant_turns,
+                trajectory_tokens=len(prompt_ids),
+                messages=messages,
+                environment_transcript=trajectory_for_judge,
+                scoring_inputs=scoring_inputs,
+                tool_events=tool_events,
+                token_turns=token_turns,
+                official_scores=official,
+                user_sim_inputs=user_sim_inputs,
+                initial_db_hash=environment.initial_db_hash(),
+                final_db_hash=final_db_hash,
+                metadata={
+                    "reward_judge_enabled": reward_judge_enabled(self.project),
+                    "tau2_commit": self.project["project"]["tau2_commit"],
+                    "verl_commit": self.project["project"]["verl_commit"],
+                    "user_prompt_hashes": environment.user_prompt_hashes(),
+                    "evaluation_sample_index": kwargs.get("extra_info", {}).get(
+                        "evaluation_sample_index"
+                    ),
+                    "user_sim_attempt": kwargs.get("extra_info", {}).get(
+                        "user_sim_attempt", 0
+                    ),
+                    "user_sim_parent_id": kwargs.get("extra_info", {}).get(
+                        "user_sim_parent_id"
+                    ),
+                    "user_sim_inputs_sha256": sha256_json(user_sim_inputs),
+                    "scoring_inputs_sha256": sha256_json(scoring_inputs),
+                    "agent_system_prompt_sha256": prompt_sha256(
+                        self.agent_system_prompt
+                    ),
+                    "judge_rubric_sha256": rubric_fingerprint(
+                        semantic_row.get("semantic_checks", []),
+                        policy_row.get("judge_checks", []),
+                        transfer_rule,
+                    ),
+                },
+            )
+            if not await check_user_simulation(
+                quality_record, self.user_sim_judge, self.store
+            ):
+                raise UserSimulationRejected(
+                    f"invalid simulator trajectory {trajectory_id}; quarantined, resampling required"
+                )
+        if infrastructure_error is None and reward_judge_enabled(self.project):
             try:
                 (
                     judge_result,
@@ -716,7 +838,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
 
         required = self.required_actions[task_id]
         custom_reward = None
-        if infrastructure_error is None:
+        if infrastructure_error is None and reward_judge_enabled(self.project):
             try:
                 if official is None or judge_result is None:
                     raise RuntimeError("successful rollout lacks scorer inputs")
@@ -773,7 +895,11 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             official_scores=official,
             judge_result=judge_result,
             custom_reward=custom_reward,
+            user_sim_inputs=user_sim_inputs,
+            user_sim_result=quality_record.user_sim_result if quality_record else None,
             metadata={
+                **(quality_record.metadata if quality_record else {}),
+                "reward_judge_enabled": reward_judge_enabled(self.project),
                 "agent_system_prompt_sha256": prompt_sha256(self.agent_system_prompt),
                 "initial_prompt": prompt_measurement,
                 "queue_wait_seconds": queue_wait_seconds,
@@ -814,27 +940,41 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             raise RuntimeError(
                 f"rollout infrastructure failure during {phase}; audit record saved"
             ) from error
-        assert custom_reward is not None
+        assert custom_reward is not None or not reward_judge_enabled(self.project)
         assert official is not None
+        # Explicit no-Judge ablation: use only the audited official reward.
+        # Never fabricate passing semantic/policy verdicts or custom metrics.
         return AgentLoopOutput(
             prompt_ids=initial_prompt_ids,
             response_ids=response_ids,
             response_mask=response_mask,
             response_logprobs=aligned_log_probs,
-            reward_score=custom_reward.train_reward,
+            reward_score=custom_reward.train_reward
+            if custom_reward
+            else official.reward,
             num_turns=assistant_turns,
             metrics=metrics,
             extra_fields={
                 "reward_extra_info": {
-                    "train_reward": custom_reward.train_reward,
+                    "train_reward": custom_reward.train_reward
+                    if custom_reward
+                    else official.reward,
                     "tau2_official_reward": official.reward,
-                    "custom_strict_success": custom_reward.strict_success,
+                    **(
+                        {"custom_strict_success": custom_reward.strict_success}
+                        if custom_reward
+                        else {}
+                    ),
                 },
                 "trajectory_id": trajectory_id,
                 "task_id": task_id,
                 "policy_version": policy_version,
                 "tau2_official_reward": official.reward,
-                "custom_strict_success": custom_reward.strict_success,
+                **(
+                    {"custom_strict_success": custom_reward.strict_success}
+                    if custom_reward
+                    else {}
+                ),
                 "termination_reason": termination_reason,
             },
         )

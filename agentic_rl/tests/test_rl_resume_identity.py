@@ -192,8 +192,9 @@ def test_actual_checkpoint_save_snapshots_identity_after_save(scratch_dir):
     require_same_identity(checkpoint, identity)
 
 
+@pytest.mark.parametrize("reward_judge", [True, False])
 def test_real_launcher_fresh_resume_and_changed_cli_fail_before_launch(
-    monkeypatch, scratch_dir
+    monkeypatch, scratch_dir, reward_judge
 ):
     # Run the production launcher; only external checkout checks/GPU subprocess are stubbed.
     for directory in ("configs", "data/annotations"):
@@ -213,6 +214,7 @@ def test_real_launcher_fresh_resume_and_changed_cli_fail_before_launch(
     for key in (
         "DEEPSEEK_USER_MODEL",
         "DEEPSEEK_JUDGE_MODEL",
+        "DEEPSEEK_USER_SIM_JUDGE_MODEL",
         "DEEPSEEK_API_KEY",
         "DEEPSEEK_BASE_URL",
     ):
@@ -223,6 +225,7 @@ def test_real_launcher_fresh_resume_and_changed_cli_fail_before_launch(
         "CHECKPOINT_OUTPUT_DIR",
         "JUDGE_CACHE_DIR",
         "USER_CACHE_DIR",
+        "USER_SIM_JUDGE_CACHE_DIR",
         "METRICS_OUTPUT_DIR",
         "REPORTS_OUTPUT_DIR",
         "AGENTIC_RL_CONFIG",
@@ -239,6 +242,9 @@ def test_real_launcher_fresh_resume_and_changed_cli_fail_before_launch(
         "--run-name",
         "run",
     ]
+    if not reward_judge:
+        argv.append("--no-reward-judge")
+        monkeypatch.delenv("DEEPSEEK_JUDGE_MODEL", raising=False)
     launches = []
     monkeypatch.setattr(
         launcher.subprocess, "run", lambda command, **kw: launches.append(command)
@@ -247,6 +253,8 @@ def test_real_launcher_fresh_resume_and_changed_cli_fail_before_launch(
     launcher.main()
     run = scratch_dir / "outputs/runs/run"
     identity = read_resume_identity(run)
+    assert identity["runtime_config"]["judge"]["enabled"] is reward_judge
+    assert load_yaml(run / "runtime_config.yaml")["judge"]["enabled"] is reward_judge
     assert identity["training_overrides"]["data.seed"] == "42"
     assert identity["training_overrides"]["trainer.total_epochs"] == "15"
     checkpoint = run / "checkpoints/global_step_10"
@@ -275,7 +283,10 @@ def test_real_launcher_fresh_resume_and_changed_cli_fail_before_launch(
         ["--stage", "full_train"],
         ["--extra", "trainer.total_training_steps=7"],
         ["--run-name", "new", "--extra", "actor_rollout_ref.actor.optim.lr=0.000002"],
+        ["--no-reward-judge" if reward_judge else "--reward-judge"],
     ):
+        # Only the opt-in branch requires this model variable.
+        monkeypatch.setenv("DEEPSEEK_JUDGE_MODEL", "fixture")
         monkeypatch.setattr(sys, "argv", resume_argv + flags)
         with pytest.raises(ValueError, match="resume identity changed"):
             launcher.main()

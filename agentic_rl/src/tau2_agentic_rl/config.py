@@ -44,4 +44,7 @@ def expand_env(value: Any) -> Any:
 
 def load_runtime_config(path: str | Path) -> dict[str, Any]:
     """Load YAML and resolve required environment variables."""
-    return expand_env(load_yaml(path))
+    config = load_yaml(path)
+    if config.get("judge", {}).get("enabled") is False:
+        config["judge"] = {"enabled": False}
+    return expand_env(config)

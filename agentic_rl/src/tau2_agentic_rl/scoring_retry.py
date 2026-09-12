@@ -44,6 +44,16 @@ async def retry_scoring_batch(records, judge, store):
 
 async def retry_scoring(record, judge, store):
     """Atomically update the same ID/slot, preserving all interaction evidence."""
+    if record.user_sim_inputs is not None:
+        from tau2_agentic_rl.user_simulation import validate_saved_screen
+
+        if (
+            record.user_sim_result is None
+            or not validate_saved_screen(record.model_dump()).user_sim_valid
+        ):
+            raise ValueError(
+                "user-simulator screening must pass before Agent reward scoring"
+            )
     if not scoring_pending(record.model_dump()):
         raise ValueError("record is not a scoring-only failure")
     inputs = record.scoring_inputs

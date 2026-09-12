@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +29,19 @@ def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str,
     coverage = evaluation_coverage(records_dir, manifest)
     records = coverage.pop("records")
     pending = coverage.pop("scoring_pending_records")
+    user_pending = coverage.pop("user_sim_pending_records")
+    rejected = coverage.pop("user_sim_rejected_records")
+    coverage["user_sim_pending_slots"] = [
+        {
+            "task_id": row["task_id"],
+            "sample_index": row["metadata"]["evaluation_sample_index"],
+        }
+        for row in user_pending
+    ]
+    coverage["user_sim_rejection_reasons"] = dict(
+        Counter(row["user_sim_result"]["violation_type"] for row in rejected)
+    )
+    with_judge = manifest["identity"].get("reward_judge_enabled", True)
     coverage["scoring_pending_slots"] = [
         {
             "task_id": row["task_id"],
@@ -45,6 +58,7 @@ def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str,
                 {
                     "missing": coverage["missing_slots"],
                     "scoring_pending": coverage["scoring_pending_slots"],
+                    "user_sim_pending": coverage["user_sim_pending_slots"],
                 }
             )
         )
@@ -53,16 +67,28 @@ def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str,
         groups[str(row["task_id"])].append(row)
     per_task = []
     for task, rows in sorted(groups.items(), key=lambda item: int(item[0])):
-        official = sum(official_success(row["official_scores"]["reward"]) for row in rows)
-        strict = sum(row["custom_reward"]["strict_success"] == 1.0 for row in rows)
+        official = sum(
+            official_success(row["official_scores"]["reward"]) for row in rows
+        )
+        strict = (
+            sum(row["custom_reward"]["strict_success"] == 1.0 for row in rows)
+            if with_judge
+            else 0
+        )
         per_task.append(
             {
                 "task_id": task,
                 "samples": len(rows),
                 "official_pass1": pass_hat_k(len(rows), official, 1),
                 "official_pass4": pass_hat_k(len(rows), official, 4),
-                "custom_strict_pass1": pass_hat_k(len(rows), strict, 1),
-                "custom_strict_pass4": pass_hat_k(len(rows), strict, 4),
+                **(
+                    {
+                        "custom_strict_pass1": pass_hat_k(len(rows), strict, 1),
+                        "custom_strict_pass4": pass_hat_k(len(rows), strict, 4),
+                    }
+                    if with_judge
+                    else {}
+                ),
             }
         )
     keys = (
@@ -71,11 +97,17 @@ def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str,
         "custom_strict_pass1",
         "custom_strict_pass4",
     )
+    if not with_judge:
+        keys = ("official_pass1", "official_pass4")
     return {
         "status": "complete",
         "metric_definition": "tau2_pass_hat_k",
         "metric_formula": "comb(successes, k) / comb(samples, k)",
         "manifest_id": manifest["manifest_id"],
+        "reward_judge_enabled": with_judge,
+        "user_sim_filter_enabled": manifest["identity"].get(
+            "user_sim_filter_enabled", False
+        ),
         "tasks": len(per_task),
         **coverage,
         "aggregate": {

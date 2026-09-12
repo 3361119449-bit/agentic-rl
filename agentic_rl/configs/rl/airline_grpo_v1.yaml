@@ -61,12 +61,22 @@ user_simulator:
         type: disabled
 
 judge:
+  enabled: true
   provider: DeepSeek
   model: ${DEEPSEEK_JUDGE_MODEL}
   base_url: ${DEEPSEEK_BASE_URL}
   calls_per_trajectory: 1
   output_schema_version: "1.0"
   max_retries: 2
+
+user_sim_filter:
+  enabled: true
+  provider: DeepSeek
+  model: ${DEEPSEEK_USER_SIM_JUDGE_MODEL}
+  base_url: ${DEEPSEEK_BASE_URL}
+  max_retries: 2
+  max_resamples: 2
+  version: user-sim-compliance-v1
 
 annotations:
   required_actions: data/annotations/airline_required_actions.train.v1.json
@@ -145,5 +155,6 @@ outputs:
   checkpoints: ${CHECKPOINT_OUTPUT_DIR:-outputs/runs/unset/checkpoints}
   judge_cache: ${JUDGE_CACHE_DIR:-outputs/runs/unset/judge_cache}
   user_cache: ${USER_CACHE_DIR:-outputs/runs/unset/user_cache}
+  user_sim_judge_cache: ${USER_SIM_JUDGE_CACHE_DIR:-outputs/runs/unset/user_sim_judge_cache}
   metrics: ${METRICS_OUTPUT_DIR:-outputs/runs/unset/metrics}
   reports: ${REPORTS_OUTPUT_DIR:-outputs/runs/unset/reports}
