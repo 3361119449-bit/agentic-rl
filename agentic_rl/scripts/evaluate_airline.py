@@ -46,7 +46,7 @@ from tau2_agentic_rl.evaluation import (
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
 from tau2_agentic_rl.pass_metrics import validate_official_test_ids
 from tau2_agentic_rl.schemas import TrajectoryRecord
-from tau2_agentic_rl.scoring_retry import retry_scoring
+from tau2_agentic_rl.scoring_retry import retry_scoring_batch
 from tau2_agentic_rl.storage import TrajectoryStore
 from tau2_agentic_rl.versions import sha256_file, sha256_json
 
@@ -311,12 +311,16 @@ def main() -> None:
             store = TrajectoryStore(run_root / "trajectories")
             for refill in range(args.max_refill_rounds + 1):
                 coverage = evaluation_coverage(run_root / "trajectories", manifest)
-                for row in coverage["scoring_pending_records"]:
-                    asyncio.run(
-                        retry_scoring(
-                            TrajectoryRecord.model_validate(row), judge, store
-                        )
+                asyncio.run(
+                    retry_scoring_batch(
+                        [
+                            TrajectoryRecord.model_validate(row)
+                            for row in coverage["scoring_pending_records"]
+                        ],
+                        judge,
+                        store,
                     )
+                )
                 coverage = evaluation_coverage(run_root / "trajectories", manifest)
                 if coverage["complete"]:
                     break

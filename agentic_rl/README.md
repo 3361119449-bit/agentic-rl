@@ -236,6 +236,18 @@ worker 意外死亡时额度不会自动回收；取消时也要等后台工作�
 `token_turns` 是原始策略输出，不可混当沟通证据。Judge 单独失败保留同 ID/seed/slot 的
 `scoring_inputs`，`--resume` 只重试评分；评分仍失败时不输出最终 pass^1/pass^4。
 
+评估启动器对 `scoring_pending_records` 使用固定最多 **4 个 scoring task** 的
+工作池，某个任务完成后才接下一条，不为全部待评分记录一次性创建任务。这里的
+4 是评分任务上限；每次真正发出 Judge HTTP 请求（包括重试），仍须领取由运行时
+`rollout.judge_api_max_inflight` 控制的共享额度。比如该配置为 2 时，可以有
+4 个评分任务同时处理，但至多 2 个正在请求 Judge；配置大于 4 也不会让本批超过
+4 个请求。缓存命中和重试退避不占 API 额度，不需要为了启用 4 个评分任务把 API
+配置也改成 4。整个评分批完成后才重新检查覆盖率，评分失败仍保留原 ID/seed/slot，
+不重采会话。取消或未预期异常会取消并等待其他工作任务结束，再退出该批。
+
+这个改动只调整评分重试的调度，不改在线轨迹并发、奖励、提示词或 pass^k 口径；
+已有 `--resume` 的代码身份校验仍然生效，不绕过它混续不同代码版本。
+
 ## 真实初始 prompt 长度预检
 
 Parquet 的 `Initialize isolated Tau2 Airline task ...` 只是占位符，不能代表实际

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import shutil
 import sys
@@ -59,6 +60,8 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
     monkeypatch.setattr(sys, "argv", argv)
     root = scratch_dir / "outputs/evaluations/test-run"
     batches = []
+    pending_count = 7 if scoring_only else 1
+    active_scoring, peak_scoring, scored = 0, 0, 0
 
     def write_parquet(rows, path):
         assert path == root / "pending_samples.parquet"
@@ -74,7 +77,7 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
         records = root / "trajectories"
         records.mkdir(exist_ok=True)
         for index, row in enumerate(batches[-1]):
-            failed = len(batches) == 1 and index == 0
+            failed = len(batches) == 1 and index < pending_count
             metadata = row["extra_info"]
             record = {
                 "trajectory_id": f"{len(batches)}-{index}",
@@ -106,7 +109,15 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
     async def judge(_self, **inputs):
         from tau2_agentic_rl.schemas import JudgeResult
 
-        return JudgeResult(), "raw", "prompt", "cache"
+        nonlocal active_scoring, peak_scoring, scored
+        active_scoring += 1
+        peak_scoring = max(peak_scoring, active_scoring)
+        try:
+            await asyncio.sleep(0)
+            scored += 1
+            return JudgeResult(), "raw", "prompt", "cache"
+        finally:
+            active_scoring -= 1
 
     monkeypatch.setattr(evaluate_airline.DeepSeekJudge, "evaluate", judge)
     evaluate_airline.main()
@@ -115,13 +126,19 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
         assert batches[1][0] == batches[0][0]
     result = json.loads((root / "summary.json").read_text(encoding="utf-8"))
     assert result["valid_samples"] == 80
-    assert result["aggregate"]["official_pass1"] == (0.0125 if scoring_only else 0)
-    assert result["aggregate"]["official_pass4"] == 0
+    assert result["aggregate"]["official_pass1"] == pytest.approx(
+        pending_count / 80 if scoring_only else 0
+    )
+    assert result["aggregate"]["official_pass4"] == (0.05 if scoring_only else 0)
+    assert peak_scoring == (4 if scoring_only else 0)
+    assert active_scoring == 0
+    assert scored == (pending_count if scoring_only else 0)
     with pytest.raises(FileExistsError):
         evaluate_airline.main()
     monkeypatch.setattr(sys, "argv", argv + ["--resume"])
     evaluate_airline.main()
     assert len(batches) == (1 if scoring_only else 2)
+    assert scored == (pending_count if scoring_only else 0)
     (model / "model.safetensors").write_bytes(b"different-model")
     with pytest.raises(ValueError, match="identity changed"):
         evaluate_airline.main()

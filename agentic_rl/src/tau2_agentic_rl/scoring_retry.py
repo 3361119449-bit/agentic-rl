@@ -1,9 +1,12 @@
 """Retry scoring a frozen interaction; never generate a replacement trajectory."""
 
+import asyncio
+
 from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
 from tau2_agentic_rl.versions import sha256_json
 
 SCORING_FAILURES = {"judge", "reward_scoring"}
+MAX_CONCURRENT_SCORING_TASKS = 4
 
 
 def scoring_pending(row):
@@ -12,6 +15,31 @@ def scoring_pending(row):
         and row.get("custom_reward") is None
         and row.get("metadata", {}).get("failure_phase") in SCORING_FAILURES
     )
+
+
+async def retry_scoring_batch(records, judge, store):
+    """Retry a frozen batch with at most four workers, returning input-order results.
+
+    This bounds scoring tasks, not API requests. DeepSeekJudge independently
+    acquires the shared judge_api_max_inflight budget for EVERY HTTP attempt.
+    TaskGroup drains/cancels sibling workers before errors or cancellation escape.
+    """
+    records = list(records)
+    ids = [record.trajectory_id for record in records]
+    if len(ids) != len(set(ids)):
+        raise ValueError("duplicate trajectory IDs in scoring batch")
+    results = [False] * len(records)
+    pending = iter(enumerate(records))
+
+    async def worker():
+        # Iterator advancement has no await: each record is claimed exactly once.
+        for index, record in pending:
+            results[index] = await retry_scoring(record, judge, store)
+
+    async with asyncio.TaskGroup() as group:
+        for _ in range(min(MAX_CONCURRENT_SCORING_TASKS, len(records))):
+            group.create_task(worker())
+    return results
 
 
 async def retry_scoring(record, judge, store):
