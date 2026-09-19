@@ -44,12 +44,21 @@ async def verify(args: argparse.Namespace) -> None:
                 "content": "",
                 "tool_calls": [
                     {
+                        "id": "call_0001_00",
                         "type": "function",
                         "function": {
                             "name": "list_all_airports",
                             "arguments": {},
                         },
-                    }
+                    },
+                    {
+                        "id": "call_0001_01",
+                        "type": "function",
+                        "function": {
+                            "name": "list_all_airports",
+                            "arguments": {},
+                        },
+                    },
                 ],
             },
         ]
@@ -59,8 +68,8 @@ async def verify(args: argparse.Namespace) -> None:
             tokenize=False,
             add_generation_prompt=False,
         )
-        start = rendered.rfind("<tool_call>")
-        end = rendered.find("</tool_call>", start)
+        start = rendered.find("<tool_call>")
+        end = rendered.rfind("</tool_call>")
         if start < 0 or end < 0:
             raise AssertionError(
                 "Qwen chat template did not render the expected JSON tool-call tags"
@@ -69,28 +78,42 @@ async def verify(args: argparse.Namespace) -> None:
         token_ids = tokenizer.encode(completion, add_special_tokens=False)
         parser = ToolParser.get_tool_parser("hermes", tokenizer)
         _, calls = await parser.extract_tool_calls(token_ids, parser_schemas)
-        if len(calls) != 1:
-            raise AssertionError(f"expected exactly one parsed call, got {len(calls)}")
-        checked = validate_tool_call(
-            calls[0].name,
-            calls[0].arguments,
-            schemas_by_name,
-            environment.tool_names,
-        )
-        if not checked.valid:
-            raise AssertionError(checked)
+        if len(calls) != 2:
+            raise AssertionError(f"expected two parsed calls, got {len(calls)}")
+        checked_calls = [
+            validate_tool_call(
+                call.name,
+                call.arguments,
+                schemas_by_name,
+                environment.tool_names,
+            )
+            for call in calls
+        ]
+        if any(not checked.valid for checked in checked_calls):
+            raise AssertionError(checked_calls)
         before = environment.db_hash()
-        step = await environment.step_tool(checked.name, checked.arguments)
+        step = await environment.step_tools(
+            [
+                {
+                    "id": f"call_0001_{index:02d}",
+                    "name": checked.name,
+                    "arguments": checked.arguments,
+                }
+                for index, checked in enumerate(checked_calls)
+            ]
+        )
         after = environment.db_hash()
-        if step.tool_success is not True:
-            raise AssertionError(f"Tau2 tool failed: {step.tool_result}")
+        results = step.tool_results or []
+        if len(results) != 2 or not all(result.success for result in results):
+            raise AssertionError(f"Tau2 multi-tool batch failed: {results}")
         if before != after:
             raise AssertionError("read-only parser test unexpectedly changed the DB")
         print(
             json.dumps(
                 {
-                    "parsed_calls": 1,
-                    "tool": checked.name,
+                    "parsed_calls": 2,
+                    "tools": [checked.name for checked in checked_calls],
+                    "returned_tool_results": len(results),
                     "tau2_tool_success": True,
                     "db_unchanged": True,
                 },
