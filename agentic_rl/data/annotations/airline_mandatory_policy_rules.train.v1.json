@@ -1,10 +1,8 @@
 [
   {
     "task_id": "0",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "0:policy:information_grounding",
@@ -16,7 +14,11 @@
       },
       {
         "criterion_id": "0:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "0:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "0:policy:booking_cabin",
@@ -29,10 +31,6 @@
       {
         "criterion_id": "0:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "0:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "0:policy:baggage_pricing",
@@ -98,10 +96,8 @@
   },
   {
     "task_id": "1",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "1:policy:information_grounding",
@@ -113,7 +109,11 @@
       },
       {
         "criterion_id": "1:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "1:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "1:policy:booking_cabin",
@@ -126,10 +126,6 @@
       {
         "criterion_id": "1:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "1:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "1:policy:baggage_pricing",
@@ -195,10 +191,8 @@
   },
   {
     "task_id": "3",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "3:policy:information_grounding",
@@ -210,7 +204,11 @@
       },
       {
         "criterion_id": "3:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "3:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "3:policy:booking_cabin",
@@ -223,10 +221,6 @@
       {
         "criterion_id": "3:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "3:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "3:policy:baggage_pricing",
@@ -292,10 +286,8 @@
   },
   {
     "task_id": "4",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "4:policy:information_grounding",
@@ -307,7 +299,11 @@
       },
       {
         "criterion_id": "4:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "4:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "4:policy:booking_cabin",
@@ -320,10 +316,6 @@
       {
         "criterion_id": "4:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "4:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "4:policy:baggage_pricing",
@@ -389,10 +381,8 @@
   },
   {
     "task_id": "5",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "5:policy:information_grounding",
@@ -404,7 +394,11 @@
       },
       {
         "criterion_id": "5:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "5:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "5:policy:booking_cabin",
@@ -417,10 +411,6 @@
       {
         "criterion_id": "5:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "5:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "5:policy:baggage_pricing",
@@ -486,10 +476,8 @@
   },
   {
     "task_id": "7",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "7:policy:information_grounding",
@@ -501,7 +489,11 @@
       },
       {
         "criterion_id": "7:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "7:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "7:policy:booking_cabin",
@@ -514,10 +506,6 @@
       {
         "criterion_id": "7:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "7:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "7:policy:baggage_pricing",
@@ -583,10 +571,8 @@
   },
   {
     "task_id": "9",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "9:policy:information_grounding",
@@ -598,7 +584,11 @@
       },
       {
         "criterion_id": "9:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "9:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "9:policy:booking_cabin",
@@ -611,10 +601,6 @@
       {
         "criterion_id": "9:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "9:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "9:policy:baggage_pricing",
@@ -680,10 +666,8 @@
   },
   {
     "task_id": "10",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "10:policy:information_grounding",
@@ -695,7 +679,11 @@
       },
       {
         "criterion_id": "10:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "10:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "10:policy:booking_cabin",
@@ -708,10 +696,6 @@
       {
         "criterion_id": "10:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "10:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "10:policy:baggage_pricing",
@@ -777,10 +761,8 @@
   },
   {
     "task_id": "11",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "11:policy:information_grounding",
@@ -792,7 +774,11 @@
       },
       {
         "criterion_id": "11:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "11:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "11:policy:booking_cabin",
@@ -805,10 +791,6 @@
       {
         "criterion_id": "11:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "11:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "11:policy:baggage_pricing",
@@ -874,10 +856,8 @@
   },
   {
     "task_id": "12",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "12:policy:information_grounding",
@@ -889,7 +869,11 @@
       },
       {
         "criterion_id": "12:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "12:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "12:policy:booking_cabin",
@@ -902,10 +886,6 @@
       {
         "criterion_id": "12:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "12:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "12:policy:baggage_pricing",
@@ -971,10 +951,8 @@
   },
   {
     "task_id": "14",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "14:policy:information_grounding",
@@ -986,7 +964,11 @@
       },
       {
         "criterion_id": "14:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "14:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "14:policy:booking_cabin",
@@ -999,10 +981,6 @@
       {
         "criterion_id": "14:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "14:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "14:policy:baggage_pricing",
@@ -1068,10 +1046,8 @@
   },
   {
     "task_id": "15",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "15:policy:information_grounding",
@@ -1083,7 +1059,11 @@
       },
       {
         "criterion_id": "15:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "15:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "15:policy:booking_cabin",
@@ -1096,10 +1076,6 @@
       {
         "criterion_id": "15:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "15:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "15:policy:baggage_pricing",
@@ -1165,10 +1141,8 @@
   },
   {
     "task_id": "17",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "17:policy:information_grounding",
@@ -1180,7 +1154,11 @@
       },
       {
         "criterion_id": "17:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "17:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "17:policy:booking_cabin",
@@ -1193,10 +1171,6 @@
       {
         "criterion_id": "17:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "17:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "17:policy:baggage_pricing",
@@ -1262,10 +1236,8 @@
   },
   {
     "task_id": "20",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "20:policy:information_grounding",
@@ -1277,7 +1249,11 @@
       },
       {
         "criterion_id": "20:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "20:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "20:policy:booking_cabin",
@@ -1290,10 +1266,6 @@
       {
         "criterion_id": "20:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "20:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "20:policy:baggage_pricing",
@@ -1359,10 +1331,8 @@
   },
   {
     "task_id": "21",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "21:policy:information_grounding",
@@ -1374,7 +1344,11 @@
       },
       {
         "criterion_id": "21:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "21:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "21:policy:booking_cabin",
@@ -1387,10 +1361,6 @@
       {
         "criterion_id": "21:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "21:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "21:policy:baggage_pricing",
@@ -1456,10 +1426,8 @@
   },
   {
     "task_id": "23",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "23:policy:information_grounding",
@@ -1471,7 +1439,11 @@
       },
       {
         "criterion_id": "23:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "23:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "23:policy:booking_cabin",
@@ -1484,10 +1456,6 @@
       {
         "criterion_id": "23:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "23:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "23:policy:baggage_pricing",
@@ -1553,10 +1521,8 @@
   },
   {
     "task_id": "27",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "27:policy:information_grounding",
@@ -1568,7 +1534,11 @@
       },
       {
         "criterion_id": "27:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "27:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "27:policy:booking_cabin",
@@ -1581,10 +1551,6 @@
       {
         "criterion_id": "27:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "27:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "27:policy:baggage_pricing",
@@ -1650,10 +1616,8 @@
   },
   {
     "task_id": "28",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "28:policy:information_grounding",
@@ -1665,7 +1629,11 @@
       },
       {
         "criterion_id": "28:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "28:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "28:policy:booking_cabin",
@@ -1678,10 +1646,6 @@
       {
         "criterion_id": "28:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "28:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "28:policy:baggage_pricing",
@@ -1747,10 +1711,8 @@
   },
   {
     "task_id": "33",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "33:policy:information_grounding",
@@ -1762,7 +1724,11 @@
       },
       {
         "criterion_id": "33:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "33:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "33:policy:booking_cabin",
@@ -1775,10 +1741,6 @@
       {
         "criterion_id": "33:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "33:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "33:policy:baggage_pricing",
@@ -1844,10 +1806,8 @@
   },
   {
     "task_id": "34",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "34:policy:information_grounding",
@@ -1859,7 +1819,11 @@
       },
       {
         "criterion_id": "34:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "34:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "34:policy:booking_cabin",
@@ -1872,10 +1836,6 @@
       {
         "criterion_id": "34:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "34:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "34:policy:baggage_pricing",
@@ -1941,10 +1901,8 @@
   },
   {
     "task_id": "36",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "36:policy:information_grounding",
@@ -1956,7 +1914,11 @@
       },
       {
         "criterion_id": "36:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "36:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "36:policy:booking_cabin",
@@ -1969,10 +1931,6 @@
       {
         "criterion_id": "36:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "36:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "36:policy:baggage_pricing",
@@ -2038,10 +1996,8 @@
   },
   {
     "task_id": "38",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "38:policy:information_grounding",
@@ -2053,7 +2009,11 @@
       },
       {
         "criterion_id": "38:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "38:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "38:policy:booking_cabin",
@@ -2066,10 +2026,6 @@
       {
         "criterion_id": "38:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "38:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "38:policy:baggage_pricing",
@@ -2135,10 +2091,8 @@
   },
   {
     "task_id": "39",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "39:policy:information_grounding",
@@ -2150,7 +2104,11 @@
       },
       {
         "criterion_id": "39:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "39:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "39:policy:booking_cabin",
@@ -2163,10 +2121,6 @@
       {
         "criterion_id": "39:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "39:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "39:policy:baggage_pricing",
@@ -2232,10 +2186,8 @@
   },
   {
     "task_id": "40",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "40:policy:information_grounding",
@@ -2247,7 +2199,11 @@
       },
       {
         "criterion_id": "40:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "40:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "40:policy:booking_cabin",
@@ -2260,10 +2216,6 @@
       {
         "criterion_id": "40:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "40:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "40:policy:baggage_pricing",
@@ -2329,10 +2281,8 @@
   },
   {
     "task_id": "41",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "41:policy:information_grounding",
@@ -2344,7 +2294,11 @@
       },
       {
         "criterion_id": "41:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "41:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "41:policy:booking_cabin",
@@ -2357,10 +2311,6 @@
       {
         "criterion_id": "41:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "41:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "41:policy:baggage_pricing",
@@ -2426,10 +2376,8 @@
   },
   {
     "task_id": "42",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "42:policy:information_grounding",
@@ -2441,7 +2389,11 @@
       },
       {
         "criterion_id": "42:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "42:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "42:policy:booking_cabin",
@@ -2454,10 +2406,6 @@
       {
         "criterion_id": "42:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "42:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "42:policy:baggage_pricing",
@@ -2523,10 +2471,8 @@
   },
   {
     "task_id": "43",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "43:policy:information_grounding",
@@ -2538,7 +2484,11 @@
       },
       {
         "criterion_id": "43:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "43:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "43:policy:booking_cabin",
@@ -2551,10 +2501,6 @@
       {
         "criterion_id": "43:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "43:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "43:policy:baggage_pricing",
@@ -2620,10 +2566,8 @@
   },
   {
     "task_id": "46",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "46:policy:information_grounding",
@@ -2635,7 +2579,11 @@
       },
       {
         "criterion_id": "46:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "46:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "46:policy:booking_cabin",
@@ -2648,10 +2596,6 @@
       {
         "criterion_id": "46:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "46:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "46:policy:baggage_pricing",
@@ -2717,10 +2661,8 @@
   },
   {
     "task_id": "47",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "47:policy:information_grounding",
@@ -2732,7 +2674,11 @@
       },
       {
         "criterion_id": "47:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "47:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "47:policy:booking_cabin",
@@ -2745,10 +2691,6 @@
       {
         "criterion_id": "47:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "47:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "47:policy:baggage_pricing",
@@ -2814,10 +2756,8 @@
   },
   {
     "task_id": "49",
-    "policy_rubric_version": "areal-airline-policy-atomic-v3",
-    "deterministic_rules": [
-      "one_tool_call_per_assistant_turn"
-    ],
+    "policy_rubric_version": "areal-airline-policy-atomic-v4-multitool",
+    "deterministic_rules": [],
     "judge_checks": [
       {
         "criterion_id": "49:policy:information_grounding",
@@ -2829,7 +2769,11 @@
       },
       {
         "criterion_id": "49:policy:single_action_turn",
-        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
+      },
+      {
+        "criterion_id": "49:policy:database_write_confirmation",
+        "description": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "49:policy:booking_cabin",
@@ -2842,10 +2786,6 @@
       {
         "criterion_id": "49:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "49:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "49:policy:baggage_pricing",

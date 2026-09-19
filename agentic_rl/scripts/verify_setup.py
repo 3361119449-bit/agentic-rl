@@ -83,9 +83,7 @@ def verify(project_root: Path, tau2_data: Path) -> dict[str, Any]:
         )
         assert {str(row["task_id"]) for row in policy_rows} == expected_ids
         for row in policy_rows:
-            assert row["deterministic_rules"] == [
-                "one_tool_call_per_assistant_turn",
-            ]
+            assert row["deterministic_rules"] == []
             assert row["judge_checks"] == policy_checks(str(row["task_id"]))
 
     config = yaml.safe_load(

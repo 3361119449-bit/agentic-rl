@@ -60,6 +60,31 @@ def test_declared_dependency_requires_event_order() -> None:
     assert result.matched_event_ids == ["e1", "e3"]
 
 
+
+def test_declared_dependency_cannot_be_satisfied_in_same_multitool_turn() -> None:
+    actions = [
+        {
+            "action_id": "a",
+            "name": "cancel_reservation",
+            "arguments": {"reservation_id": "A"},
+        },
+        {
+            "action_id": "b",
+            "name": "cancel_reservation",
+            "arguments": {"reservation_id": "B"},
+        },
+    ]
+    first = event(0, "A")
+    second = event(1, "B")
+    first.turn_id = second.turn_id = 3
+    result = evaluate_required_actions(
+        actions,
+        [first, second],
+        dependencies=[["a", "b"]],
+    )
+    assert result.component.value == 0.5
+
+
 def test_dependent_action_gets_no_credit_without_its_prerequisite() -> None:
     actions = [
         {

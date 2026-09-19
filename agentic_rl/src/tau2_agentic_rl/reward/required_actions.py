@@ -158,18 +158,26 @@ def evaluate_required_actions(
     )
     best: dict[str, int] = {}
 
+    def dependency_precedes(before_index: int, after_index: int) -> bool:
+        # The multitool prompt allows independent calls in one turn, but a
+        # dependent action must wait for the predecessor's tool result.
+        return events[before_index].turn_id < events[after_index].turn_id
+
     def dependency_ok(assignments: dict[str, int]) -> bool:
         return all(
             before not in assignments
             or after not in assignments
-            or assignments[before] < assignments[after]
+            or dependency_precedes(assignments[before], assignments[after])
             for before, after in dependency_pairs
         )
 
     def dependency_complete(assignments: dict[str, int]) -> bool:
         return all(
             after not in assignments
-            or (before in assignments and assignments[before] < assignments[after])
+            or (
+                before in assignments
+                and dependency_precedes(assignments[before], assignments[after])
+            )
             for before, after in dependency_pairs
         )
 

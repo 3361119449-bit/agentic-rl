@@ -41,8 +41,6 @@ def validate_tool_turn(raw: str, parsed_count: int) -> str | None:
     blocks = TOOL_BLOCK_RE.findall(raw)
     if starts != ends or starts != len(blocks) or starts != parsed_count:
         return "parse_error"
-    if starts != 1:
-        return "multiple_tool_calls"
     outside = TOOL_BLOCK_RE.sub("", raw).strip()
     # Only strip one terminal assistant EOS, never tokens embedded in text.
     if outside.endswith("<|im_end|>"):

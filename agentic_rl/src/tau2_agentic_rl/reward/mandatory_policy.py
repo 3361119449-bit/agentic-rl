@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from typing import Any
 
 from tau2_agentic_rl.reward.required_actions import MUTATING_TOOLS, arguments_equal
@@ -31,8 +30,9 @@ def evaluate_mandatory_policy(
         for event in events
         if (event.success or event.db_effect is True) and event.name in MUTATING_TOOLS
     ]
-    # SFT policy makes prior confirmation advisory. Legacy confirmation fields
-    # remain readable in saved records but do not gate the current reward.
+    # The multitool SFT policy requires explicit confirmation before writes.
+    # That conversational requirement is enforced by the frozen Judge rubric;
+    # legacy confirmation-tracker fields remain audit-only here.
     results = []
 
     partial_writes = [event.event_id for event in write_events if not event.success]
@@ -45,26 +45,6 @@ def evaluate_mandatory_policy(
             reason="failed tools changed the database"
             if partial_writes
             else "no partial failed writes",
-        )
-    )
-
-    calls_per_turn = Counter(event.turn_id for event in events if event.name)
-    multi_call_turns = [turn for turn, count in calls_per_turn.items() if count > 1]
-    multi_call_turns.extend(
-        event.turn_id
-        for event in events
-        if event.error_kind in {"multiple_tool_calls", "mixed_content_and_tool_call"}
-    )
-    results.append(
-        PolicyCheckResult(
-            rule_id="one_tool_call_per_assistant_turn",
-            applicable=bool(calls_per_turn),
-            passed=not multi_call_turns,
-            reason=(
-                "no assistant turn contains multiple tool calls"
-                if not multi_call_turns
-                else f"multiple calls occurred in turns {multi_call_turns}"
-            ),
         )
     )
 

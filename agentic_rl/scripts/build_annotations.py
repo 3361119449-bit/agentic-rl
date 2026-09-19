@@ -53,9 +53,7 @@ def _policy_rows(ids: set[str]) -> list[dict[str, Any]]:
         {
             "task_id": task_id,
             "policy_rubric_version": POLICY_RUBRIC_VERSION,
-            "deterministic_rules": [
-                "one_tool_call_per_assistant_turn",
-            ],
+            "deterministic_rules": [],
             "judge_checks": policy_checks(task_id),
         }
         for task_id in sorted(ids, key=int)

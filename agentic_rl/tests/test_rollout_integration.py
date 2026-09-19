@@ -11,7 +11,7 @@ from tau2_agentic_rl.agent_policy import load_agent_system_prompt
 from tau2_agentic_rl.budget import ContextBudget
 from tau2_agentic_rl.concurrency import QueueWaitError, SharedBudget
 from tau2_agentic_rl.config import load_yaml
-from tau2_agentic_rl.environment.tau2_gym import GymStep
+from tau2_agentic_rl.environment.tau2_gym import GymStep, ToolStepResult
 from tau2_agentic_rl.reward.score import RewardConfig
 from tau2_agentic_rl.schemas import JudgeCheck, JudgeResult
 from tau2_agentic_rl.storage import TrajectoryStore
@@ -224,7 +224,7 @@ def minimal_loop(scratch_dir):
     return loop, scope
 
 
-def test_sft_prompt_and_valid_write_reach_backend_without_confirmation(scratch_dir):
+def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir):
     from tau2_agentic_rl.agent_policy import extract_airline_policy, prompt_sha256
     from tau2_agentic_rl.policy_rules import policy_checks
 
@@ -255,14 +255,32 @@ def test_sft_prompt_and_valid_write_reach_backend_without_confirmation(scratch_d
         async def reset(self, **kwargs):
             return list(self.messages)
 
-        async def step_tool(self, name, arguments):
-            called.append((name, arguments))
+        async def step_tools(self, calls):
+            called.extend((call["name"], call["arguments"]) for call in calls)
             self.messages.append(
                 {
                     "role": "assistant",
-                    "tool_calls": [{"name": name, "arguments": arguments}],
+                    "tool_calls": [
+                        {
+                            "id": call["id"],
+                            "name": call["name"],
+                            "arguments": call["arguments"],
+                        }
+                        for call in calls
+                    ],
                 }
             )
+            results = [
+                ToolStepResult(
+                    call_id=call["id"],
+                    name=call["name"],
+                    arguments=call["arguments"],
+                    success=True,
+                    db_changed=True,
+                    result="cancelled",
+                )
+                for call in calls
+            ]
             return GymStep(
                 messages=[],
                 reward=1,
@@ -271,6 +289,7 @@ def test_sft_prompt_and_valid_write_reach_backend_without_confirmation(scratch_d
                 db_changed=True,
                 tool_success=True,
                 tool_result="cancelled",
+                tool_results=results,
             )
 
         async def force_cleanup_stop(self):

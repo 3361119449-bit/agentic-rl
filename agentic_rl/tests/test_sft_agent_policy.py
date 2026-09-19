@@ -1,4 +1,4 @@
-"""SFT -> actor/Judge identity and the absence of a hidden confirmation gate."""
+"""Bound multitool SFT prompt -> actor/Judge identity and policy contracts."""
 
 import json
 import sys
@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from scripts.build_annotations import _policy_rows
-from scripts.export_sft_system_prompt import DEFAULT_SOURCE, extract
+from scripts.export_sft_system_prompt import extract
 from tau2_agentic_rl.agent_policy import (
     extract_airline_policy,
     load_agent_system_prompt,
@@ -24,7 +24,7 @@ from tau2_agentic_rl.schemas import JudgeCheck, JudgeResult, OfficialScores, Too
 
 ROOT = Path(__file__).parents[1]
 CONFIG = ROOT / "configs/rl/airline_grpo_v1.yaml"
-DIGEST = "121cad8bac61dc66ff58177383492b736380d9006aee4c5249e08f1315eef7d9"
+DIGEST = "e490e0859e1357ed6dd777fdbddab15b11d6de96ff7161328a6babcab77348ab"
 
 
 def test_actor_and_evaluation_use_exact_sft_message_without_extra_protocol():
@@ -39,19 +39,21 @@ def test_actor_and_evaluation_use_exact_sft_message_without_extra_protocol():
         *incoming,
     ]
     assert "action_proposal" not in prompt
-    assert "It is recommended" in prompt and "LLM JUDGE SHOULD NOT CARE" in prompt
+    assert "Make one or more tool calls." in prompt
+    assert "You may make one or more tool calls in the same turn." in prompt
+    assert "obtain explicit user confirmation (yes) to proceed" in prompt
 
 
-def test_frozen_prompt_matches_every_source_sft_row_when_lfs_is_available():
-    with DEFAULT_SOURCE.open("rb") as handle:
-        if handle.read(100).startswith(b"version https://git-lfs.github.com/spec"):
-            pytest.skip("full SFT dataset is an unfetched LFS object")
-    artifact = extract(DEFAULT_SOURCE)
-    expected = json.loads(
+def test_frozen_prompt_artifact_matches_bound_uploaded_prompt_identity():
+    artifact = json.loads(
         (ROOT / "configs/prompts/areal_airline_sft.v1.json").read_text(encoding="utf-8")
     )
-    assert artifact == expected
-    assert artifact["source_rows"] == 10649
+    assert artifact["system_prompt_sha256"] == DIGEST
+    assert prompt_sha256(artifact["system_prompt"]) == DIGEST
+    assert artifact["source_rows"] == 8
+    assert artifact["source_sha256"] == (
+        "b1f6c296033283a3c4550b8c2b9cc7dc5f1bb1f0e00e2236a22e2cd6d3e9fa1d"
+    )
 
 
 def test_export_rejects_mixed_prompts_instead_of_choosing_first(scratch_dir):
@@ -87,14 +89,17 @@ def test_environment_cannot_inject_another_system_message():
 
 
 @pytest.mark.parametrize("split", ["train", "test"])
-def test_checked_in_policy_bundles_match_generator_without_confirmation(split):
+def test_checked_in_policy_bundles_match_multitool_generator(split):
     mapping = load_task_mapping(
         ROOT / f"data/annotations/airline_mandatory_policy_rules.{split}.v1.json"
     )
     validate_policy_rows(mapping)
     assert list(mapping.values()) == _policy_rows(set(mapping))
-    assert "confirmation_details" not in json.dumps(mapping)
-    assert "confirmation_before_database_write" not in json.dumps(mapping)
+    serialized = json.dumps(mapping)
+    assert "confirmation_details" not in serialized
+    assert "confirmation_before_database_write" not in serialized
+    assert "database_write_confirmation" in serialized
+    assert "one_tool_call_per_assistant_turn" not in serialized
     mapping[next(iter(mapping))]["judge_checks"].append(
         {"criterion_id": "confirmation_details"}
     )
@@ -102,7 +107,7 @@ def test_checked_in_policy_bundles_match_generator_without_confirmation(split):
         validate_policy_rows(mapping)
 
 
-def test_judge_uses_sft_policy_and_exempts_confirmation_but_not_other_checks():
+def test_judge_uses_bound_multitool_policy_and_enforces_confirmation():
     prompt = load_agent_system_prompt(load_yaml(CONFIG), ROOT)
     policy = extract_airline_policy(prompt)
     messages = build_judge_messages(
@@ -115,11 +120,12 @@ def test_judge_uses_sft_policy_and_exempts_confirmation_but_not_other_checks():
     )
     assert policy in messages[1]["content"]
     assert (
-        "CRITICAL RULES" not in policy
-    )  # Agent-output instructions aren't Judge rules.
-    assert "Do not fail ANY criterion solely for missing" in JUDGE_SYSTEM_PROMPT
+        "In each turn you can either" not in policy
+    )  # Agent-output instructions aren't inside the policy block.
+    assert "database-write confirmation exactly as stated" in JUDGE_SYSTEM_PROMPT
     assert "confirmation_details" not in messages[1]["content"]
-    assert "travel_certificate_new_booking_only" in messages[1]["content"]
+    assert "database_write_confirmation" in messages[1]["content"]
+    assert "travel_certificate_new_booking_only" not in messages[1]["content"]
     result = score_trajectory(
         events=[],
         messages=[],
