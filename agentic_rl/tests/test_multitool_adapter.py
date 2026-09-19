@@ -3,10 +3,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from tau2_agentic_rl.environment.tau2_gym import Tau2GymAdapter
+
 message_module = pytest.importorskip("tau2.data_model.message")
 ToolMessage = message_module.ToolMessage
-
-from tau2_agentic_rl.environment.tau2_gym import Tau2GymAdapter
 
 
 class BackendEnvironment:
