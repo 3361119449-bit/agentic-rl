@@ -30,8 +30,9 @@ def evaluate_mandatory_policy(
         for event in events
         if (event.success or event.db_effect is True) and event.name in MUTATING_TOOLS
     ]
-    # SFT policy makes prior confirmation advisory. Legacy confirmation fields
-    # remain readable in saved records but do not gate the current reward.
+    # The multitool SFT policy requires explicit confirmation before writes.
+    # That conversational requirement is enforced by the frozen Judge rubric;
+    # legacy confirmation-tracker fields remain audit-only here.
     results = []
 
     partial_writes = [event.event_id for event in write_events if not event.success]
