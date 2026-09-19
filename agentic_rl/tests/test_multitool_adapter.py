@@ -1,7 +1,10 @@
 import threading
 from types import SimpleNamespace
 
-from tau2.data_model.message import ToolMessage
+import pytest
+
+message_module = pytest.importorskip("tau2.data_model.message")
+ToolMessage = message_module.ToolMessage
 
 from tau2_agentic_rl.environment.tau2_gym import Tau2GymAdapter
 
