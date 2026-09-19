@@ -13,7 +13,6 @@ POLICY_RULES = {
     "booking_cabin": "A new reservation uses one cabin class and the same flights for all passengers and all segments.",
     "booking_passengers": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth.",
     "booking_payment_limits": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable.",
-    "travel_certificate_new_booking_only": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes.",
     "baggage_pricing": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need.",
     "insurance_timing": "Insurance costs $30 per passenger and cannot be added after the initial booking.",
     "flight_change_eligibility": "Do not change the flights of a basic-economy reservation. Other flight changes must preserve origin, destination and trip type; retained segments keep their old prices. Cabin-only changes are a separate rule, not forbidden merely because the current cabin is basic economy.",
