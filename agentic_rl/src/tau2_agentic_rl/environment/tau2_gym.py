@@ -8,7 +8,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from tau2.data_model.message import AssistantMessage, ToolCall
+
 from tau2_agentic_rl.environment.cached_user import build_cached_agent_gym_env
+
+
+@dataclass
+class ToolStepResult:
+    """Per-call result from one assistant tool turn."""
+
+    call_id: str
+    name: str
+    arguments: dict[str, Any]
+    success: bool
+    db_changed: bool | None
+    result: str | None
 
 
 @dataclass
@@ -22,6 +36,7 @@ class GymStep:
     db_changed: bool
     tool_success: bool | None
     tool_result: str | None
+    tool_results: list[ToolStepResult] | None = None
 
 
 class Tau2GymAdapter:
@@ -113,13 +128,120 @@ class Tau2GymAdapter:
         return await self._step(content)
 
     async def step_tool(self, name: str, arguments: dict[str, Any]) -> GymStep:
-        """Execute exactly one assistant tool call in Tau2."""
-        action = json.dumps(
-            {"name": name, "arguments": arguments},
-            ensure_ascii=False,
-            separators=(",", ":"),
+        """Execute one tool call through the native multi-tool path."""
+        return await self.step_tools(
+            [{"id": "call_0", "name": name, "arguments": arguments}]
         )
-        return await self._step(action)
+
+    async def step_tools(self, calls: list[dict[str, Any]]) -> GymStep:
+        """Execute one assistant turn containing one or more Tau2 tool calls."""
+        if not calls:
+            raise ValueError("step_tools requires at least one tool call")
+        return await asyncio.to_thread(self._step_tools_sync, calls)
+
+    def _step_tools_sync(self, calls: list[dict[str, Any]]) -> GymStep:
+        """Feed a native AssistantMessage to pinned Tau2 and audit every result."""
+        gym_env = self.env
+        orchestrator = getattr(gym_env, "_orchestrator", None)
+        agent = getattr(gym_env, "_agent", None)
+        simulation_done = getattr(gym_env, "_simulation_done", None)
+        lock = getattr(gym_env, "_lock", None)
+        backend = getattr(orchestrator, "environment", None)
+        if any(item is None for item in (orchestrator, agent, simulation_done, lock, backend)):
+            raise RuntimeError("Tau2 gym is not initialized for tool execution")
+
+        normalized = [
+            {
+                "id": str(call.get("id") or f"call_{index}"),
+                "name": str(call["name"]),
+                "arguments": dict(call["arguments"]),
+            }
+            for index, call in enumerate(calls)
+        ]
+        action = AssistantMessage(
+            role="assistant",
+            content=None,
+            tool_calls=[
+                ToolCall(
+                    id=call["id"],
+                    name=call["name"],
+                    arguments=call["arguments"],
+                    requestor="assistant",
+                )
+                for call in normalized
+            ],
+            raw_data={"action": "multi_tool_batch"},
+        )
+
+        audits: list[ToolStepResult] = []
+        original_get_response = backend.get_response
+
+        def audited_get_response(tool_call: ToolCall):
+            before = backend.get_db_hash()
+            tool_message = original_get_response(tool_call)
+            after = backend.get_db_hash()
+            before_hash = str(before) if before is not None else None
+            after_hash = str(after) if after is not None else None
+            audits.append(
+                ToolStepResult(
+                    call_id=str(tool_call.id),
+                    name=str(tool_call.name),
+                    arguments=dict(tool_call.arguments),
+                    success=not bool(tool_message.error),
+                    db_changed=(
+                        before_hash != after_hash
+                        if before_hash is not None and after_hash is not None
+                        else None
+                    ),
+                    result=(
+                        str(tool_message.content)
+                        if tool_message.content is not None
+                        else None
+                    ),
+                )
+            )
+            return tool_message
+
+        before_hash = self.db_hash()
+        backend.get_response = audited_get_response
+        try:
+            with lock:
+                if simulation_done.is_set():
+                    raise RuntimeError("Tau2 simulation already terminated")
+                agent.set_action(action)
+                while not simulation_done.is_set() and not agent.is_agent_turn:
+                    simulation_done.wait(timeout=0.01)
+                terminated = simulation_done.is_set()
+                reward, reward_info = gym_env._get_reward()
+                info = gym_env._get_info()
+                info["reward_info"] = reward_info
+        finally:
+            backend.get_response = original_get_response
+
+        self.info = info
+        if terminated and not self._simulation_payload(info):
+            raise RuntimeError("Tau2 orchestrator terminated without a simulation run")
+        if len(audits) != len(normalized):
+            raise RuntimeError(
+                f"Tau2 returned {len(audits)} results for {len(normalized)} tool calls"
+            )
+        self.last_reward = float(reward)
+        messages = self._take_new_observations()
+        after_hash = self.db_hash()
+        return GymStep(
+            messages=messages,
+            reward=float(reward),
+            terminated=bool(terminated),
+            info=info,
+            db_changed=(
+                before_hash is not None
+                and after_hash is not None
+                and before_hash != after_hash
+            ),
+            tool_success=all(item.success for item in audits),
+            tool_result=audits[-1].result if audits else None,
+            tool_results=audits,
+        )
 
     async def _step(self, action: str) -> GymStep:
         before_hash = self.db_hash()
