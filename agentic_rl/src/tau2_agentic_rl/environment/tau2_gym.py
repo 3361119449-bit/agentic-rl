@@ -8,8 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from tau2.data_model.message import AssistantMessage, ToolCall
-
 from tau2_agentic_rl.environment.cached_user import build_cached_agent_gym_env
 
 
@@ -141,6 +139,10 @@ class Tau2GymAdapter:
 
     def _step_tools_sync(self, calls: list[dict[str, Any]]) -> GymStep:
         """Feed a native AssistantMessage to pinned Tau2 and audit every result."""
+        # Keep this module importable in CPU-only checks that intentionally do
+        # not install Tau2. The live rollout environment always has pinned Tau2.
+        from tau2.data_model.message import AssistantMessage, ToolCall
+
         gym_env = self.env
         orchestrator = getattr(gym_env, "_orchestrator", None)
         agent = getattr(gym_env, "_agent", None)
