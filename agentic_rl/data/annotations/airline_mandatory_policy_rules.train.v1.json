@@ -33,10 +33,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "0:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "0:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -130,10 +126,6 @@
       {
         "criterion_id": "1:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "1:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "1:policy:baggage_pricing",
@@ -231,10 +223,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "3:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "3:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -328,10 +316,6 @@
       {
         "criterion_id": "4:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "4:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "4:policy:baggage_pricing",
@@ -429,10 +413,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "5:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "5:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -526,10 +506,6 @@
       {
         "criterion_id": "7:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "7:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "7:policy:baggage_pricing",
@@ -627,10 +603,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "9:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "9:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -724,10 +696,6 @@
       {
         "criterion_id": "10:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "10:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "10:policy:baggage_pricing",
@@ -825,10 +793,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "11:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "11:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -922,10 +886,6 @@
       {
         "criterion_id": "12:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "12:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "12:policy:baggage_pricing",
@@ -1023,10 +983,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "14:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "14:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -1120,10 +1076,6 @@
       {
         "criterion_id": "15:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "15:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "15:policy:baggage_pricing",
@@ -1221,10 +1173,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "17:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "17:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -1318,10 +1266,6 @@
       {
         "criterion_id": "20:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "20:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "20:policy:baggage_pricing",
@@ -1419,10 +1363,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "21:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "21:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -1516,10 +1456,6 @@
       {
         "criterion_id": "23:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "23:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "23:policy:baggage_pricing",
@@ -1617,10 +1553,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "27:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "27:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -1714,10 +1646,6 @@
       {
         "criterion_id": "28:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "28:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "28:policy:baggage_pricing",
@@ -1815,10 +1743,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "33:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "33:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -1912,10 +1836,6 @@
       {
         "criterion_id": "34:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "34:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "34:policy:baggage_pricing",
@@ -2013,10 +1933,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "36:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "36:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -2110,10 +2026,6 @@
       {
         "criterion_id": "38:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "38:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "38:policy:baggage_pricing",
@@ -2211,10 +2123,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "39:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "39:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -2308,10 +2216,6 @@
       {
         "criterion_id": "40:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "40:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "40:policy:baggage_pricing",
@@ -2409,10 +2313,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "41:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "41:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -2506,10 +2406,6 @@
       {
         "criterion_id": "42:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "42:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "42:policy:baggage_pricing",
@@ -2607,10 +2503,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "43:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "43:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -2704,10 +2596,6 @@
       {
         "criterion_id": "46:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "46:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "46:policy:baggage_pricing",
@@ -2805,10 +2693,6 @@
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
-        "criterion_id": "47:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
         "criterion_id": "47:policy:baggage_pricing",
         "description": "When adding bags, apply the supplied SFT policy's membership/cabin free allowance and charge $50 per extra bag. Do not add bags the user does not need. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
@@ -2902,10 +2786,6 @@
       {
         "criterion_id": "49:policy:booking_payment_limits",
         "description": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
-      },
-      {
-        "criterion_id": "49:policy:travel_certificate_new_booking_only",
-        "description": "Travel certificates can ONLY be used for new bookings. They cannot be used to update existing reservations, including flight, baggage, passenger or cabin changes. If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "49:policy:baggage_pricing",
