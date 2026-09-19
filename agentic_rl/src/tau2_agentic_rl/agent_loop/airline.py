@@ -54,7 +54,6 @@ from tau2_agentic_rl.schemas import TokenTurn, ToolEvent, TrajectoryRecord
 from tau2_agentic_rl.storage import TrajectoryStore
 from tau2_agentic_rl.token_alignment import validate_aligned_response
 from tau2_agentic_rl.tooling import (
-    execute_validated_tool_call,
     synthetic_tool_error,
     validate_tool_call,
     validate_tool_turn,
@@ -568,13 +567,18 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "turn_idx": assistant_turns,
                 "raw_generated_text": decoded,
             }
+            call_ids = [
+                f"call_{assistant_turns:04d}_{index:02d}"
+                for index in range(len(calls))
+            ]
             if calls:
                 assistant_message["tool_calls"] = [
                     {
+                        "id": call_id,
                         "type": "function",
                         "function": {"name": call.name, "arguments": call.arguments},
                     }
-                    for call in calls
+                    for call_id, call in zip(call_ids, calls, strict=True)
                 ]
             messages.append(assistant_message)
 
@@ -599,84 +603,128 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                         "invalid_tool_turn",
                         turn_error,
                         "No action was delivered. Emit a nonempty text reply or "
-                        "one complete JSON tool call, never both and never "
-                        "additional tool blocks.",
+                        "one or more complete JSON tool calls, never both.",
                     ),
                 )
             elif calls:
-                call = calls[0]
-                checked = validate_tool_call(
-                    call.name,
-                    call.arguments,
-                    schemas_by_name,
-                    environment.tool_names,
-                )
-                if not checked.valid:
-                    step = _local_step(
-                        environment,
-                        synthetic_tool_error(
-                            call.name,
-                            str(checked.error_kind),
-                            str(checked.detail),
-                        ),
+                checked_calls = [
+                    validate_tool_call(
+                        call.name,
+                        call.arguments,
+                        schemas_by_name,
+                        environment.tool_names,
                     )
-                    event = ToolEvent(
-                        event_id=f"{trajectory_id}:{len(tool_events)}",
-                        sequence=len(tool_events),
-                        turn_id=assistant_turns,
-                        name=call.name,
-                        arguments=checked.arguments,
-                        error_kind=checked.error_kind,
-                        result=checked.detail,
+                    for call in calls
+                ]
+                if any(not checked.valid for checked in checked_calls):
+                    local_messages = []
+                    for call_id, call, checked in zip(
+                        call_ids, calls, checked_calls, strict=True
+                    ):
+                        if checked.valid:
+                            error_kind = "schema_invalid"
+                            detail = (
+                                "not executed because another tool call in the "
+                                "same assistant turn was invalid"
+                            )
+                        else:
+                            error_kind = str(checked.error_kind)
+                            detail = str(checked.detail)
+                        message = synthetic_tool_error(call.name, error_kind, detail)
+                        message["tool_call_id"] = call_id
+                        local_messages.append(message)
+                        event = ToolEvent(
+                            event_id=f"{trajectory_id}:{len(tool_events)}",
+                            sequence=len(tool_events),
+                            turn_id=assistant_turns,
+                            name=call.name,
+                            arguments=checked.arguments,
+                            error_kind=error_kind,
+                            result=detail,
+                        )
+                        _mark_repetition(event, tool_events)
+                        tool_events.append(event)
+                    step = GymStep(
+                        messages=local_messages,
+                        reward=environment.last_reward,
+                        terminated=False,
+                        info=environment.info,
+                        db_changed=False,
+                        tool_success=False,
+                        tool_result=local_messages[-1]["content"],
                     )
                 else:
-                    # AReaL SFT recommends confirmation but does not require an
-                    # action_proposal tag. Schema-valid writes reach Tau2 as-is.
+                    payloads = [
+                        {
+                            "id": call_id,
+                            "name": checked.name,
+                            "arguments": checked.arguments,
+                        }
+                        for call_id, checked in zip(
+                            call_ids, checked_calls, strict=True
+                        )
+                    ]
                     before_tool_hash = environment.safe_db_hash()
                     try:
-                        step = await execute_validated_tool_call(
-                            checked, environment.step_tool
-                        )
+                        step = await environment.step_tools(payloads)
                     except Exception as exc:
                         after_tool_hash = environment.safe_db_hash()
                         changed = (
                             before_tool_hash != after_tool_hash
                             if before_tool_hash is not None
                             and after_tool_hash is not None
+                            and len(checked_calls) == 1
                             else None
                         )
-                        tool_events.append(
-                            ToolEvent(
-                                event_id=f"{trajectory_id}:{len(tool_events)}",
-                                sequence=len(tool_events),
-                                turn_id=assistant_turns,
-                                name=call.name,
-                                arguments=checked.arguments,
-                                success=False,
-                                db_effect=changed,
-                                result=f"environment exception: {type(exc).__name__}: {exc}",
+                        for checked in checked_calls:
+                            tool_events.append(
+                                ToolEvent(
+                                    event_id=f"{trajectory_id}:{len(tool_events)}",
+                                    sequence=len(tool_events),
+                                    turn_id=assistant_turns,
+                                    name=checked.name,
+                                    arguments=checked.arguments,
+                                    success=False,
+                                    db_effect=changed,
+                                    result=(
+                                        "environment exception: "
+                                        f"{type(exc).__name__}: {exc}"
+                                    ),
+                                )
                             )
-                        )
                         infrastructure_error = ("tau2_tool_step", exc)
                         termination_reason = "infrastructure_error"
                         break
-                    event = ToolEvent(
-                        event_id=f"{trajectory_id}:{len(tool_events)}",
-                        sequence=len(tool_events),
-                        turn_id=assistant_turns,
-                        name=call.name,
-                        arguments=checked.arguments,
-                        success=step.tool_success is True,
-                        db_effect=step.db_changed,
-                        error_kind=(
-                            None
-                            if step.tool_success is not False
-                            else "model_caused_execution_error"
-                        ),
-                        result=step.tool_result,
-                    )
-                _mark_repetition(event, tool_events)
-                tool_events.append(event)
+                    batch_results = step.tool_results or []
+                    if len(batch_results) != len(checked_calls):
+                        infrastructure_error = (
+                            "tau2_tool_step",
+                            RuntimeError(
+                                "Tau2 multi-tool result count does not match call count"
+                            ),
+                        )
+                        termination_reason = "infrastructure_error"
+                        break
+                    for checked, result in zip(
+                        checked_calls, batch_results, strict=True
+                    ):
+                        event = ToolEvent(
+                            event_id=f"{trajectory_id}:{len(tool_events)}",
+                            sequence=len(tool_events),
+                            turn_id=assistant_turns,
+                            name=checked.name,
+                            arguments=checked.arguments,
+                            success=result.success,
+                            db_effect=result.db_changed,
+                            error_kind=(
+                                None
+                                if result.success
+                                else "model_caused_execution_error"
+                            ),
+                            result=result.result,
+                        )
+                        _mark_repetition(event, tool_events)
+                        tool_events.append(event)
             else:
                 try:
                     step = await environment.step_text(content)
@@ -701,7 +749,10 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     break
                 messages.extend(bounded_messages)
                 if observation_truncated and calls and tool_events:
-                    tool_events[-1].observation_truncated = True
+                    for event in reversed(tool_events):
+                        if event.turn_id != assistant_turns:
+                            break
+                        event.observation_truncated = True
                 prompt_ids.extend(environment_ids)
                 response_mask.extend([0] * len(environment_ids))
                 aligned_log_probs.extend([0.0] * len(environment_ids))
