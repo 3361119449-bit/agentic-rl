@@ -112,7 +112,7 @@ def test_yaml_wires_discount_into_both_runtime_profiles():
     root = Path(__file__).parents[1]
     for config in ["rl/airline_grpo_v1.yaml", "evaluation/airline_eval_v1.yaml"]:
         project = load_yaml(root / "configs" / config)
-        assert project["project"]["reward_version"] == "v3-truncation-evidence"
+        assert project["project"]["reward_version"] == "v4-multitool-policy"
         assert build_reward_config(project).truncation_multiplier == 0.75
     configured = score_trajectory(
         **reward_inputs(),
