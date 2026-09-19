@@ -4,11 +4,12 @@ These are policy checks, not reference-action or task-completion targets. A rule
 whose trigger is absent passes with a short 'not applicable' explanation.
 """
 
-POLICY_RUBRIC_VERSION = "areal-airline-policy-atomic-v3"
+POLICY_RUBRIC_VERSION = "areal-airline-policy-atomic-v4-multitool"
 POLICY_RULES = {
     "information_grounding": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations.",
     "user_identity": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools.",
-    "single_action_turn": "Each assistant turn is either user-facing text or at most one tool call, never both.",
+    "single_action_turn": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns.",
+    "database_write_confirmation": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call.",
     "booking_cabin": "A new reservation uses one cabin class and the same flights for all passengers and all segments.",
     "booking_passengers": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth.",
     "booking_payment_limits": "A new reservation uses at most one travel certificate, one credit card and three gift cards. All payment methods already belong to the user profile; unused certificate value is not refundable.",
@@ -48,7 +49,7 @@ def validate_policy_rows(rows: dict) -> None:
         if (
             row.get("policy_rubric_version") != POLICY_RUBRIC_VERSION
             or row.get("judge_checks") != policy_checks(str(task_id))
-            or row.get("deterministic_rules") != ["one_tool_call_per_assistant_turn"]
+            or row.get("deterministic_rules") != []
         ):
             raise ValueError(
                 f"task {task_id}: stale policy rubric; rebuild SFT-policy annotations"
