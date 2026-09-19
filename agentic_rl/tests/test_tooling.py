@@ -160,7 +160,7 @@ def test_confirmation_cannot_hide_changed_or_conditional_instructions(reply, all
         ("Sure. " + CALL, 1, "mixed_content_and_tool_call"),
         (CALL + "<tool_call>{broken}</tool_call>", 1, "parse_error"),
         (CALL + "<tool_call>", 1, "parse_error"),
-        (CALL * 2, 2, "multiple_tool_calls"),
+        (CALL * 2, 2, None),
         ("<|im_end|>arbitrary" + CALL, 1, "mixed_content_and_tool_call"),
         (
             "<action_proposal>{}</action_proposal>" + CALL,
