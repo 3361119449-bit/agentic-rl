@@ -1,8 +1,8 @@
 from tau2_agentic_rl.reward.score import score_trajectory
-from tau2_agentic_rl.schemas import JudgeResult, OfficialScores, ToolEvent
+from tau2_agentic_rl.schemas import JudgeCheck, JudgeResult, OfficialScores, ToolEvent
 
 
-def test_unconfirmed_write_is_not_an_areal_policy_violation() -> None:
+def test_unconfirmed_write_can_be_blocked_by_multitool_prompt_policy() -> None:
     action = {
         "action_id": "a",
         "name": "cancel_reservation",
@@ -24,14 +24,18 @@ def test_unconfirmed_write_is_not_an_areal_policy_violation() -> None:
         assistant_turns=1,
         required_actions=[action],
         official=OfficialScores(reward=1, db_applicable=True, db_score=1),
-        judge=JudgeResult(),
+        judge=JudgeResult(
+            mandatory_policy_checks=[
+                JudgeCheck(
+                    criterion_id="0:policy:database_write_confirmation",
+                    passed=False,
+                    short_reason="write happened without explicit confirmation",
+                )
+            ]
+        ),
     )
-    assert result.policy_gate is True
-    assert result.train_reward == 1.0
-    assert all(
-        c["rule_id"] != "confirmation_before_database_write"
-        for c in result.details["policy_checks"]
-    )
+    assert result.policy_gate is False
+    assert result.train_reward == 0.0
 
 
 def test_multiple_calls_in_one_turn_are_not_a_policy_hard_gate() -> None:
