@@ -34,7 +34,7 @@ def test_unconfirmed_write_is_not_an_areal_policy_violation() -> None:
     )
 
 
-def test_multiple_calls_in_one_turn_hard_gate_reward() -> None:
+def test_multiple_calls_in_one_turn_are_not_a_policy_hard_gate() -> None:
     events = [
         ToolEvent(
             event_id=f"e{i}", sequence=i, turn_id=1, name="search_flights", success=True
@@ -49,7 +49,8 @@ def test_multiple_calls_in_one_turn_hard_gate_reward() -> None:
         official=OfficialScores(reward=1, db_applicable=True, db_score=1),
         judge=JudgeResult(),
     )
-    assert result.train_reward == 0.0
+    assert result.policy_gate is True
+    assert result.train_reward == 1.0
 
 
 def test_unannotated_write_is_a_separate_task_safety_gate() -> None:
