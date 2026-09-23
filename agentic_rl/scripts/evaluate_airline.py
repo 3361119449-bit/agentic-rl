@@ -44,7 +44,10 @@ from tau2_agentic_rl.evaluation import (
     initialize_evaluation,
 )
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
-from tau2_agentic_rl.pass_metrics import validate_official_test_ids
+from tau2_agentic_rl.pass_metrics import (
+    OFFICIAL_EVALUATION_PROTOCOL_SAMPLES,
+    validate_official_test_ids,
+)
 from tau2_agentic_rl.schemas import TrajectoryRecord
 from tau2_agentic_rl.scoring_retry import retry_scoring_batch
 from tau2_agentic_rl.storage import TrajectoryStore
@@ -140,7 +143,17 @@ def parse_args(argv=None):
         choices=("internal_dev", "official_train", "official_test"),
         default="official_test",
     )
-    parser.add_argument("--samples", type=int, default=4)
+    parser.add_argument(
+        "--protocol",
+        choices=tuple(OFFICIAL_EVALUATION_PROTOCOL_SAMPLES),
+        default="pass1_pass4",
+        help="Official-test protocol: 20x1 pass^1 or 20x4 pass^1/pass^4",
+    )
+    parser.add_argument(
+        "--samples",
+        type=int,
+        help="Legacy explicit sample count; must agree with --protocol on official_test",
+    )
     parser.add_argument("--tag", type=_safe_run_name, default="frozen_test")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--extra", action="append", default=[])
@@ -156,6 +169,23 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def resolve_evaluation_samples(args) -> int:
+    if args.split == "official_test":
+        expected = OFFICIAL_EVALUATION_PROTOCOL_SAMPLES[args.protocol]
+        if args.samples is not None and args.samples != expected:
+            raise ValueError(
+                f"--samples {args.samples} conflicts with --protocol {args.protocol} "
+                f"(requires {expected})"
+            )
+        return expected
+    if args.protocol != "pass1_pass4":
+        raise ValueError("--protocol pass1 is only valid with --split official_test")
+    samples = 4 if args.samples is None else args.samples
+    if samples < 4:
+        raise ValueError("non-test evaluation needs at least four samples")
+    return samples
+
+
 def main() -> None:
     args = parse_args()
 
@@ -168,10 +198,7 @@ def main() -> None:
         Path(args.model_path).glob("*.safetensors")
     ):
         raise FileNotFoundError("evaluation requires a complete local merged model")
-    if args.samples < 4 or (args.split == "official_test" and args.samples != 4):
-        raise ValueError(
-            "official test requires exactly 4 samples; other splits need at least 4"
-        )
+    args.samples = resolve_evaluation_samples(args)
     if args.max_refill_rounds < 0:
         raise ValueError("max-refill-rounds must be nonnegative")
     for override in args.extra:
@@ -282,6 +309,7 @@ def main() -> None:
         "top_p": project["rollout"]["top_p"],
         "top_k": project["rollout"]["top_k"],
         "samples_per_task": args.samples,
+        **({"evaluation_protocol": args.protocol} if test_mode else {}),
         "task_ids": task_ids,
         "seed": args.seed,
         "split": args.split,

@@ -83,6 +83,12 @@ The repository also includes a reproducible pipeline that:
 - evaluates the official test split while reporting only `pass^1` and
   `pass^4`.
 
+The frozen evaluator exposes two explicit protocols: `--protocol pass1` runs
+one valid trajectory for each of the 20 official test tasks, while
+`--protocol pass1_pass4` (the backward-compatible default) runs four per task
+and reports both metrics. Protocols are recorded in the evaluation manifest
+and cannot share a result tag.
+
 See
 [`training/tau2_rollout_sft/README.md`](training/tau2_rollout_sft/README.md).
 

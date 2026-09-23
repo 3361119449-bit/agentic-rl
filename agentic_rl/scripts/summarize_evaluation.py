@@ -27,6 +27,9 @@ def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str,
         (records_dir.parent / "evaluation_manifest.json").read_text(encoding="utf-8")
     )
     coverage = evaluation_coverage(records_dir, manifest)
+    protocol = manifest["identity"].get("evaluation_protocol", "pass1_pass4")
+    pass_values = (1,) if protocol == "pass1" else (1, 4)
+    coverage["evaluation_protocol"] = protocol
     records = coverage.pop("records")
     pending = coverage.pop("scoring_pending_records")
     user_pending = coverage.pop("user_sim_pending_records")
@@ -75,30 +78,26 @@ def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str,
             if with_judge
             else 0
         )
+        row_metrics = {
+            f"official_pass{k}": pass_hat_k(len(rows), official, k) for k in pass_values
+        }
+        if with_judge:
+            row_metrics.update(
+                {
+                    f"custom_strict_pass{k}": pass_hat_k(len(rows), strict, k)
+                    for k in pass_values
+                }
+            )
         per_task.append(
             {
                 "task_id": task,
                 "samples": len(rows),
-                "official_pass1": pass_hat_k(len(rows), official, 1),
-                "official_pass4": pass_hat_k(len(rows), official, 4),
-                **(
-                    {
-                        "custom_strict_pass1": pass_hat_k(len(rows), strict, 1),
-                        "custom_strict_pass4": pass_hat_k(len(rows), strict, 4),
-                    }
-                    if with_judge
-                    else {}
-                ),
+                **row_metrics,
             }
         )
-    keys = (
-        "official_pass1",
-        "official_pass4",
-        "custom_strict_pass1",
-        "custom_strict_pass4",
-    )
-    if not with_judge:
-        keys = ("official_pass1", "official_pass4")
+    keys = tuple(f"official_pass{k}" for k in pass_values)
+    if with_judge:
+        keys += tuple(f"custom_strict_pass{k}" for k in pass_values)
     return {
         "status": "complete",
         "metric_definition": "tau2_pass_hat_k",

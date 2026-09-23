@@ -19,10 +19,26 @@ def test_agent_reward_judge_cli_switch(flags, expected):
     assert evaluate_airline.parse_args(flags).reward_judge is expected
 
 
+@pytest.mark.parametrize(
+    "protocol,samples",
+    [("pass1", 1), ("pass1_pass4", 4)],
+)
+def test_official_test_protocol_selects_sample_count(protocol, samples):
+    args = evaluate_airline.parse_args(["--protocol", protocol])
+    assert evaluate_airline.resolve_evaluation_samples(args) == samples
+
+
+def test_official_test_protocol_rejects_conflicting_legacy_samples():
+    args = evaluate_airline.parse_args(["--protocol", "pass1", "--samples", "4"])
+    with pytest.raises(ValueError, match="conflicts"):
+        evaluate_airline.resolve_evaluation_samples(args)
+
+
 @pytest.mark.parametrize("scoring_only", [False, True])
 @pytest.mark.parametrize("reward_judge", [False, True])
+@pytest.mark.parametrize("protocol", ["pass1", "pass1_pass4"])
 def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
-    monkeypatch, scratch_dir, scoring_only, reward_judge
+    monkeypatch, scratch_dir, scoring_only, reward_judge, protocol
 ):
     source = Path(__file__).parents[1]
     for directory in ("configs", "data/annotations", "data/splits"):
@@ -67,6 +83,8 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
         str(model),
         "--tag",
         "test-run",
+        "--protocol",
+        protocol,
     ]
     if reward_judge:
         argv.append("--reward-judge")
@@ -141,15 +159,22 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
 
     monkeypatch.setattr(evaluate_airline.DeepSeekJudge, "evaluate", judge)
     evaluate_airline.main()
-    assert [len(rows) for rows in batches] == ([80] if scoring_only else [80, 1])
+    expected_samples = 20 if protocol == "pass1" else 80
+    assert [len(rows) for rows in batches] == (
+        [expected_samples] if scoring_only else [expected_samples, 1]
+    )
     if not scoring_only:
         assert batches[1][0] == batches[0][0]
     result = json.loads((root / "summary.json").read_text(encoding="utf-8"))
-    assert result["valid_samples"] == 80
+    assert result["evaluation_protocol"] == protocol
+    assert result["valid_samples"] == expected_samples
     assert result["aggregate"]["official_pass1"] == pytest.approx(
-        pending_count / 80 if scoring_only else 0
+        pending_count / expected_samples if scoring_only else 0
     )
-    assert result["aggregate"]["official_pass4"] == (0.05 if scoring_only else 0)
+    if protocol == "pass1_pass4":
+        assert result["aggregate"]["official_pass4"] == (0.05 if scoring_only else 0)
+    else:
+        assert "official_pass4" not in result["aggregate"]
     assert peak_scoring == (4 if scoring_only and reward_judge else 0)
     assert active_scoring == 0
     assert scored == (pending_count if scoring_only and reward_judge else 0)

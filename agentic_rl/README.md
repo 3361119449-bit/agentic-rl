@@ -421,22 +421,40 @@ python scripts/export_verl_lora.py \
   --target-dir /root/models/qwen3_4b_airline_rl_export
 ```
 
-然后只在最终冻结后运行 test；不做动态采样或参数更新：
+然后只在最终冻结后运行 test；不做参数更新。评估入口提供两个互斥协议，且不同
+协议必须使用不同的 `--tag`：
+
+- `pass1`：固定 20 个官方 test 任务，每题生成 1 条有效轨迹（共 20 条），只输出
+  `official_pass1`；适合低成本快速评估。
+- `pass1_pass4`：固定每题 4 条有效轨迹（共 80 条），同时输出
+  `official_pass1` / `official_pass4`；这是原有默认协议。
+
+只评估 20×1 pass^1：
 
 ```bash
 python scripts/evaluate_airline.py \
-  --split official_test --samples 4 --tag sft_baseline \
-  --model-path "$MERGED_SFT_MODEL" \
-  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
-
-python scripts/evaluate_airline.py \
-  --split official_test --samples 4 --tag sft_grpo \
+  --split official_test --protocol pass1 --tag sft_grpo_pass1 \
   --model-path "$MERGED_SFT_MODEL" \
   --lora-adapter /root/models/qwen3_4b_airline_rl_export/lora_adapter \
   --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
 ```
 
-只汇总 Tau2 pass^1 和 pass^4：
+完整评估 20×4 pass^1/pass^4：
+
+```bash
+python scripts/evaluate_airline.py \
+  --split official_test --protocol pass1_pass4 --tag sft_baseline \
+  --model-path "$MERGED_SFT_MODEL" \
+  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
+
+python scripts/evaluate_airline.py \
+  --split official_test --protocol pass1_pass4 --tag sft_grpo \
+  --model-path "$MERGED_SFT_MODEL" \
+  --lora-adapter /root/models/qwen3_4b_airline_rl_export/lora_adapter \
+  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
+```
+
+汇总脚本会读取 manifest 中冻结的协议；`pass1` 报告不会生成或伪造 pass^4 字段：
 
 ```bash
 python scripts/summarize_evaluation.py \
@@ -458,6 +476,9 @@ python scripts/summarize_evaluation.py \
 恰好运行 4 次时，pass^4 只有四次全部成功才为 1；只成功 1 次时 pass^1=0.25、
 pass^4=0。它不是“至少一次成功”的 pass@4，定义见
 [固定 Tau2 官方实现](https://github.com/sierra-research/tau2-bench/blob/a2c024725189473d2d7cea3a5cfdbcc67478e41f/src/tau2/metrics/agent_metrics.py)。
+20×1 的 `pass1` 是每个任务一次采样的成功率；由于采样预算不同，不能与 20×4
+协议中由四次采样估计的 `official_pass1` 当成完全相同的实验条件。旧命令中的
+`--samples 4` 仍兼容默认 `pass1_pass4`；若显式样本数与协议冲突，启动器会拒绝。
 
 两份报告共用 `tau2_agentic_rl.pass_metrics` 的官方 ID 集合、版本校验和成功判定。
 主线启动与离线汇总都会核对**准确的 20 个官方 test ID**及固定 Tau2 commit，

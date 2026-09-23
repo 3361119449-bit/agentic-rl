@@ -13,14 +13,16 @@ from tau2_agentic_rl.evaluation import (
 from tau2_agentic_rl.pass_metrics import OFFICIAL_TEST_IDS, TAU2_COMMIT
 
 
-def setup_evaluation(scratch_dir, count=20):
+def setup_evaluation(scratch_dir, count=20, protocol="pass1_pass4"):
+    samples = 1 if protocol == "pass1" else 4
     identity = {
         "model_files": {"model.safetensors": "model-A"},
         "task_ids": sorted(OFFICIAL_TEST_IDS, key=int)
         if count == 20
         else [str(i) for i in range(count)],
         "tau2_commit": TAU2_COMMIT,
-        "samples_per_task": 4,
+        "samples_per_task": samples,
+        "evaluation_protocol": protocol,
         "record_split": "test" if count == 20 else "internal_dev",
         "split": "official_test" if count == 20 else "internal_dev",
     }
@@ -75,6 +77,30 @@ def test_final_test_requires_all_twenty_tasks_and_eighty_valid_slots(scratch_dir
     assert result["aggregate"]["custom_strict_pass1"] == 0.25
     assert result["aggregate"]["custom_strict_pass4"] == 0.0
     assert result["metric_definition"] == "tau2_pass_hat_k"
+
+
+def test_pass1_protocol_requires_twenty_tasks_and_twenty_valid_slots(scratch_dir):
+    _, records, manifest = setup_evaluation(scratch_dir, protocol="pass1")
+    tasks = manifest["identity"]["task_ids"]
+    for task in tasks[:-1]:
+        write_sample(records, manifest, task, 0)
+
+    with pytest.raises(ValueError, match="no final metrics"):
+        summarize(records)
+    partial = summarize(records, allow_incomplete=True)
+    assert partial["expected_samples"] == 20
+    assert partial["valid_samples"] == 19
+    assert partial["missing_slots"] == [{"task_id": tasks[-1], "sample_index": 0}]
+
+    write_sample(records, manifest, tasks[-1], 0)
+    result = summarize(records)
+    assert result["evaluation_protocol"] == "pass1"
+    assert result["valid_samples"] == 20
+    assert result["aggregate"] == {
+        "official_pass1": 1.0,
+        "custom_strict_pass1": 1.0,
+    }
+    assert all("official_pass4" not in row for row in result["per_task"])
 
 
 @pytest.mark.parametrize("successes", range(5))
@@ -132,6 +158,17 @@ def test_nonempty_tag_and_changed_model_cannot_mix_samples(scratch_dir):
         initialize_evaluation(root, manifest["identity"], resume=False)
     assert initialize_evaluation(root, manifest["identity"], resume=True) == manifest
     changed = {**manifest["identity"], "model_files": {"model.safetensors": "model-B"}}
+    with pytest.raises(ValueError, match="identity changed"):
+        initialize_evaluation(root, changed, resume=True)
+
+
+def test_same_tag_cannot_mix_official_protocols(scratch_dir):
+    root, _, manifest = setup_evaluation(scratch_dir)
+    changed = {
+        **manifest["identity"],
+        "evaluation_protocol": "pass1",
+        "samples_per_task": 1,
+    }
     with pytest.raises(ValueError, match="identity changed"):
         initialize_evaluation(root, changed, resume=True)
 

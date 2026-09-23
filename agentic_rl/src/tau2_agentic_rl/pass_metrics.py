@@ -4,6 +4,10 @@ import math
 
 # data/tau2/domains/airline/split_tasks.json at this exact upstream revision.
 TAU2_COMMIT = "a2c024725189473d2d7cea3a5cfdbcc67478e41f"
+OFFICIAL_EVALUATION_PROTOCOL_SAMPLES = {
+    "pass1": 1,
+    "pass1_pass4": 4,
+}
 OFFICIAL_TEST_IDS = frozenset(
     {
         "2",

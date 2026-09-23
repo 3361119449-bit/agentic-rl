@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from tau2_agentic_rl.pass_metrics import (
+    OFFICIAL_EVALUATION_PROTOCOL_SAMPLES,
     validate_official_test_ids,
     validate_unit_score,
 )
@@ -65,15 +66,23 @@ def initialize_evaluation(
 def _validate_sample_plan(identity: dict[str, Any]) -> tuple[list[str], int]:
     raw_tasks = identity.get("task_ids")
     n = identity.get("samples_per_task")
-    if not isinstance(raw_tasks, list) or type(n) is not int or n < 4:
-        raise ValueError("evaluation needs unique tasks and at least four samples each")
+    if not isinstance(raw_tasks, list) or type(n) is not int or n < 1:
+        raise ValueError("evaluation needs unique tasks and a positive sample count")
     tasks = list(map(str, raw_tasks))
     if not tasks or len(set(tasks)) != len(tasks):
-        raise ValueError("evaluation needs unique tasks and at least four samples each")
+        raise ValueError("evaluation needs unique tasks and a positive sample count")
     if identity["split"] == "official_test":
         validate_official_test_ids(raw_tasks, identity.get("tau2_commit"))
-        if n != 4 or identity["record_split"] != "test":
-            raise ValueError("official test requires 20 tasks x 4 valid samples")
+        protocol = identity.get("evaluation_protocol", "pass1_pass4")
+        expected = OFFICIAL_EVALUATION_PROTOCOL_SAMPLES.get(protocol)
+        if expected is None:
+            raise ValueError(f"unknown official evaluation protocol: {protocol!r}")
+        if n != expected or identity["record_split"] != "test":
+            raise ValueError(
+                f"official {protocol} requires 20 tasks x {expected} valid samples"
+            )
+    elif n < 4:
+        raise ValueError("non-test evaluation needs at least four samples per task")
     return tasks, n
 
 
