@@ -388,6 +388,25 @@ python scripts/train_airline_grpo.py \
 `full_train` 已包含原先 6 条 internal-dev，因此这时出现的 internal-dev
 数值只能叫训练集监控指标，不能再叫独立验证结果。
 
+如需在 `full_train` 中单独排除任务 7，使用可重复的
+`--exclude-task-id` 接口：
+
+```bash
+python scripts/train_airline_grpo.py \
+  --stage full_train --epochs 15 \
+  --exclude-task-id 7 \
+  --run-name full_train_without_task7_seed42 \
+  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
+```
+
+这会训练其余 29 条 official-train 任务。多排除几条时重复传参，例如
+`--exclude-task-id 7 --exclude-task-id 12`。启动器只生成内容寻址的派生训练
+Parquet；官方 split、原始 Parquet 和 `airline_internal_dev.parquet` 都不会修改。
+排除列表及派生训练数据的内容指纹会写入运行/恢复身份，因此恢复同一实验时必须
+保留完全相同的 `--exclude-task-id`。任务 7 本来就在 internal-dev 集，不在
+`--stage internal_dev` 的 24 条训练任务中；该阶段再显式排除 7 会直接报错，避免
+把“已经不参与训练”误记成一次新的数据选择。
+
 如需继续中断的同一个实验，显式指定 checkpoint，并保留原来的阶段、seed、epochs
 和全部训练 overrides（下例适用于原本使用默认 seed=42、epochs=15 的实验）：
 
