@@ -172,6 +172,12 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             min_final_response_tokens=int(rollout["min_final_response_tokens"]),
             per_turn_max_new_tokens=int(rollout["per_turn_max_new_tokens"]),
         )
+        self.observation_content_max_tokens = int(
+            rollout.get(
+                "observation_content_max_tokens",
+                rollout["reserved_observation_tokens"],
+            )
+        )
         judge_config = self.project["judge"]
         self.judge = (
             DeepSeekJudge(
@@ -191,7 +197,19 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             if filter_enabled(self.project)
             else None
         )
-        self.hard_turn_limit = int(rollout["max_hard_turns"])
+        raw_hard_turn_limit = rollout.get("max_hard_turns")
+        self.hard_turn_limit = (
+            None if raw_hard_turn_limit is None else int(raw_hard_turn_limit)
+        )
+        self.tau2_max_steps = int(
+            rollout.get(
+                "tau2_max_steps",
+                self.hard_turn_limit * 3
+                if self.hard_turn_limit is not None
+                else 200,
+            )
+        )
+        self.tau2_max_errors = int(rollout.get("tau2_max_errors", 10))
         self.response_length = int(self.rollout_config.response_length)
         if self.processor is not None:
             raise ValueError("Tau2 Airline requires the text-only Qwen tokenizer")
@@ -232,7 +250,11 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             render=self._render_full_chat,
             turn_separator=self.turn_separator,
             allowed_tokens=allowed,
-            content_limit=self.budget.reserved_observation_tokens,
+            content_limit=getattr(
+                self,
+                "observation_content_max_tokens",
+                self.budget.reserved_observation_tokens,
+            ),
         )
 
     async def run(
@@ -371,7 +393,12 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 else self.root / self.project["outputs"]["user_cache"]
             ),
             user_max_retries=int(user.get("max_retries", 2)),
-            max_steps=self.hard_turn_limit * 3,
+            max_steps=(
+                self.tau2_max_steps
+                if hasattr(self, "tau2_max_steps")
+                else self.hard_turn_limit * 3
+            ),
+            max_errors=getattr(self, "tau2_max_errors", 10),
         )
         try:
             incoming = await environment.reset(seed=seed)
@@ -476,7 +503,10 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             if not decision.can_generate:
                 termination_reason = "budget_exhausted"
                 break
-            if assistant_turns >= self.hard_turn_limit:
+            if (
+                self.hard_turn_limit is not None
+                and assistant_turns >= self.hard_turn_limit
+            ):
                 termination_reason = "hard_turn_limit"
                 break
 

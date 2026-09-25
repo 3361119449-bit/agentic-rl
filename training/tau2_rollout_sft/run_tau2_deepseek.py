@@ -11,7 +11,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-
 DEFAULT_AGENT_MODEL = "deepseek/deepseek-v4-flash"
 DEFAULT_USER_MODEL = "deepseek/deepseek-v4-pro"
 EXPECTED_TAU2_COMMIT = "a2c024725189473d2d7cea3a5cfdbcc67478e41f"
@@ -120,7 +119,6 @@ def build_command(args: argparse.Namespace) -> list[str]:
         str(args.seed),
         "--save-to",
         args.save_name,
-        "--enforce-communication-protocol",
     ]
     if args.num_tasks is not None:
         command.extend(["--num-tasks", str(args.num_tasks)])

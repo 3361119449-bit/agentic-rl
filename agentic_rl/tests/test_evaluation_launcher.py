@@ -6,9 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from test_review_boundaries import scoring_failure_record
-
 from scripts import evaluate_airline
+from test_review_boundaries import scoring_failure_record
 
 
 @pytest.mark.parametrize(
@@ -17,6 +16,68 @@ from scripts import evaluate_airline
 )
 def test_agent_reward_judge_cli_switch(flags, expected):
     assert evaluate_airline.parse_args(flags).reward_judge is expected
+
+
+@pytest.mark.parametrize(
+    "flags,expected",
+    [
+        ([], False),
+        (["--user-sim-filter"], True),
+        (["--no-user-sim-filter"], False),
+    ],
+)
+def test_user_sim_filter_cli_switch(flags, expected):
+    assert evaluate_airline.parse_args(flags).user_sim_filter is expected
+
+
+def test_official_evaluation_cli_defaults_match_pinned_tau2_runner():
+    args = evaluate_airline.parse_args([])
+    assert args.seed == 300
+    assert args.max_refill_rounds == 3
+    assert evaluate_airline.official_trial_seeds(args.seed, 4) == [
+        626729,
+        373753,
+        361454,
+        1567,
+    ]
+
+
+@pytest.mark.parametrize(
+    "config_name",
+    ["configs/evaluation/airline_eval_v1.yaml", "configs/rl/airline_grpo_v1.yaml"],
+)
+def test_every_evaluation_split_gets_official_runtime_defaults(config_name):
+    root = Path(__file__).parents[1]
+    project = evaluate_airline.load_yaml(root / config_name)
+    original_user_model = project["user_simulator"]["model"]
+    original_user_max_retries = project["user_simulator"]["max_retries"]
+    configured = evaluate_airline.configure_evaluation_runtime(
+        project,
+        reward_judge=False,
+        user_sim_filter=False,
+    )
+    assert configured["rollout"]["tau2_max_steps"] == 200
+    assert configured["rollout"]["tau2_max_errors"] == 10
+    assert configured["rollout"]["max_hard_turns"] is None
+    assert (
+        configured["rollout"]["initial_prompt_max_tokens"]
+        == configured["rollout"]["max_context_length"]
+    )
+    assert "max_soft_turns" not in configured["rollout"]
+    assert configured["rollout"]["reserved_observation_tokens"] == 0
+    assert configured["rollout"]["reserved_template_tokens"] == 0
+    assert configured["rollout"]["min_final_response_tokens"] == 1
+    assert configured["rollout"]["per_turn_max_new_tokens"] == 16384
+    assert configured["rollout"]["observation_content_max_tokens"] == 16384
+    assert configured["rollout"]["temperature"] == 0.0
+    assert configured["user_simulator"]["temperature"] == 0.0
+    assert configured["user_simulator"]["model"] == original_user_model
+    assert (
+        configured["user_simulator"]["max_retries"] == original_user_max_retries
+    )
+    assert configured["judge"] == {"enabled": False}
+    assert configured["user_sim_filter"] == {"enabled": False}
+    assert "reward" not in configured
 
 
 @pytest.mark.parametrize(
@@ -31,6 +92,12 @@ def test_official_test_protocol_selects_sample_count(protocol, samples):
 def test_official_test_protocol_rejects_conflicting_legacy_samples():
     args = evaluate_airline.parse_args(["--protocol", "pass1", "--samples", "4"])
     with pytest.raises(ValueError, match="conflicts"):
+        evaluate_airline.resolve_evaluation_samples(args)
+
+
+def test_official_test_rejects_nondefault_tau2_seed():
+    args = evaluate_airline.parse_args(["--seed", "42"])
+    with pytest.raises(ValueError, match="seed=300"):
         evaluate_airline.resolve_evaluation_samples(args)
 
 
@@ -259,15 +326,148 @@ def test_launcher_rejects_wrong_twenty_test_ids_before_model_hashing_or_launch(
     assert not (scratch_dir / "outputs/evaluations/must-not-create").exists()
 
 
+def test_pass1_without_user_filter_needs_no_filter_model_and_keeps_official_metric(
+    monkeypatch, scratch_dir
+):
+    source = Path(__file__).parents[1]
+    for directory in ("configs", "data/annotations", "data/splits"):
+        shutil.copytree(source / directory, scratch_dir / directory)
+    (scratch_dir / "scripts").mkdir()
+    model = scratch_dir / "model"
+    model.mkdir()
+    (model / "config.json").write_text("{}", encoding="utf-8")
+    (model / "model.safetensors").write_bytes(b"fixture")
+    monkeypatch.setattr(
+        evaluate_airline, "__file__", str(scratch_dir / "scripts/evaluate_airline.py")
+    )
+    monkeypatch.setattr(evaluate_airline, "_require_exact_checkout", lambda *a: None)
+    for key in ("DEEPSEEK_USER_MODEL", "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"):
+        monkeypatch.setenv(key, "fixture")
+    monkeypatch.delenv("DEEPSEEK_JUDGE_MODEL", raising=False)
+    monkeypatch.delenv("DEEPSEEK_USER_SIM_JUDGE_MODEL", raising=False)
+    for key in (
+        "AGENTIC_RL_CONFIG",
+        "TRAJECTORY_OUTPUT_DIR",
+        "JUDGE_CACHE_DIR",
+        "USER_CACHE_DIR",
+        "USER_SIM_JUDGE_CACHE_DIR",
+        "AGENTIC_RL_PROJECT_ROOT",
+        "MERGED_SFT_MODEL",
+        "PYTHONPATH",
+        "EVALUATION_MANIFEST_ID",
+    ):
+        monkeypatch.setenv(key, "")
+    monkeypatch.setattr(
+        evaluate_airline,
+        "build_user_sim_judge",
+        lambda *a: pytest.fail("User Simulator Judge must not be constructed"),
+    )
+    monkeypatch.setattr(
+        evaluate_airline,
+        "DeepSeekJudge",
+        lambda *a: pytest.fail("Agent reward Judge must not be constructed"),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "evaluate",
+            "--tau2-root",
+            str(scratch_dir),
+            "--verl-root",
+            str(scratch_dir),
+            "--model-path",
+            str(model),
+            "--split",
+            "official_test",
+            "--protocol",
+            "pass1",
+            "--no-reward-judge",
+            "--tag",
+            "unscreened-pass1",
+        ],
+    )
+    root = scratch_dir / "outputs/evaluations/unscreened-pass1"
+    batches = []
+    monkeypatch.setattr(
+        evaluate_airline, "_write_parquet", lambda rows, path: batches.append(rows)
+    )
+
+    def launch(*args, **kwargs):
+        manifest = json.loads(
+            (root / "evaluation_manifest.json").read_text(encoding="utf-8")
+        )
+        runtime = evaluate_airline.load_yaml(root / "runtime_config.yaml")
+        assert runtime["user_sim_filter"] == {"enabled": False}
+        assert runtime["rollout"]["tau2_max_steps"] == 200
+        assert runtime["rollout"]["max_hard_turns"] is None
+        assert "max_soft_turns" not in runtime["rollout"]
+        assert runtime["rollout"]["temperature"] == 0.0
+        assert runtime["rollout"]["reserved_observation_tokens"] == 0
+        assert runtime["rollout"]["per_turn_max_new_tokens"] == 16384
+        assert runtime["rollout"]["observation_content_max_tokens"] == 16384
+        assert {row["extra_info"]["environment_seed"] for row in batches[-1]} == {
+            626729
+        }
+        records = root / "trajectories"
+        records.mkdir(exist_ok=True)
+        for index, row in enumerate(batches[-1]):
+            extra = row["extra_info"]
+            record = {
+                "trajectory_id": f"unscreened-{index}",
+                "task_id": extra["task_id"],
+                "split": extra["split"],
+                "metadata": {
+                    "evaluation_sample_index": extra["evaluation_sample_index"],
+                    "evaluation_manifest_id": manifest["manifest_id"],
+                    "reward_judge_enabled": False,
+                },
+                "termination_reason": "user_stop",
+                "official_scores": {"reward": float(index % 2 == 0)},
+                "custom_reward": None,
+            }
+            (records / f"{record['trajectory_id']}.json").write_text(
+                json.dumps(record), encoding="utf-8"
+            )
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(evaluate_airline.subprocess, "run", launch)
+    evaluate_airline.main()
+
+    manifest = json.loads(
+        (root / "evaluation_manifest.json").read_text(encoding="utf-8")
+    )
+    result = json.loads((root / "summary.json").read_text(encoding="utf-8"))
+    assert [len(batch) for batch in batches] == [20]
+    assert manifest["identity"]["user_sim_filter_enabled"] is False
+    assert manifest["identity"]["user_sim_filter"] == {"enabled": False}
+    assert manifest["identity"]["evaluation_standard"] == "tau2_official"
+    assert manifest["identity"]["tau2_max_steps"] == 200
+    assert manifest["identity"]["assistant_turn_limit"] is None
+    assert manifest["identity"]["seed"] == 300
+    assert result["user_sim_filter_enabled"] is False
+    assert result["evaluation_standard"] == "tau2_official"
+    assert result["reward_judge_enabled"] is False
+    assert result["aggregate"] == {"official_pass1": 0.5}
+
+    monkeypatch.setenv("DEEPSEEK_USER_SIM_JUDGE_MODEL", "fixture")
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        sys.argv + ["--user-sim-filter", "--resume"],
+    )
+    with pytest.raises(ValueError, match="evaluation identity changed"):
+        evaluate_airline.main()
+
+
 @pytest.mark.parametrize("quality_api_fails", [False, True])
 def test_user_filter_refills_invalid_slot_but_never_rerolls_pending_check(
     monkeypatch, scratch_dir, quality_api_fails
 ):
-    from test_user_simulation import attach_valid_screen, verdict
-
     from scripts.summarize_evaluation import summarize
     from tau2_agentic_rl.schemas import OfficialScores
     from tau2_agentic_rl.user_simulation import UserSimulationVerdict, replacement_seed
+    from test_user_simulation import attach_valid_screen, verdict
 
     source = Path(__file__).parents[1]
     for directory in ("configs", "data/annotations", "data/splits"):
@@ -314,6 +514,7 @@ def test_user_filter_refills_invalid_slot_but_never_rerolls_pending_check(
             str(model),
             "--tag",
             "screened",
+            "--user-sim-filter",
         ],
     )
     root = scratch_dir / "outputs/evaluations/screened"
@@ -383,6 +584,12 @@ def test_user_filter_refills_invalid_slot_but_never_rerolls_pending_check(
         first["environment_seed"], 1
     )
     report = summarize(root / "trajectories", allow_incomplete=True)
+    assert (
+        json.loads((root / "evaluation_manifest.json").read_text(encoding="utf-8"))[
+            "identity"
+        ]["evaluation_standard"]
+        == "tau2_nonofficial_user_sim_filtered"
+    )
     assert report["user_sim_rejections"] == 1
     assert report["valid_samples"] == (79 if quality_api_fails else 80)
     assert not report["missing_slots"]

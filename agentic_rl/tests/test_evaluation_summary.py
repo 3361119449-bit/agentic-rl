@@ -3,7 +3,6 @@ import json
 from pathlib import Path
 
 import pytest
-
 from scripts.summarize_evaluation import pass_hat_k, summarize
 from tau2_agentic_rl.evaluation import (
     evaluation_coverage,
@@ -171,6 +170,65 @@ def test_same_tag_cannot_mix_official_protocols(scratch_dir):
     }
     with pytest.raises(ValueError, match="identity changed"):
         initialize_evaluation(root, changed, resume=True)
+
+
+@pytest.mark.parametrize(
+    "field,bad_value",
+    [
+        ("tau2_max_steps", 72),
+        ("tau2_max_errors", 9),
+        ("assistant_turn_limit", 24),
+        ("temperature", 1.0),
+        ("user_temperature", 1.0),
+        ("seed", 42),
+        ("trial_seeds", [300]),
+    ],
+)
+def test_official_standard_rejects_nonofficial_runtime_identity(
+    scratch_dir, field, bad_value
+):
+    identity = {
+        "task_ids": sorted(OFFICIAL_TEST_IDS, key=int),
+        "tau2_commit": TAU2_COMMIT,
+        "samples_per_task": 1,
+        "evaluation_protocol": "pass1",
+        "record_split": "test",
+        "split": "official_test",
+        "evaluation_standard": "tau2_official",
+        "tau2_max_steps": 200,
+        "tau2_max_errors": 10,
+        "assistant_turn_limit": None,
+        "temperature": 0.0,
+        "user_temperature": 0.0,
+        "seed": 300,
+        "trial_seeds": [626729],
+        "user_sim_filter_enabled": False,
+    }
+    identity[field] = bad_value
+    with pytest.raises(ValueError, match="official Tau2 runtime"):
+        initialize_evaluation(scratch_dir / "invalid", identity, resume=False)
+
+
+def test_official_standard_rejects_enabled_user_sim_filter(scratch_dir):
+    identity = {
+        "task_ids": sorted(OFFICIAL_TEST_IDS, key=int),
+        "tau2_commit": TAU2_COMMIT,
+        "samples_per_task": 1,
+        "evaluation_protocol": "pass1",
+        "record_split": "test",
+        "split": "official_test",
+        "evaluation_standard": "tau2_official",
+        "tau2_max_steps": 200,
+        "tau2_max_errors": 10,
+        "assistant_turn_limit": None,
+        "temperature": 0.0,
+        "user_temperature": 0.0,
+        "seed": 300,
+        "trial_seeds": [626729],
+        "user_sim_filter_enabled": True,
+    }
+    with pytest.raises(ValueError, match="user-simulator filter state"):
+        initialize_evaluation(scratch_dir / "filtered", identity, resume=False)
 
 
 def test_foreign_or_duplicate_valid_records_are_rejected(scratch_dir):

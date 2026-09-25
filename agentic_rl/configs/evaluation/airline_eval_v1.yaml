@@ -16,14 +16,18 @@ model:
 rollout:
   tool_parser: hermes
   max_context_length: 16384
-  initial_prompt_max_tokens: 8192
-  max_soft_turns: 15
-  max_hard_turns: 24
-  reserved_observation_tokens: 1024
-  reserved_template_tokens: 128
-  min_final_response_tokens: 64
-  per_turn_max_new_tokens: 1024
-  temperature: 1.0
+  initial_prompt_max_tokens: 16384
+  # Pinned Tau2 CLI default. Official evaluation has no local assistant-turn cap.
+  tau2_max_steps: 200
+  max_hard_turns: null
+  # No project-specific per-turn reserve/crop in evaluation. The model's
+  # physical 16K context remains the only token boundary.
+  reserved_observation_tokens: 0
+  reserved_template_tokens: 0
+  min_final_response_tokens: 1
+  per_turn_max_new_tokens: 16384
+  observation_content_max_tokens: 16384
+  temperature: 0.0
   top_p: 1.0
   top_k: -1
   group_size: 4
@@ -58,7 +62,7 @@ judge:
   max_retries: 2
 
 user_sim_filter:
-  enabled: true
+  enabled: false
   provider: DeepSeek
   model: ${DEEPSEEK_USER_SIM_JUDGE_MODEL}
   base_url: ${DEEPSEEK_BASE_URL}
@@ -72,9 +76,6 @@ annotations:
   semantic_checks: data/annotations/airline_semantic_checks.test.v1.json
   transfer_rules: data/annotations/airline_transfer_rules.test.v1.json
   policy_rules: data/annotations/airline_mandatory_policy_rules.test.v1.json
-
-reward:
-  truncation_multiplier: 0.75
 
 outputs:
   trajectories: ${TRAJECTORY_OUTPUT_DIR:-outputs/evaluation_trajectories}

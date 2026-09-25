@@ -46,6 +46,12 @@ from tau2_agentic_rl.evaluation import (
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
 from tau2_agentic_rl.pass_metrics import (
     OFFICIAL_EVALUATION_PROTOCOL_SAMPLES,
+    TAU2_OFFICIAL_AGENT_TEMPERATURE,
+    TAU2_OFFICIAL_MAX_ERRORS,
+    TAU2_OFFICIAL_MAX_STEPS,
+    TAU2_OFFICIAL_SEED,
+    TAU2_OFFICIAL_USER_TEMPERATURE,
+    official_trial_seeds,
     validate_official_test_ids,
 )
 from tau2_agentic_rl.schemas import TrajectoryRecord
@@ -157,19 +163,29 @@ def parse_args(argv=None):
     parser.add_argument("--tag", type=_safe_run_name, default="frozen_test")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--extra", action="append", default=[])
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=TAU2_OFFICIAL_SEED)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--max-refill-rounds", type=int, default=2)
+    parser.add_argument("--max-refill-rounds", type=int, default=3)
     parser.add_argument(
         "--reward-judge",
         action=argparse.BooleanOptionalAction,
         default=False,
-        help="Enable Agent reward Judge/custom metrics (default: official pass only). User compliance screening stays enabled.",
+        help="Enable Agent reward Judge/custom metrics (default: official pass only).",
+    )
+    parser.add_argument(
+        "--user-sim-filter",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Enable optional User Simulator compliance screening (default: disabled)."
+        ),
     )
     return parser.parse_args(argv)
 
 
 def resolve_evaluation_samples(args) -> int:
+    if args.split == "official_test" and args.seed != TAU2_OFFICIAL_SEED:
+        raise ValueError("official_test requires the pinned Tau2 seed=300")
     if args.split == "official_test":
         expected = OFFICIAL_EVALUATION_PROTOCOL_SAMPLES[args.protocol]
         if args.samples is not None and args.samples != expected:
@@ -184,6 +200,36 @@ def resolve_evaluation_samples(args) -> int:
     if samples < 4:
         raise ValueError("non-test evaluation needs at least four samples")
     return samples
+
+
+def configure_evaluation_runtime(
+    project: dict, *, reward_judge: bool, user_sim_filter: bool
+) -> dict:
+    """Apply pinned Tau2 CLI defaults without changing the chosen user model."""
+    rollout = project["rollout"]
+    rollout.pop("max_soft_turns", None)
+    rollout["max_hard_turns"] = None
+    rollout["tau2_max_steps"] = TAU2_OFFICIAL_MAX_STEPS
+    rollout["tau2_max_errors"] = TAU2_OFFICIAL_MAX_ERRORS
+    rollout["temperature"] = TAU2_OFFICIAL_AGENT_TEMPERATURE
+    max_context_tokens = int(rollout["max_context_length"])
+    rollout["initial_prompt_max_tokens"] = max_context_tokens
+    rollout["reserved_observation_tokens"] = 0
+    rollout["reserved_template_tokens"] = 0
+    rollout["min_final_response_tokens"] = 1
+    rollout["per_turn_max_new_tokens"] = max_context_tokens
+    rollout["observation_content_max_tokens"] = max_context_tokens
+    project["user_simulator"]["temperature"] = TAU2_OFFICIAL_USER_TEMPERATURE
+    if reward_judge:
+        project["judge"]["enabled"] = True
+    else:
+        project["judge"] = {"enabled": False}
+        project.pop("reward", None)
+    if user_sim_filter:
+        project["user_sim_filter"]["enabled"] = True
+    else:
+        project["user_sim_filter"] = {"enabled": False}
+    return project
 
 
 def main() -> None:
@@ -222,16 +268,6 @@ def main() -> None:
                 "scripts/export_verl_lora.py: " + ", ".join(missing)
             )
         validate_adapter_base(args.lora_adapter, args.model_path)
-    for name in (
-        "DEEPSEEK_USER_MODEL",
-        "DEEPSEEK_USER_SIM_JUDGE_MODEL",
-        "DEEPSEEK_API_KEY",
-        "DEEPSEEK_BASE_URL",
-    ):
-        _require_env(name)
-    if args.reward_judge:
-        _require_env("DEEPSEEK_JUDGE_MODEL")
-
     project_root = Path(__file__).resolve().parents[1]
     test_mode = args.split == "official_test"
     config_path = (
@@ -256,12 +292,24 @@ def main() -> None:
     os.environ["AGENTIC_RL_PROJECT_ROOT"] = str(project_root)
     os.environ["MERGED_SFT_MODEL"] = args.model_path
     project = load_yaml(config_path)
+    project = configure_evaluation_runtime(
+        project,
+        reward_judge=args.reward_judge,
+        user_sim_filter=args.user_sim_filter,
+    )
+    for name in (
+        "DEEPSEEK_USER_MODEL",
+        "DEEPSEEK_API_KEY",
+        "DEEPSEEK_BASE_URL",
+    ):
+        _require_env(name)
+    if filter_enabled(project):
+        _require_env("DEEPSEEK_USER_SIM_JUDGE_MODEL")
     if args.reward_judge:
-        project["judge"]["enabled"] = True
-    else:
-        project["judge"] = {"enabled": False}
+        _require_env("DEEPSEEK_JUDGE_MODEL")
     project = expand_env(project)
     load_agent_system_prompt(project, project_root)
+
     split_path = project_root / "data/splits/airline_internal_dev.v1.json"
     split_data = json.loads(split_path.read_text(encoding="utf-8"))
     task_ids = (
@@ -305,13 +353,23 @@ def main() -> None:
         "reward_judge_enabled": args.reward_judge,
         "user_sim_filter_enabled": filter_enabled(project),
         "user_sim_filter": project.get("user_sim_filter", {}),
+        "evaluation_standard": (
+            "tau2_nonofficial_user_sim_filtered"
+            if filter_enabled(project)
+            else "tau2_official"
+        ),
+        "tau2_max_steps": project["rollout"]["tau2_max_steps"],
+        "tau2_max_errors": project["rollout"]["tau2_max_errors"],
+        "assistant_turn_limit": project["rollout"].get("max_hard_turns"),
         "temperature": project["rollout"]["temperature"],
+        "user_temperature": project["user_simulator"]["temperature"],
         "top_p": project["rollout"]["top_p"],
         "top_k": project["rollout"]["top_k"],
         "samples_per_task": args.samples,
         **({"evaluation_protocol": args.protocol} if test_mode else {}),
         "task_ids": task_ids,
         "seed": args.seed,
+        "trial_seeds": official_trial_seeds(args.seed, args.samples),
         "split": args.split,
         "record_split": record_split,
         "extra": args.extra,
@@ -414,19 +472,21 @@ def main() -> None:
                 if not coverage["missing_slots"]:
                     continue  # Scoring-only failures must never cause a fresh interaction.
                 rows = []
+                trial_seeds = official_trial_seeds(args.seed, args.samples)
                 for item in coverage["missing_slots"]:
                     task, slot = item["task_id"], item["sample_index"]
                     attempt = item.get("user_sim_attempt", 0)
-                    if attempt > project["user_sim_filter"]["max_resamples"]:
+                    if (
+                        filter_enabled(project)
+                        and attempt > project["user_sim_filter"]["max_resamples"]
+                    ):
                         raise RuntimeError(
                             "user-simulator replacement cap reached; evaluation remains incomplete"
                         )
                     row = _row(
                         task,
                         record_split,
-                        replacement_seed(
-                            args.seed + int(task) * args.samples + slot, attempt
-                        ),
+                        replacement_seed(trial_seeds[slot], attempt),
                     )
                     row["extra_info"]["evaluation_sample_index"] = slot
                     row["extra_info"]["user_sim_attempt"] = attempt

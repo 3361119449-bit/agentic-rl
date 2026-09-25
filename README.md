@@ -14,9 +14,10 @@ GPU acceptance requirements: [review follow-up](agentic_rl/REVIEW_FOLLOWUP.md).
 RL/evaluation update (2026-09-12): official pass evaluation now defaults to no
 Agent reward Judge (`--reward-judge` opts in). RL training also supports
 `--no-reward-judge` for an official-reward-only ablation (RL defaults to Judge on).
-A separate outcome-blind User
-Simulator compliance check screens every collected episode and replaces invalid
-episodes before DAPO or pass aggregation. See [configuration, criteria and offline screening](agentic_rl/README.md#user-simulator-整条轨迹合规过滤2026-09-12).
+A separate outcome-blind User Simulator compliance check remains enabled for
+RL training. Official evaluation disables that extra screen and any replacement
+sampling by default; `--user-sim-filter` explicitly opts into the conditional,
+non-official sampling variant. See [configuration, criteria and offline screening](agentic_rl/README.md#user-simulator-整条轨迹合规过滤2026-09-12).
 
 ## Dataset
 
@@ -87,7 +88,11 @@ The frozen evaluator exposes two explicit protocols: `--protocol pass1` runs
 one valid trajectory for each of the 20 official test tasks, while
 `--protocol pass1_pass4` (the backward-compatible default) runs four per task
 and reports both metrics. Protocols are recorded in the evaluation manifest
-and cannot share a result tag.
+and cannot share a result tag. Evaluation defaults to `--no-user-sim-filter`
+and `--no-reward-judge`: the configured User Simulator and Tau2 official scoring
+remain enabled, but neither optional Judge call nor compliance-based replacement
+sampling runs. `--user-sim-filter` remains available as an explicit non-official
+ablation, and the selected condition is recorded in the manifest.
 
 See
 [`training/tau2_rollout_sft/README.md`](training/tau2_rollout_sft/README.md).

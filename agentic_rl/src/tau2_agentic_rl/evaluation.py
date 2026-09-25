@@ -10,6 +10,12 @@ from typing import Any
 
 from tau2_agentic_rl.pass_metrics import (
     OFFICIAL_EVALUATION_PROTOCOL_SAMPLES,
+    TAU2_OFFICIAL_AGENT_TEMPERATURE,
+    TAU2_OFFICIAL_MAX_ERRORS,
+    TAU2_OFFICIAL_MAX_STEPS,
+    TAU2_OFFICIAL_SEED,
+    TAU2_OFFICIAL_USER_TEMPERATURE,
+    official_trial_seeds,
     validate_official_test_ids,
     validate_unit_score,
 )
@@ -73,6 +79,38 @@ def _validate_sample_plan(identity: dict[str, Any]) -> tuple[list[str], int]:
         raise ValueError("evaluation needs unique tasks and a positive sample count")
     if identity["split"] == "official_test":
         validate_official_test_ids(raw_tasks, identity.get("tau2_commit"))
+        standard = identity.get("evaluation_standard")
+        if standard in {
+            "tau2_official",
+            "tau2_nonofficial_user_sim_filtered",
+        }:
+            try:
+                expected_trial_seeds = official_trial_seeds(identity.get("seed"), n)
+            except ValueError as exc:
+                raise ValueError("official Tau2 runtime requires a valid seed") from exc
+            official_runtime = {
+                "tau2_max_steps": TAU2_OFFICIAL_MAX_STEPS,
+                "tau2_max_errors": TAU2_OFFICIAL_MAX_ERRORS,
+                "assistant_turn_limit": None,
+                "temperature": TAU2_OFFICIAL_AGENT_TEMPERATURE,
+                "user_temperature": TAU2_OFFICIAL_USER_TEMPERATURE,
+                "seed": TAU2_OFFICIAL_SEED,
+                "trial_seeds": expected_trial_seeds,
+            }
+            if any(
+                key not in identity or identity[key] != expected
+                for key, expected in official_runtime.items()
+            ):
+                raise ValueError(
+                    "official Tau2 runtime requires max_steps=200, max_errors=10, "
+                    "no local assistant-turn limit, zero agent/user temperature, "
+                    "seed=300, and the pinned Tau2 trial-seed schedule"
+                )
+            expected_filter = standard == "tau2_nonofficial_user_sim_filtered"
+            if identity.get("user_sim_filter_enabled", False) is not expected_filter:
+                raise ValueError(
+                    "evaluation standard and user-simulator filter state disagree"
+                )
         protocol = identity.get("evaluation_protocol", "pass1_pass4")
         expected = OFFICIAL_EVALUATION_PROTOCOL_SAMPLES.get(protocol)
         if expected is None:

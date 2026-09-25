@@ -50,6 +50,7 @@ class Tau2GymAdapter:
         user_cache_dir: str | Path = "outputs/user_cache",
         user_max_retries: int = 2,
         max_steps: int = 100,
+        max_errors: int = 10,
     ):
         self.task_id = str(task_id)
         self.user_model = user_model
@@ -58,6 +59,7 @@ class Tau2GymAdapter:
         self.user_cache_dir = Path(user_cache_dir)
         self.user_max_retries = user_max_retries
         self.max_steps = max_steps
+        self.max_errors = max_errors
         self.env: Any = None
         self.info: dict[str, Any] = {}
         self.last_reward = 0.0
@@ -79,6 +81,14 @@ class Tau2GymAdapter:
             all_messages_as_observation=False,
         )
         _, self.info = await asyncio.to_thread(self.env.reset, seed=seed)
+        actual_max_errors = getattr(
+            getattr(self.env, "_orchestrator", None), "max_errors", None
+        )
+        if actual_max_errors != self.max_errors:
+            raise RuntimeError(
+                "Tau2 orchestrator max_errors drifted: "
+                f"expected {self.max_errors}, got {actual_max_errors!r}"
+            )
         if getattr(self.env, "_simulation_done", None).is_set():
             raise RuntimeError("Tau2 environment terminated during reset")
         self._initial_db_hash = self.db_hash()

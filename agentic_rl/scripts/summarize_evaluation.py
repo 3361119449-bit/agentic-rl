@@ -103,6 +103,9 @@ def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str,
         "metric_definition": "tau2_pass_hat_k",
         "metric_formula": "comb(successes, k) / comb(samples, k)",
         "manifest_id": manifest["manifest_id"],
+        "evaluation_standard": manifest["identity"].get(
+            "evaluation_standard", "legacy_unspecified"
+        ),
         "reward_judge_enabled": with_judge,
         "user_sim_filter_enabled": manifest["identity"].get(
             "user_sim_filter_enabled", False

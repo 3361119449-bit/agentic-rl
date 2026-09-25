@@ -1,13 +1,29 @@
 """Standard-library-only contracts shared by the two Tau2 pass^k reporters."""
 
 import math
+import random
 
 # data/tau2/domains/airline/split_tasks.json at this exact upstream revision.
 TAU2_COMMIT = "a2c024725189473d2d7cea3a5cfdbcc67478e41f"
+TAU2_OFFICIAL_MAX_STEPS = 200
+TAU2_OFFICIAL_MAX_ERRORS = 10
+TAU2_OFFICIAL_SEED = 300
+TAU2_OFFICIAL_AGENT_TEMPERATURE = 0.0
+TAU2_OFFICIAL_USER_TEMPERATURE = 0.0
 OFFICIAL_EVALUATION_PROTOCOL_SAMPLES = {
     "pass1": 1,
     "pass1_pass4": 4,
 }
+
+
+def official_trial_seeds(seed: int, num_trials: int) -> list[int]:
+    """Match pinned Tau2 batch.py: one deterministic seed per trial."""
+    if type(seed) is not int or type(num_trials) is not int or num_trials < 1:
+        raise ValueError("seed must be an integer and num_trials must be positive")
+    generator = random.Random(seed)
+    return [generator.randint(0, 1_000_000) for _ in range(num_trials)]
+
+
 OFFICIAL_TEST_IDS = frozenset(
     {
         "2",

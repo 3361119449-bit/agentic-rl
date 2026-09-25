@@ -24,7 +24,7 @@
 - Qwen 原始生成 token ID、vLLM old log-prob 和 turn 边界原样保存；
 - 只有 Qwen 输出 token 的 `response_mask=1`，工具、用户、模板 token 均为 0；
 - 多轮 observation 包含 Qwen `turn_separator`，完整计入上下文预算；
-- 16,384 token 生成前预算检查，15 轮软阈值、24 轮硬终止；
+- GRPO 训练执行 16,384 token 生成前预算检查、15 轮软阈值和 24 轮硬终止；官方评估不使用这两个本地轮次阈值，采用固定 Tau2 CLI 的 `max_steps=200`；
 - DeepSeek 用户模拟器与 Judge 使用独立 prompt、缓存和重试；
 - Judge 每条完整轨迹执行一次评分流程（失败有界重试），输出二值条目，核对 criterion ID 及 evidence_turn_ids 是否存在；
 - 官方 DB/COMMUNICATE、必须动作、语义、强制 Policy gate 和过程扣分的双分支奖励；
@@ -36,7 +36,7 @@
 - 每条轨迹原子化保存，可离线重新打分。
 - 每个实验使用独立 run 目录且默认禁用自动续训；
 - 基础设施失败单独落盘，不计作模型失败或 pass^k 样本。
-- 冻结评估身份与样本 slot；最终 test 必须补齐 20 × 4 = 80 条有效轨迹才输出分数。
+- 冻结评估身份与样本 slot；最终 test 必须补齐协议要求的 20 × 1 或 20 × 4 条轨迹才输出分数。
 
 ## 目录
 
@@ -145,7 +145,7 @@ set +a
 - `MERGED_SFT_MODEL`：AReaL Airline SFT LoRA 合并后的完整模型目录；
 - `DEEPSEEK_USER_MODEL`：服务商中 DeepSeek Pro 的精确模型 ID；
 - `DEEPSEEK_JUDGE_MODEL`：Agent 奖励 Judge 的精确模型 ID；训练默认使用，评估默认不使用；仅开启 Agent Judge 时必填；
-- `DEEPSEEK_USER_SIM_JUDGE_MODEL`：独立用户模拟器合规检查模型的精确 ID；训练和评估必填，可与奖励 Judge 使用同一型号，但提示词、输入与缓存独立；
+- `DEEPSEEK_USER_SIM_JUDGE_MODEL`：独立用户模拟器合规检查模型的精确 ID；训练默认需要，评估仅在显式传入 `--user-sim-filter` 时需要；可与奖励 Judge 使用同一型号，但提示词、输入与缓存独立；
 - `DEEPSEEK_BASE_URL` 与 `DEEPSEEK_API_KEY`。
 
 代码会拒绝 `FIX_EXACT_MODEL_ID`。计划书没有给出精确 DeepSeek 型号，所以实现没有擅自猜测别名。不要提交 `.env`。
@@ -255,16 +255,27 @@ Parquet 的 `Initialize isolated Tau2 Airline task ...` 只是占位符，不能
 上下文。运行时会完整编码 SFT 系统提示词、工具定义、初始化得到的用户/工具消息，
 保留所有 token，并在第一次生成前检查：
 
+训练配置默认检查：
+
 ```text
-initial_prompt_tokens <= rollout.initial_prompt_max_tokens（默认 8192）
+initial_prompt_tokens <= 8192
 initial_prompt_tokens + 1024 observation + 128 template + 64 generation <= 16384
+```
+
+官方评估入口会把 `initial_prompt_max_tokens` 同步为物理上下文上限 16384，
+并只保留 1 token 的最低生成空间，因此检查为：
+
+```text
+initial_prompt_tokens + 1 <= 16384
 ```
 
 超限不左截断，也不请求策略模型；轨迹 JSON 的 `metadata.initial_prompt` 保存
 任务 ID、真实长度、预留量和失败原因。成功轨迹同样保存测量值。
-`initial_prompt_max_tokens` 是训练/评估的数据 prompt 上限来源，训练时
+`initial_prompt_max_tokens` 是数据 prompt 上限来源。训练时
 `--extra data.max_prompt_length=...` 会同步到实际配置；不要先盲目提高上限。
-后续 observation 仍按原预算截断内容，但不会再调用 veRL 的左截断辅助函数。
+训练的后续 observation 仍按原预算裁剪内容，但不会再调用 veRL 的左截断辅助函数。
+官方评估不再施加本项目的 1024-token observation 内容上限或逐轮生成上限；它只受
+模型 16384-token 物理上下文约束。
 
 准备好固定 Tau2 环境、本地 tokenizer 和 RL 环境变量后，可先测 smoke 的初始化
 （不加载 4B 权重、不生成 agent 回复、不调用 Judge；**会请求用户模拟器 API**）：
@@ -485,10 +496,39 @@ python scripts/summarize_evaluation.py \
   --output outputs/reports/sft_grpo_pass1_pass4.json
 ```
 
-以上命令默认**关闭 Agent 奖励 Judge**，只报告 `official_pass1` / `official_pass4`。
-也可显式传入 `--no-reward-judge`；需要原 Agent Judge / `custom_strict_pass1` /
-`custom_strict_pass4` 时传入 `--reward-judge`，并使用新的 `--tag`。
-这不关闭下面的 **User Simulator 合规检查**，后者仍会调用独立的检查模型。
+以上命令默认同时**关闭 Agent 奖励 Judge 和 User Simulator 合规过滤**，只用
+Tau2 返回的官方 reward 报告 `official_pass1` / `official_pass4`。DeepSeek User
+Simulator 本身照常运行，模型配置不变；关闭的是额外合规 Judge，以及基于其结果的
+丢弃和重采。也可显式写出两个默认开关：
+
+```bash
+python scripts/evaluate_airline.py \
+  --split official_test --protocol pass1 \
+  --no-user-sim-filter --no-reward-judge \
+  --tag m0_pass1_unscreened \
+  --model-path /root/models/m0_merged \
+  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
+```
+
+默认官方评估还固定使用所绑定 Tau2 版本的 CLI 运行参数：`max_steps=200`、
+`max_errors=10`、base seed `300`、Agent/User temperature `0.0`，并移除项目原有的
+15/24 assistant-turn 本地阈值。各 trial seed 也按固定 Tau2 batch runner 的方式从
+base seed 生成，并在同一 trial 的全部任务间复用。User Simulator 仍使用项目配置的
+`${DEEPSEEK_USER_MODEL}`，其重试配置也不被评估启动器改写，没有替换为 Tau2 示例模型。
+评估同时取消项目原有的 1024-token 单轮生成上限、1024-token observation 裁剪和
+预留 token 阈值；本地 Qwen/vLLM 的 16,384 context 是模型服务的物理边界，不是新增
+pass 判据。若确实耗尽该物理上下文，轨迹以 `budget_exhausted` 结束，官方 reward 计
+0，不再乘本项目的 `truncation_multiplier`。
+
+默认关闭过滤时不要求 `DEEPSEEK_USER_SIM_JUDGE_MODEL`，也绝不按合规结论筛选或
+重采；`official_pass1` 直接由 20×1 原始轨迹的官方 reward 计算。四个模型应各用
+不同 `--tag`。开关和官方运行参数均写入 manifest/config hash，不能用 `--resume`
+混续另一种条件。
+
+`--user-sim-filter` 接口仍保留，用于显式开启合规 Judge 和替换采样；此时报告标记为
+`tau2_nonofficial_user_sim_filtered`。其成功判定和 pass^k 公式仍取自 Tau2，但样本分布
+已经被过滤，不能称为未改动的 Tau2 官方评估。需要 Agent Judge 的自定义诊断指标时
+传入 `--reward-judge`。两种可选 Judge 都应使用新 `--tag`，不得和默认评估混续。
 
 两条评估路径与 `training/tau2_rollout_sft/report_pass1_pass4.py` 使用相同的数学公式：
 每任务的 pass^k = `comb(成功次数, k) / comb(有效次数, k)`，最后对任务等权平均。
@@ -533,7 +573,9 @@ python scripts/train_airline_grpo.py --stage internal_dev \
 # 正常训练：去掉 --dry-run；如需 Agent Judge，改为 --reward-judge。
 ```
 
-训练 GRPO / DAPO 与 `scripts/evaluate_airline.py` 共用 `user_sim_filter`，默认开启。
+训练 GRPO / DAPO 的 YAML 默认开启 `user_sim_filter`；`scripts/evaluate_airline.py`
+提供同名接口但默认固定关闭，不执行筛选或重采。只有显式传入
+`--user-sim-filter` 才会为该次评估开启；`--no-user-sim-filter` 可显式写出默认行为。
 它在一条完整交互收集结束后离线检查（包括因长度/轮数预算截断的已有完整记录），
 不修改 Agent 的 SFT 系统提示词，不给 User Simulator 追加纠错提示。
 只因为 **User Simulator 本身实质破坏任务环境** 才丢弃整条 trajectory：
@@ -648,7 +690,7 @@ python scripts/rescore_saved_trajectories.py \
 
 ## 截断折扣与 Judge 证据校验（2026-09-12）
 
-当前自定义奖励版本为 `v3-truncation-evidence`。训练和评估配置均显式设置
+当前训练自定义奖励版本为 `v3-truncation-evidence`，RL 训练配置显式设置
 `reward.truncation_multiplier: 0.75`，普通任务、转人工两个分支一致：
 
 ```text
@@ -664,6 +706,11 @@ python scripts/rescore_saved_trajectories.py \
 中的 `trajectory_truncated`、`termination_reason`、`reward_before_truncation`
 和 `truncation_multiplier`。在线评分、冻结轨迹重试、离线重评分使用同一实现，
 重复离线计算不会把旧奖励再次乘 0.75。
+
+官方评估默认关闭自定义 Reward Judge，不加载该自定义奖励配置；达到 Tau2 官方
+`max_steps` 等停止条件时直接按 Tau2 官方奖励记 0，不乘 `truncation_multiplier`。
+只有显式启用 `--reward-judge` 的非官方诊断结果才会另外计算上述自定义奖励，且不
+参与 `official_pass1` / `official_pass4`。
 
 Judge 的 `semantic_checks`、`transfer_semantic_checks`、`mandatory_policy_checks`
 及 `transfer_check` 的所有 `evidence_turn_ids` 必须是严格非负整数，并出现在
