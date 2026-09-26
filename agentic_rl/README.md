@@ -418,6 +418,48 @@ Parquet；官方 split、原始 Parquet 和 `airline_internal_dev.parquet` 都�
 `--stage internal_dev` 的 24 条训练任务中；该阶段再显式排除 7 会直接报错，避免
 把“已经不参与训练”误记成一次新的数据选择。
 
+### 原始提示词与 grounding-examples 提示词消融
+
+默认配置继续使用冻结的 SFT 原始提示词。另一份提示词保持 `<policy>` 内容完全
+不变，只在 policy 外增加 8 组不含 official-task 数据的合成正反例，强化工具失败、
+证据 grounding、错误恢复、支付校验、写操作确认和多工具依赖关系。两份提示词均以
+路径和 SHA256 绑定到配置，运行身份和恢复检查会区分它们。
+
+训练时显式选择配置：
+
+```bash
+# 原始提示词（也是不传 --config 时的默认值）
+python scripts/train_airline_grpo.py \
+  --config configs/rl/airline_grpo_v1.yaml ...
+
+# grounding-examples 提示词
+python scripts/train_airline_grpo.py \
+  --config configs/rl/airline_grpo_grounding_examples_v1.yaml ...
+```
+
+official-test 评估时使用对应的冻结评估配置：
+
+```bash
+python scripts/evaluate_airline.py \
+  --config configs/evaluation/airline_eval_grounding_examples_v1.yaml \
+  --split official_test --protocol pass1 --tag grounded_pass1 ...
+```
+
+如需评估原始提示词，省略 `--config`，或显式传入
+`configs/evaluation/airline_eval_v1.yaml`。除非专门进行 cross-prompt 消融，训练和
+评估应选择同一提示词变体，并为每种条件使用不同的 run name/tag。
+
+增强版比原版增加约 3.7 KB 英文文本；正式训练前必须用真实 Tau2 初始化消息和本地
+Qwen tokenizer 重新执行长度预检，而不能按字符数猜测：
+
+```bash
+python scripts/check_initial_prompts.py \
+  --live-user-api --split rl_train \
+  --config configs/rl/airline_grpo_grounding_examples_v1.yaml \
+  --model "$MERGED_SFT_MODEL" --tau2-root "$TAU2_ROOT" \
+  --output outputs/reports/initial_prompts_grounded_rl_train.json
+```
+
 如需继续中断的同一个实验，显式指定 checkpoint，并保留原来的阶段、seed、epochs
 和全部训练 overrides（下例适用于原本使用默认 seed=42、epochs=15 的实验）：
 

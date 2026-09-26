@@ -1,0 +1,87 @@
+project:
+  domain: airline
+  tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
+  verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
+  annotation_version: v3-areal-multitool-policy-test-frozen
+  reward_version: v4-multitool-policy
+
+agent_policy:
+  path: configs/prompts/areal_airline_sft_grounding_examples.v1.json
+  system_prompt_sha256: 3495688100ccbdfe7e76c6dd22e8302d656fa56bd26d507d4726235bec7e3cf1
+
+model:
+  base: Qwen/Qwen3-4B-Instruct-2507
+  sft_input: ${MERGED_SFT_MODEL}
+
+rollout:
+  tool_parser: hermes
+  max_context_length: 16384
+  initial_prompt_max_tokens: 16384
+  # Pinned Tau2 CLI default. Official evaluation has no local assistant-turn cap.
+  tau2_max_steps: 200
+  max_hard_turns: null
+  # No project-specific per-turn reserve/crop in evaluation. The model's
+  # physical 16K context remains the only token boundary.
+  reserved_observation_tokens: 0
+  reserved_template_tokens: 0
+  min_final_response_tokens: 1
+  per_turn_max_new_tokens: 16384
+  observation_content_max_tokens: 16384
+  temperature: 0.0
+  top_p: 1.0
+  top_k: -1
+  group_size: 4
+  agent_worker_count: 2
+  max_active_trajectories: 2
+  user_api_max_inflight: 2
+  judge_api_max_inflight: 2
+  vllm_max_num_seqs: 2
+  queue_timeout_seconds: null
+  queue_stall_timeout_seconds: 1800
+
+user_simulator:
+  provider: DeepSeek
+  model: ${DEEPSEEK_USER_MODEL}
+  temperature: 0.0
+  thinking: disabled
+  max_retries: 2
+  llm_args:
+    api_base: ${DEEPSEEK_BASE_URL}
+    timeout: 120
+    extra_body:
+      thinking:
+        type: disabled
+
+judge:
+  enabled: false
+  provider: DeepSeek
+  model: ${DEEPSEEK_JUDGE_MODEL}
+  base_url: ${DEEPSEEK_BASE_URL}
+  calls_per_trajectory: 1
+  output_schema_version: "1.0"
+  max_retries: 2
+
+user_sim_filter:
+  enabled: false
+  provider: DeepSeek
+  model: ${DEEPSEEK_USER_SIM_JUDGE_MODEL}
+  base_url: ${DEEPSEEK_BASE_URL}
+  max_retries: 2
+  max_resamples: 2
+  version: user-sim-compliance-v1
+
+annotations:
+  required_actions: data/annotations/airline_required_actions.test.v1.json
+  action_dependencies: data/annotations/airline_action_dependencies.test.v1.json
+  semantic_checks: data/annotations/airline_semantic_checks.test.v1.json
+  transfer_rules: data/annotations/airline_transfer_rules.test.v1.json
+  policy_rules: data/annotations/airline_mandatory_policy_rules.test.v1.json
+
+outputs:
+  trajectories: ${TRAJECTORY_OUTPUT_DIR:-outputs/evaluation_trajectories}
+  checkpoints: outputs/checkpoints
+  judge_cache: ${JUDGE_CACHE_DIR:-outputs/evaluation_judge_cache}
+  user_cache: ${USER_CACHE_DIR:-outputs/evaluation_user_cache}
+  user_sim_judge_cache: ${USER_SIM_JUDGE_CACHE_DIR:-outputs/evaluation_user_sim_judge_cache}
+  metrics: outputs/evaluation_metrics
+  reports: outputs/reports

@@ -145,6 +145,14 @@ def parse_args(argv=None):
     parser.add_argument("--model-path", default=os.environ.get("MERGED_SFT_MODEL"))
     parser.add_argument("--lora-adapter", type=Path)
     parser.add_argument(
+        "--config",
+        type=Path,
+        help=(
+            "Project config relative to the agentic_rl root (default: the "
+            "pinned evaluation config for official_test, otherwise the GRPO config)."
+        ),
+    )
+    parser.add_argument(
         "--split",
         choices=("internal_dev", "official_train", "official_test"),
         default="official_test",
@@ -181,6 +189,18 @@ def parse_args(argv=None):
         ),
     )
     return parser.parse_args(argv)
+
+
+def resolve_project_config_path(args, project_root: Path) -> Path:
+    if args.config is None:
+        relative = Path(
+            "configs/evaluation/airline_eval_v1.yaml"
+            if args.split == "official_test"
+            else "configs/rl/airline_grpo_v1.yaml"
+        )
+    else:
+        relative = args.config
+    return (relative if relative.is_absolute() else project_root / relative).resolve()
 
 
 def resolve_evaluation_samples(args) -> int:
@@ -270,15 +290,7 @@ def main() -> None:
         validate_adapter_base(args.lora_adapter, args.model_path)
     project_root = Path(__file__).resolve().parents[1]
     test_mode = args.split == "official_test"
-    config_path = (
-        project_root
-        / "configs"
-        / (
-            "evaluation/airline_eval_v1.yaml"
-            if test_mode
-            else "rl/airline_grpo_v1.yaml"
-        )
-    )
+    config_path = resolve_project_config_path(args, project_root)
     run_root = project_root / "outputs/evaluations" / args.tag
     data_file = run_root / "pending_samples.parquet"
 

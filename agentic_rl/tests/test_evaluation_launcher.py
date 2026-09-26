@@ -30,6 +30,15 @@ def test_user_sim_filter_cli_switch(flags, expected):
     assert evaluate_airline.parse_args(flags).user_sim_filter is expected
 
 
+def test_evaluation_config_override_is_resolved_from_project_root(scratch_dir):
+    relative = Path("configs/evaluation/grounded.yaml")
+    args = evaluate_airline.parse_args(["--config", str(relative)])
+
+    assert evaluate_airline.resolve_project_config_path(args, scratch_dir) == (
+        scratch_dir / relative
+    ).resolve()
+
+
 def test_official_evaluation_cli_defaults_match_pinned_tau2_runner():
     args = evaluate_airline.parse_args([])
     assert args.seed == 300
