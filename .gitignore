@@ -4,5 +4,6 @@
 /training/tau2_rollout_sft/results/
 /training/tau2_rollout_sft/tmp*/
 /wandb/
+/.worktrees/
 __pycache__/
 *.py[cod]

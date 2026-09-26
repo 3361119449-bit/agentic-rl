@@ -6,8 +6,8 @@ project:
   reward_version: v4-multitool-policy
 
 agent_policy:
-  path: configs/prompts/areal_airline_sft.v1.json
-  system_prompt_sha256: e490e0859e1357ed6dd777fdbddab15b11d6de96ff7161328a6babcab77348ab
+  path: configs/prompts/areal_airline_sft_grounding_examples.v1.json
+  system_prompt_sha256: 3495688100ccbdfe7e76c6dd22e8302d656fa56bd26d507d4726235bec7e3cf1
 
 model:
   base: Qwen/Qwen3-4B-Instruct-2507

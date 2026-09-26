@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from scripts.build_annotations import _policy_rows
 from scripts.export_sft_system_prompt import extract
 from tau2_agentic_rl.agent_policy import (
@@ -42,6 +41,24 @@ def test_actor_and_evaluation_use_exact_sft_message_without_extra_protocol():
     assert "Make one or more tool calls." in prompt
     assert "You may make one or more tool calls in the same turn." in prompt
     assert "obtain explicit user confirmation (yes) to proceed" in prompt
+
+
+def test_official_evaluation_config_has_no_local_turn_scoring_or_cap():
+    evaluation = load_yaml(ROOT / "configs/evaluation/airline_eval_v1.yaml")
+    rollout = evaluation["rollout"]
+    assert rollout["tau2_max_steps"] == 200
+    assert rollout["max_hard_turns"] is None
+    assert "max_soft_turns" not in rollout
+    assert rollout["initial_prompt_max_tokens"] == rollout["max_context_length"]
+    assert rollout["reserved_observation_tokens"] == 0
+    assert rollout["reserved_template_tokens"] == 0
+    assert rollout["min_final_response_tokens"] == 1
+    assert rollout["per_turn_max_new_tokens"] == rollout["max_context_length"]
+    assert rollout["observation_content_max_tokens"] == rollout["max_context_length"]
+    assert rollout["temperature"] == 0.0
+    assert evaluation["user_sim_filter"]["enabled"] is False
+    assert evaluation["judge"]["enabled"] is False
+    assert "reward" not in evaluation
 
 
 def test_frozen_prompt_artifact_matches_bound_uploaded_prompt_identity():

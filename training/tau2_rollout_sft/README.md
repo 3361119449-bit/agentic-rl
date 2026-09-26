@@ -295,7 +295,9 @@ python training/tau2_rollout_sft/run_tau2_deepseek.py \
 ```
 
 Repeat with a unique `--save-name` for each of the four checkpoints. Do not use
-`base`; evaluation must use `test`.
+`base`; evaluation must use `test`. The wrapper leaves Tau2's optional
+`--enforce-communication-protocol` disabled, matching the pinned official CLI
+default rather than adding another message-validity rule.
 
 ## 8. Report only pass^1 and pass^4
 

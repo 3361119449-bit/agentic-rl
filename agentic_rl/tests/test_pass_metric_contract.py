@@ -60,6 +60,7 @@ def test_formula_against_enumerated_successful_subsets(reporter):
         "wrong_n",
         "float_n",
         "bool_n",
+        "wrong_protocol",
     ],
 )
 def test_invalid_official_plan_rejected_on_start_and_offline_read(scratch_dir, invalid):
@@ -77,6 +78,8 @@ def test_invalid_official_plan_rejected_on_start_and_offline_read(scratch_dir, i
         identity["tau2_commit"] = "unverified"
     elif invalid == "wrong_split":
         identity["record_split"] = "train"
+    elif invalid == "wrong_protocol":
+        identity["evaluation_protocol"] = "pass_at_1"
     else:
         identity["samples_per_task"] = {
             "wrong_n": 8,

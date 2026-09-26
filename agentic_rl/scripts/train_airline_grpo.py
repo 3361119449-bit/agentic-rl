@@ -27,6 +27,7 @@ from tau2_agentic_rl.rl_resume import (
 )
 from tau2_agentic_rl.training_config import effective_project_config, training_overrides
 from tau2_agentic_rl.user_simulation import reward_judge_enabled
+from tau2_agentic_rl.versions import sha256_file, sha256_json
 
 TAU2_COMMIT = "a2c024725189473d2d7cea3a5cfdbcc67478e41f"
 VERL_COMMIT = "483b8a009ba3a97563edee3a19887e4862b8094a"
@@ -55,6 +56,84 @@ def _require_env(name: str) -> str:
     if not value or value.startswith("FIX_EXACT_"):
         raise RuntimeError(f"set {name} to an exact value before launching")
     return value
+
+
+def _normalize_excluded_task_ids(task_ids: list[str]) -> tuple[str, ...]:
+    normalized = []
+    for task_id in task_ids:
+        value = str(task_id)
+        if re.fullmatch(r"0|[1-9][0-9]*", value) is None:
+            raise ValueError(
+                f"excluded task ID must be a nonnegative decimal integer: {value!r}"
+            )
+        normalized.append(value)
+    return tuple(sorted(set(normalized), key=int))
+
+
+def prepare_filtered_training_parquet(
+    source: Path, excluded_task_ids: list[str] | tuple[str, ...], *, materialize: bool
+) -> Path:
+    """Plan or write a content-addressed training Parquet with tasks removed."""
+    excluded = _normalize_excluded_task_ids(list(excluded_task_ids))
+    if not excluded:
+        return source
+    try:
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+    except ImportError as exc:
+        raise RuntimeError("install the project with the 'data' extra") from exc
+
+    table = pq.read_table(source)
+    try:
+        task_ids = [str(row["extra_info"]["task_id"]) for row in table.to_pylist()]
+    except (KeyError, TypeError) as exc:
+        raise ValueError(
+            f"training Parquet lacks extra_info.task_id rows: {source}"
+        ) from exc
+    missing = sorted(set(excluded) - set(task_ids), key=int)
+    if missing:
+        raise ValueError(
+            "cannot exclude task IDs absent from selected training data: "
+            + ", ".join(missing)
+        )
+    keep_indices = [
+        index for index, task_id in enumerate(task_ids) if task_id not in excluded
+    ]
+    if not keep_indices:
+        raise ValueError("task exclusion would remove every training row")
+
+    fingerprint = sha256_json(
+        {
+            "schema_version": 1,
+            "source_sha256": sha256_file(source),
+            "excluded_task_ids": excluded,
+        }
+    )[:16]
+    label = "-".join(excluded)
+    destination = (
+        source.parent
+        / "derived"
+        / f"{source.stem}.exclude-{label}.{fingerprint}{source.suffix}"
+    )
+    filtered = table.take(pa.array(keep_indices, type=pa.int64()))
+    if destination.exists():
+        if not pq.read_table(destination).equals(filtered):
+            raise RuntimeError(
+                f"derived training Parquet does not match its identity: {destination}"
+            )
+        return destination
+    if not materialize:
+        return destination
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_name(f".{destination.name}.{uuid4().hex}.tmp")
+    try:
+        pq.write_table(filtered, temporary)
+        temporary.replace(destination)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return destination
 
 
 def build_command(
@@ -217,6 +296,16 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=15)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--run-name")
+    parser.add_argument(
+        "--exclude-task-id",
+        action="append",
+        default=[],
+        metavar="TASK_ID",
+        help=(
+            "Exclude one task from the selected training Parquet; repeat for "
+            "multiple tasks. Validation data and canonical split files are unchanged."
+        ),
+    )
     parser.add_argument("--resume-from-path", type=Path)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--extra", action="append", default=[])
@@ -250,10 +339,17 @@ def main() -> None:
     val_file = parquet / "airline_internal_dev.parquet"
     if not train_file.exists() or not val_file.exists():
         raise FileNotFoundError("run scripts/prepare_tau2_dataset.py first")
+    excluded_task_ids = _normalize_excluded_task_ids(args.exclude_task_id)
+    if excluded_task_ids:
+        train_file = prepare_filtered_training_parquet(
+            train_file, excluded_task_ids, materialize=not args.dry_run
+        )
 
     config_path = project_root / "configs" / "rl" / "airline_grpo_v1.yaml"
     config_path = (args.config or config_path).resolve()
     project = effective_project_config(load_yaml(config_path), args.extra)
+    if excluded_task_ids:
+        project["data_selection"] = {"excluded_train_task_ids": list(excluded_task_ids)}
     if args.reward_judge is not None:
         project["judge"]["enabled"] = args.reward_judge
     if reward_judge_enabled(project):
@@ -269,7 +365,12 @@ def main() -> None:
             args.resume_from_path,
             int(args.resume_from_path.name.split("global_step_")[1]),
         )
-    generated_run_name = f"{args.stage}_lr{project['optimizer']['lr']}_seed{args.seed}"
+    exclusion_label = (
+        f"_exclude-{'-'.join(excluded_task_ids)}" if excluded_task_ids else ""
+    )
+    generated_run_name = (
+        f"{args.stage}{exclusion_label}_lr{project['optimizer']['lr']}_seed{args.seed}"
+    )
     run_name = _safe_run_name(args.run_name or generated_run_name)
     run_root = project_root / "outputs" / "runs" / run_name
     if not args.dry_run:
