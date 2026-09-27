@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-SMOKE_IDS = ["0", "4", "11", "14", "20", "28", "40", "43"]
+SMOKE_IDS = ["0", "3", "11", "14", "20", "28", "40", "43"]
 
 
 def _read(path: Path) -> Any:

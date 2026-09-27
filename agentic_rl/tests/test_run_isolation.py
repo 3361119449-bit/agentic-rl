@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 APPROVED_RL_TASK_IDS = {
     "0",
     "1",
-    "4",
+    "3",
     "5",
     "10",
     "11",
@@ -32,7 +32,7 @@ APPROVED_RL_TASK_IDS = {
     "47",
     "49",
 }
-APPROVED_INTERNAL_DEV_IDS = {"3", "7", "9", "27", "39", "46"}
+APPROVED_INTERNAL_DEV_IDS = {"4", "7", "9", "27", "39", "46"}
 
 
 def split_data() -> dict[str, list[str]]:
