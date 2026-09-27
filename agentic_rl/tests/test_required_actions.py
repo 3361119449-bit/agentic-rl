@@ -136,6 +136,62 @@ def test_passenger_order_and_equivalent_numbers_are_normalized() -> None:
     assert evaluate_required_actions([action], [event_row]).component.value == 1.0
 
 
+def test_free_baggage_update_accepts_a_different_payment_id() -> None:
+    action = {
+        "action_id": "17_2",
+        "name": "update_reservation_baggages",
+        "arguments": {
+            "reservation_id": "FQ8APE",
+            "total_baggages": 3,
+            "nonfree_baggages": 0,
+            "payment_id": "gift_card_8190333",
+        },
+    }
+    event_row = ToolEvent(
+        event_id="e",
+        sequence=0,
+        turn_id=1,
+        name=action["name"],
+        arguments={
+            "reservation_id": "FQ8APE",
+            "total_baggages": 3,
+            "nonfree_baggages": 0,
+            "payment_id": "credit_card_6754990",
+        },
+        success=True,
+        db_effect=True,
+    )
+
+    assert evaluate_required_actions([action], [event_row]).component.value == 1.0
+
+
+def test_paid_baggage_update_still_requires_the_annotated_payment_id() -> None:
+    action = {
+        "action_id": "paid_baggage",
+        "name": "update_reservation_baggages",
+        "arguments": {
+            "reservation_id": "ABC123",
+            "total_baggages": 3,
+            "nonfree_baggages": 1,
+            "payment_id": "gift_card_expected",
+        },
+    }
+    event_row = ToolEvent(
+        event_id="e",
+        sequence=0,
+        turn_id=1,
+        name=action["name"],
+        arguments={
+            **action["arguments"],
+            "payment_id": "credit_card_other",
+        },
+        success=True,
+        db_effect=True,
+    )
+
+    assert evaluate_required_actions([action], [event_row]).component.value == 0.0
+
+
 def test_empty_required_actions_are_inapplicable() -> None:
     result = evaluate_required_actions([], [])
     assert result.component.applicable is False

@@ -74,6 +74,13 @@ def arguments_equal(
     if type(expected) is not type(actual):
         return _numeric_equal(expected, actual)
     if isinstance(expected, dict):
+        ignored_keys = (
+            {"payment_id"}
+            if tool_name == "update_reservation_baggages"
+            and not path
+            and _numeric_equal(expected.get("nonfree_baggages"), 0)
+            else set()
+        )
         return expected.keys() == actual.keys() and all(
             arguments_equal(
                 expected[key],
@@ -82,6 +89,7 @@ def arguments_equal(
                 path=(*path, str(key)),
             )
             for key in expected
+            if key not in ignored_keys
         )
     if isinstance(expected, list):
         if path in UNORDERED_LIST_FIELDS.get(tool_name, set()):
