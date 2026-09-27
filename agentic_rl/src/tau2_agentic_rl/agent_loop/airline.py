@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -17,6 +18,7 @@ from verl.experimental.agent_loop.agent_loop import (
 from verl.experimental.agent_loop.tool_parser import ToolParser
 from verl.tools.base_tool import OpenAIFunctionToolSchema
 
+from tau2_agentic_rl.advantages import is_procredit
 from tau2_agentic_rl.agent_policy import (
     extract_airline_policy,
     load_agent_system_prompt,
@@ -43,6 +45,8 @@ from tau2_agentic_rl.initial_prompt import (
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
 from tau2_agentic_rl.policy_rules import validate_policy_rows
+from tau2_agentic_rl.procredit_runtime import credit_from_record
+from tau2_agentic_rl.reward.progress import build_progress_trace
 from tau2_agentic_rl.reward.required_actions import (
     arguments_equal,
     load_action_dependencies,
@@ -459,6 +463,17 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "rollout prompt initialization failed; audit saved"
             ) from exc
         initial_prompt_ids = list(prompt_ids)
+        procredit = is_procredit(self.project)
+        progress_inputs = (
+            {
+                "task": deepcopy(environment.task),
+                "initial_state_fingerprint": environment.progress_initial_state(),
+                "prefix_lengths": [len(environment.full_trajectory())],
+            }
+            if procredit else None
+        )
+        progress_trace = None
+        response_turn_ids: list[int] = []
         response_mask: list[int] = []
         aligned_log_probs: list[float] = []
         token_turns: list[TokenTurn] = []
@@ -529,8 +544,13 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             )
             prompt_ids.extend(output.token_ids)
             response_mask.extend([1] * len(output.token_ids))
+            response_turn_ids.extend([assistant_turns] * len(output.token_ids))
             aligned_log_probs.extend(output.log_probs)
             assistant_turns += 1
+            if progress_inputs is not None:
+                progress_inputs["prefix_lengths"].append(
+                    progress_inputs["prefix_lengths"][-1]
+                )
 
             decoded = self.tokenizer.decode(output.token_ids)
             if (
@@ -734,6 +754,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     break
 
             progress()
+            if progress_inputs is not None:
+                progress_inputs["prefix_lengths"][-1] = len(environment.full_trajectory())
             if step.messages:
                 try:
                     (
@@ -755,6 +777,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                         event.observation_truncated = True
                 prompt_ids.extend(environment_ids)
                 response_mask.extend([0] * len(environment_ids))
+                response_turn_ids.extend([-1] * len(environment_ids))
                 aligned_log_probs.extend([0.0] * len(environment_ids))
             terminated = step.terminated
             if terminated:
@@ -767,6 +790,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     termination_reason = "human_transfer"
 
         trajectory_for_judge = snapshot_transcript(environment)
+        if progress_inputs is not None:
+            progress_inputs["messages"] = deepcopy(environment.full_trajectory())
         interaction_termination_reason = termination_reason
         user_sim_inputs = None
         if filter_enabled(self.project) and infrastructure_error is None:
@@ -819,9 +844,12 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "rollout": self.project["rollout"],
             },
         }
+        if progress_inputs is not None:
+            scoring_inputs["progress_inputs"] = progress_inputs
         quality_record = None
         if user_sim_inputs is not None and infrastructure_error is None:
             quality_record = TrajectoryRecord(
+                schema_version="2.0" if procredit else "1.0",
                 trajectory_id=trajectory_id,
                 task_id=task_id,
                 split=split,
@@ -837,6 +865,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 scoring_inputs=scoring_inputs,
                 tool_events=tool_events,
                 token_turns=token_turns,
+                response_turn_ids=response_turn_ids if procredit else None,
                 official_scores=official,
                 user_sim_inputs=user_sim_inputs,
                 initial_db_hash=environment.initial_db_hash(),
@@ -874,6 +903,21 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     f"invalid simulator trajectory {trajectory_id}; quarantined, resampling required"
                 )
         if infrastructure_error is None and reward_judge_enabled(self.project):
+            if progress_inputs is not None:
+                try:
+                    progress_trace = await asyncio.to_thread(
+                        build_progress_trace,
+                        **progress_inputs,
+                        events=tool_events,
+                        required_actions=self.required_actions[task_id],
+                        dependencies=self.action_dependencies.get(task_id, []),
+                        transfer_rule=transfer_rule,
+                    )
+                    scoring_inputs["progress_trace"] = progress_trace
+                    progress()
+                except Exception as exc:
+                    infrastructure_error = ("progress_scoring", exc)
+        if infrastructure_error is None and reward_judge_enabled(self.project):
             try:
                 (
                     judge_result,
@@ -904,6 +948,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     action_dependencies=self.action_dependencies.get(task_id, []),
                     termination_reason=interaction_termination_reason,
                     config=self.reward_config,
+                    progress_trace=progress_trace,
                 )
             except Exception as exc:
                 infrastructure_error = ("reward_scoring", exc)
@@ -926,6 +971,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 custom_reward = None
                 judge_result = None
         record = TrajectoryRecord(
+            schema_version="2.0" if procredit else "1.0",
             trajectory_id=trajectory_id,
             task_id=task_id,
             split=split,
@@ -941,6 +987,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             scoring_inputs=scoring_inputs,
             tool_events=tool_events,
             token_turns=token_turns,
+            progress_trace=progress_trace,
+            response_turn_ids=response_turn_ids if procredit else None,
             initial_db_hash=environment.initial_db_hash(),
             final_db_hash=final_db_hash,
             official_scores=official,
@@ -993,6 +1041,9 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             ) from error
         assert custom_reward is not None or not reward_judge_enabled(self.project)
         assert official is not None
+        credit_fields = {}
+        if procredit:
+            credit_fields["procredit"] = credit_from_record(record)
         # Explicit no-Judge ablation: use only the audited official reward.
         # Never fabricate passing semantic/policy verdicts or custom metrics.
         return AgentLoopOutput(
@@ -1006,6 +1057,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             num_turns=assistant_turns,
             metrics=metrics,
             extra_fields={
+                **credit_fields,
                 "reward_extra_info": {
                     "train_reward": custom_reward.train_reward
                     if custom_reward

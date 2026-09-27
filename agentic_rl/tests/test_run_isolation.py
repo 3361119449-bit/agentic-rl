@@ -5,7 +5,6 @@ from scripts.build_annotations import DEFAULT_DEV_IDS
 from scripts.prepare_tau2_dataset import SMOKE_IDS
 from scripts.train_airline_grpo import build_command
 
-
 ROOT = Path(__file__).resolve().parents[1]
 APPROVED_RL_TASK_IDS = {
     "0",

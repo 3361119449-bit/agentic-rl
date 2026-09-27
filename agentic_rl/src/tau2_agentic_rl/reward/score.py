@@ -20,6 +20,10 @@ from tau2_agentic_rl.reward.process_penalty import (
     ProcessPenaltyConfig,
     compute_process_penalty,
 )
+from tau2_agentic_rl.reward.progress import (
+    validate_progress_inputs,
+    validate_progress_trace,
+)
 from tau2_agentic_rl.reward.required_actions import evaluate_required_actions
 from tau2_agentic_rl.reward.transfer_branch import (
     successful_transfer_event,
@@ -50,6 +54,8 @@ TRUNCATED_TERMINATIONS = frozenset(
 class RewardConfig:
     """First-version reward coefficients."""
 
+    mode: str = "legacy"
+    progress_scale: float = 0.5
     normal_weights: dict[str, float] = field(
         default_factory=lambda: {
             "db": 0.30,
@@ -74,6 +80,16 @@ class RewardConfig:
     process: ProcessPenaltyConfig = field(default_factory=ProcessPenaltyConfig)
 
     def __post_init__(self) -> None:
+        if self.mode not in {"legacy", "strict_progress_v1"}:
+            raise ValueError("unknown reward mode")
+        if self.mode == "strict_progress_v1" and (
+            self.progress_scale != 0.5
+            or self.truncation_multiplier != 0.75
+            or not self.enable_mandatory_policy_gate
+            or not self.enable_task_safety_gate
+            or self.process.cap != 0.20
+        ):
+            raise ValueError("ProCredit v1 requires c=.5, truncation=.75, cap=.20 and gates")
         if not isfinite(self.truncation_multiplier) or not (
             0.0 <= self.truncation_multiplier <= 1.0
         ):
@@ -83,10 +99,19 @@ class RewardConfig:
 def build_reward_config(project_config: dict[str, Any]) -> RewardConfig:
     """Map the versioned YAML schema to the runtime reward dataclasses."""
     reward = project_config.get("reward", {})
+    if reward.get("mode") == "strict_progress_v1":
+        legacy = {
+            "normal_weights", "transfer_weights", "progress_coefficient",
+            "strict_success_coefficient",
+        } & reward.keys()
+        if legacy:
+            raise ValueError(f"new reward mode cannot include legacy weights: {legacy}")
     rollout = project_config.get("rollout", {})
     defaults = RewardConfig()
     process_defaults = defaults.process
     return RewardConfig(
+        mode=reward.get("mode", "legacy"),
+        progress_scale=float(reward.get("progress_scale", 0.5)),
         normal_weights={
             str(key): float(value)
             for key, value in reward.get(
@@ -158,7 +183,7 @@ def _clip(value: float) -> float:
     return max(0.0, min(1.0, value))
 
 
-def score_trajectory(
+def _score_legacy(
     *,
     events: list[ToolEvent],
     messages: list[dict[str, Any]],
@@ -295,3 +320,43 @@ def score_trajectory(
             "tau2_official_reward": official.reward,
         },
     )
+
+
+def score_trajectory(
+    *, config: RewardConfig | None = None,
+    progress_trace: dict[str, Any] | None = None, **kwargs: Any,
+) -> RewardResult:
+    """Preserve strict/gate semantics and version only the training score."""
+    config = config or RewardConfig()
+    result = _score_legacy(config=config, **kwargs)
+    if config.mode == "legacy":
+        return result
+    if progress_trace is None:
+        raise ValueError("ProCredit reward requires frozen progress")
+    phi = validate_progress_trace(progress_trace, turns=kwargs["assistant_turns"])
+    validate_progress_inputs(
+        progress_trace, required_actions=kwargs["required_actions"],
+        dependencies=kwargs.get("action_dependencies") or [],
+        transfer_rule=kwargs.get("transfer_rule") or {},
+    )
+    valid = result.policy_gate and result.task_safety_gate
+    multiplier = result.details["truncation_multiplier"]
+    task_score = result.strict_success + config.progress_scale * phi[-1]
+    raw_score = multiplier * task_score - result.process_penalty
+    details = {
+        **result.details,
+        "task_score": task_score,
+        "score_before_floor": raw_score,
+        "score_floor_applied": valid and raw_score < 0,
+        "progress_version": progress_trace["version"],
+        "checkset_fingerprint": progress_trace["checkset_fingerprint"],
+    }
+    # The legacy pre-truncation quantity is not the new reward's intermediate.
+    details.pop("reward_before_truncation", None)
+    return RewardResult.model_validate({
+        **result.model_dump(),
+        "reward_mode": config.mode,
+        "train_reward": max(0.0, raw_score) if valid else 0.0,
+        "progress": phi[-1],
+        "details": details,
+    })

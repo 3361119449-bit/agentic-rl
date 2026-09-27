@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from tau2_agentic_rl.environment.cached_user import build_cached_agent_gym_env
+from tau2_agentic_rl.versions import sha256_json
 
 
 @dataclass
@@ -311,6 +312,15 @@ class Tau2GymAdapter:
     def initial_db_hash(self) -> str | None:
         """Return the actual live database hash captured immediately after reset."""
         return self._initial_db_hash
+
+    def progress_initial_state(self) -> str:
+        """Fingerprint both DBs at the initial actor boundary, before actions."""
+        backend = self.env._orchestrator.environment
+        return sha256_json({
+            "task": self.task,
+            "agent_db": backend.get_db_hash(),
+            "user_db": backend.get_user_db_hash(),
+        })
 
     async def force_cleanup_stop(self) -> None:
         """Release Tau2's waiting daemon after an external budget/turn stop."""

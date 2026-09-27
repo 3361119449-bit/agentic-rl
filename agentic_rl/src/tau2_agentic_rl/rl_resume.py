@@ -6,6 +6,7 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
+from tau2_agentic_rl.advantages import is_procredit
 from tau2_agentic_rl.agent_policy import load_agent_system_prompt, prompt_sha256
 from tau2_agentic_rl.versions import sha256_file
 
@@ -62,6 +63,17 @@ def build_resume_identity(
         digest = fingerprint(value)
         files[f"annotations.{name}"] = digest
         runtime["annotations"][name] = {"sha256": digest}
+    if is_procredit(project):
+        source_paths = sorted((project_root / "src" / "tau2_agentic_rl").rglob("*.py"))
+        if not source_paths:
+            raise ValueError("ProCredit resume identity requires its actual source tree")
+        files["procredit_code"] = {
+            str(path.relative_to(project_root)).replace("\\", "/"): sha256_file(path)
+            for path in source_paths
+        }
+        files["procredit_split"] = sha256_file(
+            project_root / "data/splits/airline_internal_dev.v1.json"
+        )
     return {
         "schema_version": 1,
         "stage": stage,

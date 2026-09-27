@@ -2,10 +2,11 @@
 
 import asyncio
 
+from tau2_agentic_rl.reward.progress import build_progress_trace
 from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
 from tau2_agentic_rl.versions import sha256_json
 
-SCORING_FAILURES = {"judge", "reward_scoring"}
+SCORING_FAILURES = {"judge", "reward_scoring", "progress_scoring"}
 MAX_CONCURRENT_SCORING_TASKS = 4
 
 
@@ -75,6 +76,20 @@ async def retry_scoring(record, judge, store):
     attempts = record.metadata.setdefault("scoring_retries", [])
     attempt = {"attempt": len(attempts) + 1, "phase": "judge", "success": False}
     try:
+        if inputs.get("progress_inputs") is not None:
+            attempt["phase"] = "progress_scoring"
+            if inputs.get("progress_trace") is None:
+                inputs["progress_trace"] = await asyncio.to_thread(
+                    build_progress_trace,
+                    **inputs["progress_inputs"],
+                    events=record.tool_events,
+                    required_actions=inputs["required_actions"],
+                    dependencies=inputs["action_dependencies"],
+                    transfer_rule=inputs["judge"]["transfer_rule"],
+                )
+                record.metadata["scoring_inputs_sha256"] = sha256_json(inputs)
+            record.progress_trace = inputs["progress_trace"]
+        attempt["phase"] = "judge"
         result, raw, prompt_hash, cache_key = await judge.evaluate(**inputs["judge"])
         attempt["phase"] = "reward_scoring"
         reward = score_trajectory(
@@ -88,6 +103,7 @@ async def retry_scoring(record, judge, store):
             action_dependencies=inputs["action_dependencies"],
             termination_reason=trajectory["termination_reason"],
             config=build_reward_config(inputs["reward_project_config"]),
+            progress_trace=inputs.get("progress_trace"),
         )
         record.judge_result = result
         record.custom_reward = reward

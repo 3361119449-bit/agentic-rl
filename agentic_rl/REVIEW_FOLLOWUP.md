@@ -160,3 +160,17 @@ python scripts/train_airline_grpo.py --stage smoke --run-name smoke_ratio_v2 \
 - 未执行：A800/vLLM 在线生成、DeepSeek user/judge API、真实 PPO 更新和逐 epoch 哈希、LoRA/base 参数变化、BF16 合并等价性、GPU 断点恢复与显存验收。
 
 结论：代码可进入 GPU/API smoke，不能仅凭 CPU 测试启动正式 15 epoch RL 或声称训练有效。
+
+## ProCredit 奖励改造（2026-09-27）
+
+新增独立 `airline_procredit_v1.yaml`，实现严格终局分数、确定性前缀进度、逐轮
+advantage、最终 advantage 非零筛组和不可变分组审计。旧配置和官方评估继续独立。
+实现依据与执行记录位于仓库 `docs/superpowers/` 下的设计和实施计划。
+
+本地包含真实 PyTorch 2.9.0 / TensorDict 0.14.2 的最终 CPU 回归：493 passed、25 skipped。
+独立审查发现的 Hydra 父级映射/删除覆盖绕过已修复；新增反例先失败，再通过。
+训练器在进入旧模式之前也会核对最终开关与 actor 奖励模式是否一致。
+veRL 完整依赖栈和 Tau2 未在此 Windows 环境安装；新增真实依赖契约测试，
+需在固定 commit 的训练环境执行 `python -m pytest contract_tests -v`。
+尚未执行真实 API rollout、GPU optimizer 更新、checkpoint 恢复或效果对比。
+CPU 结果不能替代这些验收，也不能据此断言新奖励能提升任务成功率。

@@ -15,12 +15,14 @@ import logging
 import os
 import tempfile
 import time
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from pprint import pprint
 
 import transfer_queue as tq
 from omegaconf import OmegaConf
+from tensordict import TensorDict
 from tqdm import tqdm
 from transfer_queue import KVBatchMeta
 from verl.trainer.ppo.v1.replay_buffer import (
@@ -37,9 +39,12 @@ from verl.utils.tracking import (
     ValidationGenerationsLogger,
 )
 
+from tau2_agentic_rl.advantages import CreditConfig, is_procredit
 from tau2_agentic_rl.checkpoints import restore_step_clock
+from tau2_agentic_rl.config import load_runtime_config
 from tau2_agentic_rl.dynamic_sampling import TrainingStepClock
 from tau2_agentic_rl.ppo_audit import audit_update
+from tau2_agentic_rl.procredit_runtime import build_credit_tensors, queue_group_reports
 from tau2_agentic_rl.rl_resume import snapshot_resume_identity
 
 logger = logging.getLogger(__name__)
@@ -70,6 +75,8 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         conceptual_gen_batch_size: int,
         max_num_gen_batches: int,
         rollout_group_size: int,
+        credit_config: CreditConfig | None = None,
+        group_audit_dir: Path | None = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -84,6 +91,40 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         self.conceptual_gen_batch_size = conceptual_gen_batch_size
         self.max_num_gen_batches = max_num_gen_batches
         self.rollout_group_size = rollout_group_size
+        self.credit_config = credit_config
+        self.group_audit_dir = group_audit_dir
+        self.credit_cache = {}
+
+    def _dapo_filtered_keys(self, partition_id: str):
+        if self.credit_config is None:
+            return super()._dapo_filtered_keys(partition_id)
+        if partition_id != "train":
+            return set(), Counter()
+        finished = self.finished_keys[partition_id]
+        self.credit_cache = {
+            uid: report for uid, report in self.credit_cache.items() if uid in finished
+        }
+        missing = finished - self.credit_cache.keys()
+        keys = sorted(
+            key for key in self.partitions[partition_id]
+            if key.split("_")[0] in missing
+        )
+        if missing:
+            if {key.split("_")[0] for key in keys} != missing:
+                raise ValueError("finished ProCredit group has no materializable rows")
+            data = tq.kv_batch_get(
+                keys=keys, partition_id=partition_id, select_fields=["extra_fields"]
+            )
+            self.credit_cache.update(queue_group_reports(
+                keys, list(data["extra_fields"]), self.credit_config,
+                audit_dir=self.group_audit_dir,
+            ))
+        filtered = {
+            uid: report["credit"]["score_mean"]
+            for uid, report in self.credit_cache.items()
+            if not report["credit"]["has_signal"]
+        }
+        return set(filtered), Counter(filtered.values())
 
     def _clear_attempt(self, partition_id: str) -> None:
         """Remove every prompt and trajectory left by the capped attempt."""
@@ -219,6 +260,42 @@ class CappedPPOTrainerSync(PPOTrainerSync):
     max_num_gen_batches = 3
     rollout_group_size = 8
 
+    def _procredit_runtime(self):
+        enabled = self.config.algorithm.get("procredit_enabled", False)
+        if type(enabled) is not bool:
+            raise ValueError("trainer ProCredit mode flag must be boolean")
+        runtime_path = os.environ.get("AGENTIC_RL_CONFIG")
+        if runtime_path is None:
+            if enabled:
+                raise ValueError("ProCredit mode requires its runtime reward config")
+            return None  # Preserve standalone legacy trainer use.
+        project = load_runtime_config(runtime_path)
+        if enabled != is_procredit(project):
+            raise ValueError("trainer ProCredit flag differs from runtime reward mode")
+        if not enabled:
+            return None
+        root = Path(self.config.trainer.default_local_dir).parent / "group_audits"
+        return CreditConfig.from_project(project), root
+
+    def _compute_advantage(self, batch: KVBatchMeta, metrics: dict) -> KVBatchMeta:
+        runtime = self._procredit_runtime()
+        if runtime is None:
+            return super()._compute_advantage(batch, metrics)
+        config, audit_dir = runtime
+        data = tq.kv_batch_get(
+            keys=batch.keys, partition_id=batch.partition_id,
+            select_fields=["response_mask", "extra_fields"],
+        )
+        fields, credit_metrics = build_credit_tensors(
+            batch.keys, list(data["extra_fields"]), data["response_mask"], config,
+            audit_dir=audit_dir,
+        )
+        metrics.update(credit_metrics)
+        return tq.kv_batch_put(
+            keys=batch.keys, partition_id=batch.partition_id,
+            fields=TensorDict(fields, batch_size=len(batch.keys)),
+        )
+
     def _update_actor(self, batch: KVBatchMeta, metrics: dict) -> KVBatchMeta:
         if not self.config.trainer.get("ppo_audit", False):
             return super()._update_actor(batch, metrics)
@@ -345,6 +422,7 @@ class CappedPPOTrainerSync(PPOTrainerSync):
             raise ValueError(
                 "capped trainer is fixed to 4 prompt groups x 8 trajectories"
             )
+        credit_runtime = self._procredit_runtime()
         return CappedDynamicReplayBuffer(
             trainer_mode="sync",
             trainer_config=self.config.trainer.v1.sync,
@@ -362,6 +440,8 @@ class CappedPPOTrainerSync(PPOTrainerSync):
             conceptual_gen_batch_size=self.conceptual_gen_batch_size,
             max_num_gen_batches=self.max_num_gen_batches,
             rollout_group_size=self.rollout_group_size,
+            credit_config=credit_runtime[0] if credit_runtime else None,
+            group_audit_dir=credit_runtime[1] if credit_runtime else None,
         )
 
     def step(self, metrics: dict, timing_raw: dict) -> KVBatchMeta:

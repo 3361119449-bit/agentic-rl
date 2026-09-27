@@ -592,6 +592,62 @@ veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num
 
 ## 离线重新打分
 
+### ProCredit 新奖励实验（2026-09-27）
+
+独立配置 `configs/rl/airline_procredit_v1.yaml` 启用 `strict_progress_v1`。
+终局分数为 `S = V × max(0, m × (R + 0.5 × Phi_T) - P)`，范围 `[0, 1.5]`；
+截断时 `m=0.75`，过程扣分在乘数之外。Phi 使用初始未满足的 DB、逐条 COMM、
+逐条 REQ 检查，DB 可以回退。每轮只使用当时已送达环境的前缀，清理消息、
+被拒绝的工具文本和未送达的截断输出不能贡献进度。
+
+新训练器把组内归一化的轨迹 advantage 与逐轮剩余任务回报的中心化值相加。
+逐轮中心只计算 gate 通过且有策略 token 的轮次；观测与 padding 的 advantage 为 0。
+动态采样按最终 token advantage 是否全零筛组，因此终局同分但逐轮仍有信号的组
+可以保留。每组 8 条、每次更新 4 组、最多补采 3 批 × 8 组保持不变。
+
+沿用前文依赖、模型和 API 环境变量设置，在 `agentic_rl` 目录运行：
+
+```bash
+python scripts/train_airline_grpo.py \
+  --config configs/rl/airline_procredit_v1.yaml \
+  --stage smoke --run-name procredit_smoke_seed42 \
+  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
+
+# 完成 smoke 验收后，用 24 条训练任务和 6 条独立开发任务：
+python scripts/train_airline_grpo.py \
+  --config configs/rl/airline_procredit_v1.yaml \
+  --stage internal_dev --epochs 15 --run-name procredit_v1_seed42 \
+  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
+```
+
+新模式要求 Agent Judge 开启，禁止会合并 30 条任务的 `full_train`。
+旧奖励配置及官方评估口径保持原有行为。新模式轨迹使用 schema `2.0`，记录
+`progress_trace`、`response_turn_ids` 和冻结前缀输入；run 下的 `group_audits/`
+保存真实采样 uid、原始 8 个成员、计算输入、advantage 与过滤决定。
+恢复身份绑定奖励/credit 配置、任务划分和项目 Python 代码内容；新旧奖励的
+checkpoint 不能作为同一实验精确续训，修改实现后也应开启新实验。
+
+仅比较逐轮消融时，可复制新 YAML，把 `credit.turn_coefficient` 改为 `0`，
+并从原始组审计重算，输出必须是另外一个空目录：
+
+```bash
+python scripts/rescore_procredit_groups.py \
+  outputs/runs/procredit_v1_seed42/group_audits outputs/procredit_ablation_groups \
+  --config /path/to/procredit_lambda0.yaml
+```
+
+下方单轨迹重评分脚本也支持新配置，但必须已有完整的新模式 progress trace。
+如果改动任务检查或动作依赖，旧进度会被拒绝，需先从冻结前缀重新验证。
+组重评分的 `--records-dir` 可读取同一批成员的新评分记录；缺失成员、成员身份
+变化或修改原始组审计都会报错。历史数据仅供离线分析，不会进入当前策略更新。
+
+无模型/无 API 的真实依赖验收命令为 `python -m pytest contract_tests -v`，
+需同时安装固定版本 veRL 和 Tau2，并设置 Tau2 数据路径；Tau2 未安装时其检查跳过。
+本次本地验证覆盖 CPU 算法、生产循环和真实 PyTorch/TensorDict 张量，
+完整固定依赖栈、真实 API 和 GPU optimizer 更新仍需在训练环境验收。
+
+### 单轨迹重评分
+
 当只调整 reward 权重、过程扣分或必须动作标注，而且 Judge rubric 未变时，
 不必重新请求 DeepSeek。`reward`、`process_penalties`、软轮数和扣分上限会
 从指定 YAML 显式构造成 `RewardConfig`，不会退回代码默认值：

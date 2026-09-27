@@ -160,7 +160,8 @@ class RewardResult(BaseModel):
     """Complete custom score while keeping official reward separate."""
 
     branch: Literal["normal", "human_transfer"]
-    train_reward: float = Field(ge=0.0, le=1.0)
+    reward_mode: Literal["legacy", "strict_progress_v1"] = "legacy"
+    train_reward: float = Field(ge=0.0, le=1.5)
     strict_success: float = Field(ge=0.0, le=1.0)
     progress: float = Field(ge=0.0, le=1.0)
     policy_gate: bool
@@ -169,11 +170,17 @@ class RewardResult(BaseModel):
     components: dict[str, ComponentScore] = Field(default_factory=dict)
     details: dict[str, Any] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def validate_reward_range(self) -> "RewardResult":
+        if self.reward_mode == "legacy" and self.train_reward > 1.0:
+            raise ValueError("legacy train_reward must be within [0, 1]")
+        return self
+
 
 class TrajectoryRecord(BaseModel):
     """Portable saved trajectory used by training and offline rescoring."""
 
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.0", "2.0"] = "1.0"
     trajectory_id: str
     task_id: str
     split: Literal["train", "internal_dev", "test"]
@@ -194,6 +201,8 @@ class TrajectoryRecord(BaseModel):
     initial_db_hash: str | None = None
     final_db_hash: str | None = None
     target_db_hash: str | None = None
+    progress_trace: dict[str, Any] | None = None
+    response_turn_ids: list[int] | None = None
     official_scores: OfficialScores | None = None
     judge_result: JudgeResult | None = None
     custom_reward: RewardResult | None = None

@@ -12,13 +12,14 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
+from tau2_agentic_rl.advantages import is_procredit
 from tau2_agentic_rl.base_identity import (
     capture_base_identity,
     find_base_identity,
     save_base_identity,
 )
 from tau2_agentic_rl.checkpoints import resolve_resume_path, restore_step_clock
-from tau2_agentic_rl.config import expand_env, load_yaml
+from tau2_agentic_rl.config import expand_env, load_yaml, validate_procredit_config
 from tau2_agentic_rl.rl_resume import (
     MANIFEST,
     build_resume_identity,
@@ -256,6 +257,11 @@ def main() -> None:
     project = effective_project_config(load_yaml(config_path), args.extra)
     if args.reward_judge is not None:
         project["judge"]["enabled"] = args.reward_judge
+    validate_procredit_config(project)
+    if is_procredit(project) and args.stage == "full_train":
+        raise ValueError(
+            "ProCredit preserves the 24/6 split; use --stage internal_dev or smoke"
+        )
     if reward_judge_enabled(project):
         _require_env("DEEPSEEK_JUDGE_MODEL")
     else:

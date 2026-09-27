@@ -5,7 +5,9 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
+from tau2_agentic_rl.advantages import is_procredit
 from tau2_agentic_rl.concurrency import queue_options_from_project
+from tau2_agentic_rl.config import validate_procredit_config
 
 TRAINING_KEYS = {
     "algorithm.adv_estimator": "algorithm.adv_estimator",
@@ -58,6 +60,9 @@ def training_overrides(project: dict[str, Any]) -> dict[str, str]:
     result["actor_rollout_ref.actor.kl_loss_coef"] = str(
         project["algorithm"]["kl_coef"]
     )
+    if is_procredit(project):
+        result["+algorithm.procredit_enabled"] = "true"
+        result["algorithm.gamma"] = "1.0"
     return result
 
 
@@ -73,12 +78,25 @@ def effective_project_config(
         normalized = key.lstrip("+")
         if not separator:
             raise ValueError("--extra must use key=value")
+        if normalized.lstrip("~") == "algorithm.procredit_enabled":
+            raise ValueError("ProCredit is selected by the project reward mode, not --extra")
+        if is_procredit(result) and normalized == "algorithm.gamma" and yaml.safe_load(raw) != 1:
+            raise ValueError("ProCredit requires undiscounted returns")
         fixed = {
             "algorithm.rollout_correction.bypass_mode": True,
             "algorithm.rollout_correction.loss_type": "ppo_clip",
             "actor_rollout_ref.rollout.calculate_log_probs": True,
             "data.continuous_token.enable": False,
         }
+        if is_procredit(result):
+            protected = set(fixed) | {"algorithm.procredit_enabled", "algorithm.gamma"}
+            target = normalized.lstrip("~")
+            if any(field.startswith(target + ".") for field in protected) or (
+                normalized.startswith("~") and target in protected
+            ):
+                raise ValueError(
+                    "ProCredit protected settings cannot use parent-map or deletion overrides"
+                )
         if normalized in fixed and yaml.safe_load(raw) != fixed[normalized]:
             raise ValueError(
                 f"{key} conflicts with the pinned token/old-policy contract"
@@ -151,4 +169,5 @@ def effective_project_config(
         raise ValueError("this experiment implements PPO clipping with KL disabled")
     if ppo["old_log_probs_source"] != "vllm_rollout":
         raise ValueError("old log probabilities must come from vLLM rollout")
+    validate_procredit_config(result)
     return result

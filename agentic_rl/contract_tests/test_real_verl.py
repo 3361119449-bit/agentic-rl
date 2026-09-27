@@ -35,9 +35,9 @@ def test_real_runner_import_and_single_ray_decoration():
     assert ray.remote(num_cpus=1)(module.Tau2TaskRunner) is not None
 
 
-@pytest.mark.parametrize("mode", ["training", "baseline_eval", "adapter_eval"])
+@pytest.mark.parametrize("mode", ["training", "procredit", "baseline_eval", "adapter_eval"])
 def test_actual_launcher_config_passes_real_verl_validation(mode, tmp_path):
-    if mode == "training":
+    if mode in {"training", "procredit"}:
         command = build_command(
             project_root=ROOT,
             model_path="/unused-model",
@@ -45,6 +45,10 @@ def test_actual_launcher_config_passes_real_verl_validation(mode, tmp_path):
             val_file=tmp_path / "val.parquet",
             total_epochs=1,
             extra=[],
+            project_config=(
+                load_yaml(ROOT / "configs/rl/airline_procredit_v1.yaml")
+                if mode == "procredit" else None
+            ),
         )
     else:
         adapter = None
@@ -75,8 +79,52 @@ def test_actual_launcher_config_passes_real_verl_validation(mode, tmp_path):
     ):
         config = compose(config_name="ppo_trainer", overrides=command[3:])
     validate_config(config, need_reference_policy(config), need_critic(config))
-    if mode != "training":
+    if mode == "procredit":
+        assert config.algorithm.procredit_enabled is True
+        assert config.algorithm.gamma == 1
+    if mode not in {"training", "procredit"}:
         assert config.trainer.val_only is True
+
+
+def test_real_procredit_trainer_and_response_layout(monkeypatch, tmp_path):
+    """Real trainer/TensorDict/padding; only the external queue transport is local."""
+    import torch
+    from tensordict import NonTensorData, NonTensorStack, TensorDict
+    from verl.workers.utils.padding import response_to_nested
+
+    from tau2_agentic_rl import verl_capped_trainer as module
+    from tau2_agentic_rl.advantages import CreditConfig
+
+    keys = [f"contract_{i}_0" for i in range(8)]
+    extras = [NonTensorData({"procredit": {
+        "trajectory_id": f"trajectory-{i}", "task_id": "0", "policy_version": 0,
+        "checkset_fingerprint": "checks", "initial_state_fingerprint": "initial",
+        "score": 1.5, "valid": True, "terminal_success": 1, "multiplier": 1,
+        "phi": [0, 1, 1], "response_turn_ids": [0, 0, -1, 1],
+    }}) for i in range(8)]
+    mask = torch.nested.as_nested_tensor(
+        [torch.tensor([1, 1, 0, 1]) for _ in keys], layout=torch.jagged
+    )
+    old = torch.nested.as_nested_tensor(
+        [torch.tensor([-1., -2., 0., -3.]) for _ in keys], layout=torch.jagged
+    )
+    data = TensorDict({"response_mask": mask, "old_log_probs": old,
+                       "extra_fields": NonTensorStack(*extras)}, batch_size=8)
+    batch = SimpleNamespace(keys=keys, partition_id="train")
+
+    def put(**kwargs):
+        data.update(kwargs["fields"])
+        return batch
+
+    monkeypatch.setattr(module.tq, "kv_batch_get", lambda **kw: data)
+    monkeypatch.setattr(module.tq, "kv_batch_put", put)
+    trainer = module.CappedPPOTrainerSync.__new__(module.CappedPPOTrainerSync)
+    trainer._procredit_runtime = lambda: (CreditConfig(), tmp_path)
+    assert trainer._compute_advantage(batch, {}) is batch
+    expected = response_to_nested(torch.tensor([[.25, .25, 0, -.25]] * 8), mask)
+    for actual, wanted in zip(data["advantages"].unbind(), expected.unbind(), strict=True):
+        assert torch.equal(actual, wanted)
+    assert data["old_log_probs"] is old
 
 
 def test_two_real_ray_workers_share_one_trajectory_and_api_budget():

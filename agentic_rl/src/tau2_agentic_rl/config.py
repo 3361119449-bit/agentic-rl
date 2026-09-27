@@ -45,6 +45,36 @@ def expand_env(value: Any) -> Any:
 def load_runtime_config(path: str | Path) -> dict[str, Any]:
     """Load YAML and resolve required environment variables."""
     config = load_yaml(path)
+    validate_procredit_config(config)
     if config.get("judge", {}).get("enabled") is False:
         config["judge"] = {"enabled": False}
     return expand_env(config)
+
+
+def validate_procredit_config(config: dict) -> None:
+    """Fail before model/API work when the new algorithm would be ambiguous."""
+    from tau2_agentic_rl.advantages import CreditConfig, is_procredit
+    from tau2_agentic_rl.reward.score import build_reward_config
+
+    if not is_procredit(config):
+        return
+    build_reward_config(config)
+    CreditConfig.from_project(config)
+    if config.get("judge", {}).get("enabled") is not True:
+        raise ValueError("ProCredit requires Agent reward Judge; use legacy official-only otherwise")
+    expected_credit = {
+        "mode": "procredit_turn",
+        "version": "procredit-turn-v1",
+        "gamma": 1.0,
+        "turn_centering": "valid_turn_mean",
+        "trajectory_std": "population",
+        "process_penalty_in_turn_return": False,
+    }
+    for key, expected in expected_credit.items():
+        if config.get("credit", {}).get(key) != expected:
+            raise ValueError(f"ProCredit requires credit.{key}={expected}")
+    reward = config["reward"]
+    if reward.get("score_floor") != 0 or reward.get("penalty_placement") != "outside_truncation":
+        raise ValueError("ProCredit requires nonnegative scores and undiscounted penalties")
+    if config.get("dynamic_sampling", {}).get("criterion") != "final_advantage_nonzero":
+        raise ValueError("ProCredit requires final-advantage group filtering")
