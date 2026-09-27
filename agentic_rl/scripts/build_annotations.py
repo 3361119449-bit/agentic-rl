@@ -10,7 +10,7 @@ from typing import Any
 from tau2_agentic_rl.policy_rules import POLICY_RUBRIC_VERSION, policy_checks
 
 TRANSFER_TEXT = "YOU ARE BEING TRANSFERRED TO A HUMAN AGENT. PLEASE HOLD ON."
-DEFAULT_DEV_IDS = ["3", "7", "12", "23", "39", "43"]
+DEFAULT_DEV_IDS = ["3", "7", "9", "27", "39", "46"]
 
 
 def _read(path: Path) -> Any:
