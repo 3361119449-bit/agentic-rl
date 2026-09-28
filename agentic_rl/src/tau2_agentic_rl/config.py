@@ -67,7 +67,7 @@ def validate_procredit_config(config: dict) -> None:
         "version": credit.version,
         "gamma": 1.0,
         "turn_centering": (
-            "policy_attributed_turn_mean" if credit.version == "procredit-turn-v2"
+            "policy_attributed_turn_mean" if credit.version != "procredit-turn-v1"
             else "valid_turn_mean"
         ),
         "trajectory_std": "population",
@@ -76,10 +76,22 @@ def validate_procredit_config(config: dict) -> None:
     for key, expected in expected_credit.items():
         if config.get("credit", {}).get(key) != expected:
             raise ValueError(f"ProCredit requires credit.{key}={expected}")
-    if credit.version == "procredit-turn-v2" and config["credit"].get(
+    if credit.version != "procredit-turn-v1" and config["credit"].get(
         "unresolved_policy_credit"
     ) != "no_positive_progress":
         raise ValueError("unresolved policy evidence must suppress positive progress credit")
+    if credit.version == "procredit-turn-v3":
+        if config["reward"].get("progress_version") != "progress-v2":
+            raise ValueError("ProCredit v3 requires reward.progress_version=progress-v2")
+        if config["credit"].get("process_credit") != "capped_local_max":
+            raise ValueError("ProCredit v3 requires capped_local_max process credit")
+        if config.get("training_selection", {}).get("mode") != "verified_progress":
+            raise ValueError("ProCredit v3 requires verified progress training selection")
+        if config.get("precision") != {
+            "model_dtype": "bfloat16", "param_dtype": "bfloat16",
+            "rollout_dtype": "bfloat16", "reduce_dtype": "float32", "buffer_dtype": "float32",
+        }:
+            raise ValueError("ProCredit v3 requires explicit BF16 precision")
     reward = config["reward"]
     if reward.get("score_floor") != 0 or reward.get("penalty_placement") != "outside_truncation":
         raise ValueError("ProCredit requires nonnegative scores and undiscounted penalties")

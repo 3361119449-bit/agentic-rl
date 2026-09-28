@@ -303,6 +303,13 @@ def main() -> None:
         pythonpath.append(old_pythonpath)
     os.environ["PYTHONPATH"] = os.pathsep.join(pythonpath)
 
+    if project.get("credit", {}).get("version") == "procredit-turn-v3":
+        from tau2_agentic_rl.training_selection import prepare_training_selection
+
+        sys.path.insert(0, str(args.tau2_root / "src"))
+        train_file, selection_identity = prepare_training_selection(train_file, project_root, project)
+        project["training_selection"]["identity"] = selection_identity
+
     command = build_command(
         project_root=project_root,
         model_path=model_path,

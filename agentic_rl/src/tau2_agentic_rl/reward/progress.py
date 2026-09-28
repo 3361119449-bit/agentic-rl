@@ -7,7 +7,10 @@ from copy import deepcopy
 from typing import Callable
 
 from tau2_agentic_rl.advantages import validate_phi
-from tau2_agentic_rl.reward.required_actions import evaluate_required_actions
+from tau2_agentic_rl.reward.required_actions import (
+    MATCHER_VERSION,
+    evaluate_required_actions,
+)
 from tau2_agentic_rl.reward.transfer_branch import (
     _communication_score,
     _pre_transfer_score,
@@ -17,6 +20,7 @@ from tau2_agentic_rl.schemas import ToolEvent
 from tau2_agentic_rl.versions import sha256_json
 
 PROGRESS_VERSION = "progress-v1"
+PROGRESS_DEDUP_VERSION = "progress-v2"
 
 
 def evaluate_tau2_prefix(task: dict, messages: list[dict]) -> dict:
@@ -71,8 +75,11 @@ def build_progress_trace(
     transfer_rule: dict,
     initial_state_fingerprint: str,
     evaluator: Callable[[dict, list[dict]], dict] | None = None,
+    version: str = PROGRESS_VERSION,
 ) -> dict:
     """One initial prefix plus one prefix per generated assistant turn."""
+    if version not in {PROGRESS_VERSION, PROGRESS_DEDUP_VERSION}:
+        raise ValueError("unknown progress version")
     if (
         not prefix_lengths
         or any(type(n) is not int or n < 0 or n > len(messages) for n in prefix_lengths)
@@ -140,20 +147,26 @@ def build_progress_trace(
             raise ValueError("progress check applicability changed during trajectory")
         states.append(list(state.values()))
     checks = [
-        {"check_id": key, "initial": states[0][index], "included": not states[0][index]}
+        {"check_id": key, "initial": states[0][index], "included": (
+            not states[0][index] and not (
+                version == PROGRESS_DEDUP_VERSION and "db" in ids and key.startswith("req:")
+            )
+        )}
         for index, key in enumerate(ids)
     ]
     included = [index for index, item in enumerate(checks) if item["included"]]
     definition = {
-        "version": PROGRESS_VERSION,
+        "version": version,
         "task": sha256_json(task),
         "required_actions": sha256_json(required_actions),
         "dependencies": sha256_json(dependencies),
         "transfer_rule": sha256_json(transfer_rule),
         "checks": checks,
     }
+    if version == PROGRESS_DEDUP_VERSION:
+        definition["matcher_version"] = MATCHER_VERSION
     result = {
-        "version": PROGRESS_VERSION,
+        "version": version,
         "definition": definition,
         "checks": checks,
         "checkset_fingerprint": sha256_json(definition),
@@ -172,9 +185,14 @@ def build_progress_trace(
 def validate_progress_trace(trace: dict, *, turns: int) -> list[float]:
     """Reject invented/misaligned progress, including offline tampering."""
     phi = validate_phi(trace.get("phi"), turns)
-    if trace.get("version") != PROGRESS_VERSION:
+    version = trace.get("version")
+    if version not in {PROGRESS_VERSION, PROGRESS_DEDUP_VERSION}:
         raise ValueError("unknown progress version")
     definition, checks = trace.get("definition", {}), trace.get("checks", [])
+    if definition.get("version") != version or (
+        version == PROGRESS_DEDUP_VERSION and definition.get("matcher_version") != MATCHER_VERSION
+    ):
+        raise ValueError("progress definition version changed")
     if (
         trace.get("checkset_fingerprint") != sha256_json(definition)
         or definition.get("checks") != checks
@@ -183,10 +201,15 @@ def validate_progress_trace(trace: dict, *, turns: int) -> list[float]:
         raise ValueError("progress checkset identity mismatch")
     if len({item["check_id"] for item in checks}) != len(checks):
         raise ValueError("duplicate progress check ID")
+    has_db = any(item["check_id"] == "db" for item in checks)
     if any(
         type(item["initial"]) is not bool
         or type(item["included"]) is not bool
-        or item["included"] == item["initial"]
+        or item["included"] != (
+            not item["initial"] and not (
+                version == PROGRESS_DEDUP_VERSION and has_db and item["check_id"].startswith("req:")
+            )
+        )
         for item in checks
     ):
         raise ValueError("invalid initial progress applicability")

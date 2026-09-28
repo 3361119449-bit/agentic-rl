@@ -12,14 +12,17 @@ from tau2_agentic_rl.schemas import JudgeCheck, JudgeResult
 from tau2_agentic_rl.scoring_retry import retry_scoring
 
 
-def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=False):
+def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=False,
+                    credit_version=None):
     loop, scope = minimal_loop(scratch_dir)
     cleaned, judge_calls = [], []
     loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
     loop.project["reward"] = {"mode": "strict_progress_v1"}
     loop.project["judge"] = {"enabled": True}
+    if credit_version:
+        policy_credit_v2 = True
     if policy_credit_v2:
-        loop.project["credit"] = {"version": "procredit-turn-v2"}
+        loop.project["credit"] = {"version": credit_version or "procredit-turn-v2"}
     loop.reward_config = build_reward_config(loop.project)
     loop.semantic, loop.transfer, loop.policy_rules = {"0": {}}, {"0": {}}, {"0": {}}
     loop.required_actions, loop.action_dependencies = {"0": []}, {}
@@ -158,6 +161,21 @@ def test_v2_partial_environment_failure_keeps_original_failure_and_audit(scratch
         "help", "refund", "thanks"
     ]
     assert record.token_turns[0].output_token_ids == [4, 9]
+
+
+def test_v3_actor_frozen_retry_and_cost_tamper_detection(scratch_dir):
+    loop, output, record = rollout_fixture(scratch_dir, credit_version="procredit-turn-v3")
+    assert record.progress_trace["version"] == "progress-v2"
+    assert record.custom_reward.train_reward == 0
+    assert output.extra_fields["procredit"]["process_credit"]["turn_costs"] == pytest.approx([0, .1, 0])
+    expected = record.custom_reward.model_dump()
+    record.custom_reward = None
+    record.metadata["failure_phase"] = "judge"
+    assert asyncio.run(retry_scoring(record, loop.judge, loop.store))
+    assert record.custom_reward.model_dump() == expected
+    record.custom_reward.details["process_credit"]["turn_costs"][0] = .1
+    with pytest.raises(ValueError, match="process"):
+        credit_from_record(record)
 
 
 def test_actor_records_delivered_prefixes_and_maps_every_policy_token(scratch_dir):

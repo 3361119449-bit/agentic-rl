@@ -20,6 +20,7 @@ from tau2_agentic_rl.judge.prompts import (
     JUDGE_SCHEMA_VERSION,
     build_judge_messages,
 )
+from tau2_agentic_rl.policy_rules import definitely_active_policy_rules
 from tau2_agentic_rl.schemas import JudgeResult, TransferCheck
 from tau2_agentic_rl.versions import sha256_json
 
@@ -39,7 +40,7 @@ class JudgeConfig:
     prompt_version: str = JUDGE_PROMPT_VERSION
     rubric_version: str = JUDGE_RUBRIC_VERSION
     schema_version: str = JUDGE_SCHEMA_VERSION
-    scorer_code_version: str = "tau2-agentic-rl-scorer-v4-transfer-facts"
+    scorer_code_version: str = "tau2-agentic-rl-scorer-v5-policy-applicability"
 
 
 class DeepSeekJudge:
@@ -129,7 +130,17 @@ class DeepSeekJudge:
                 f"expected={expected_policy}, actual={actual_policy}"
             )
 
-        for check in result.mandatory_policy_checks:
+        active = definitely_active_policy_rules(
+            inputs.get("trajectory", {}), inputs.get("transfer_rule", {})
+        )
+        for definition, check in zip(inputs.get("mandatory_policy_checks", []),
+                                      result.mandatory_policy_checks, strict=True):
+            if "applicability" in definition and "applicable" not in check.model_fields_set:
+                raise ValueError("new policy rubric requires explicit applicability")
+            if not check.applicable and check.criterion_id.rsplit(":policy:", 1)[-1] in active:
+                raise ValueError("Judge cannot mark an active policy rule as not applicable")
+            if not check.applicable and not check.short_reason.strip():
+                raise ValueError("inapplicable policy requires a concrete trigger-absence reason")
             if not check.passed and (
                 not (check.evidence_turn_ids or check.violation_assistant_turn_ids)
                 or not check.short_reason.strip()

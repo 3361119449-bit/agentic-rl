@@ -171,6 +171,36 @@ def test_mask_mismatch_is_rejected_instead_of_training_observations():
         runtime.build_credit_tensors(keys, extras, mask, CreditConfig())
 
 
+def test_v3_zero_score_process_group_reaches_buffer_and_real_torch():
+    torch = pytest.importorskip("torch")
+    from test_process_credit import process_rows
+
+    keys, _ = queue_rows()
+    extras = [{"procredit": row} for row in process_rows()]
+    config = CreditConfig(version="procredit-turn-v3")
+
+    class Parent:
+        def _dapo_filtered_keys(self, partition):
+            raise AssertionError("scalar filtering must not run")
+
+    cls = production_method(
+        "CappedDynamicReplayBuffer", "_dapo_filtered_keys", Parent,
+        tq=SimpleNamespace(kv_batch_get=lambda **kwargs: {"extra_fields": extras}),
+    )
+    buffer = cls()
+    buffer.credit_config, buffer.group_audit_dir = config, None
+    buffer.credit_cache = {}
+    buffer.finished_keys = {"train": {"group"}}
+    buffer.partitions = {"train": dict.fromkeys(keys)}
+    assert buffer._dapo_filtered_keys("train")[0] == set()
+    mask = torch.nested.as_nested_tensor(
+        [torch.tensor([1, 1, 0, 1, 1]) for _ in keys], layout=torch.jagged
+    )
+    tensors, metrics = runtime.build_credit_tensors(keys, extras, mask, config)
+    assert tensors["advantages"].unbind()[0].tolist() == pytest.approx([0, 0, 0, -.1, 0])
+    assert metrics["procredit/process_cost_turns"] == 8
+
+
 def test_real_tensordict_metadata_and_padded_advantages():
     torch = pytest.importorskip("torch")
     td = pytest.importorskip("tensordict")

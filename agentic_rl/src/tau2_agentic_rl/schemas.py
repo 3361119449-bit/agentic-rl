@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_serializer, model_validator
 
 TerminationReason = Literal[
     "agent_stop",
@@ -70,6 +70,14 @@ class ToolEvent(BaseModel):
     unchanged_retry: bool = False
     no_progress: bool = False
     result: str | None = None
+    state_before: dict[str, Any] | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize_state(self, handler):
+        result = handler(self)
+        if self.state_before is None:
+            result.pop("state_before", None)
+        return result
 
 
 EvidenceTurnId = Annotated[int, Field(strict=True, ge=0)]
@@ -80,11 +88,25 @@ class JudgeCheck(BaseModel):
 
     criterion_id: str
     passed: bool
+    applicable: bool = True
     evidence_turn_ids: list[EvidenceTurnId] = Field(default_factory=list)
     # Explicit offending actor generations, one-based; supporting/context
     # evidence_turn_ids above uses a different, historical namespace.
     violation_assistant_turn_ids: list[EvidenceTurnId] = Field(default_factory=list)
     short_reason: str = ""
+
+    @model_validator(mode="after")
+    def validate_applicability(self):
+        if not self.applicable and (not self.passed or self.violation_assistant_turn_ids):
+            raise ValueError("inapplicable policy must pass without violation blame")
+        return self
+
+    @model_serializer(mode="wrap")
+    def serialize_applicability(self, handler):
+        result = handler(self)
+        if "applicable" not in self.model_fields_set:
+            result.pop("applicable", None)
+        return result
 
 
 class TransferCheck(BaseModel):

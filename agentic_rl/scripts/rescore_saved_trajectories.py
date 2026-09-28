@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 from pathlib import Path
 
 from tau2_agentic_rl.agent_policy import load_agent_system_prompt, prompt_sha256
@@ -16,6 +17,7 @@ from tau2_agentic_rl.reward.required_actions import (
 from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
 from tau2_agentic_rl.schemas import TrajectoryRecord
 from tau2_agentic_rl.storage import TrajectoryStore
+from tau2_agentic_rl.versions import sha256_json
 
 
 def main() -> None:
@@ -81,6 +83,18 @@ def main() -> None:
             progress_trace=record.progress_trace,
         )
         metadata = dict(record.metadata)
+        scoring_inputs = record.scoring_inputs
+        if reward_config.credit_version == "procredit-turn-v3":
+            source_fingerprint = sha256_json(scoring_inputs)
+            if not scoring_inputs or source_fingerprint != metadata.get("scoring_inputs_sha256"):
+                raise ValueError("v3 rescoring requires intact frozen scoring inputs")
+            scoring_inputs = deepcopy(scoring_inputs)
+            metadata["rescored_from_scoring_inputs_sha256"] = source_fingerprint
+            metadata["rescored_from_reward_version"] = record.reward_version
+            scoring_inputs["reward_project_config"] = {
+                key: deepcopy(config.get(key, {})) for key in ("reward", "credit", "rollout")
+            }
+            metadata["scoring_inputs_sha256"] = sha256_json(scoring_inputs)
         previous_manifest = metadata.pop("evaluation_manifest_id", None)
         if previous_manifest:
             metadata["rescored_from_evaluation_manifest_id"] = previous_manifest
@@ -89,6 +103,7 @@ def main() -> None:
                 "reward_version": args.reward_version,
                 "custom_reward": reward,
                 "metadata": metadata,
+                "scoring_inputs": scoring_inputs,
             }
         )
         store.save(updated)

@@ -29,6 +29,19 @@ UNORDERED_LIST_FIELDS: dict[str, set[tuple[str, ...]]] = {
     "update_reservation_passengers": {("passengers",)},
 }
 
+MATCHER_VERSION = "airline-semantic-actions-v2"
+MODEL_FIELDS = {
+    "flights": {"flight_number", "date"},
+    "passengers": {"first_name", "last_name", "dob"},
+    "payment_methods": {"payment_id", "amount"},
+}
+MODEL_INPUTS = {
+    "book_reservation": set(MODEL_FIELDS),
+    "update_reservation_flights": {"flights"},
+    "update_reservation_passengers": {"passengers"},
+}
+NUMERIC_FIELDS = {"amount", "total_baggages", "nonfree_baggages"}
+
 
 def load_required_actions(path: str | Path) -> dict[str, list[dict[str, Any]]]:
     """Load the compact ``[{id, actions}]`` annotation file."""
@@ -58,7 +71,8 @@ def _numeric_equal(expected: Any, actual: Any) -> bool:
     ):
         return False
     try:
-        return Decimal(str(expected)) == Decimal(str(actual))
+        left, right = Decimal(str(expected)), Decimal(str(actual))
+        return left.is_finite() and right.is_finite() and left == right
     except InvalidOperation:
         return False
 
@@ -69,16 +83,34 @@ def arguments_equal(
     *,
     tool_name: str = "",
     path: tuple[str, ...] = (),
+    state_before: dict | None = None,
 ) -> bool:
     """Compare semantic tool arguments with narrowly scoped normalization."""
-    if type(expected) is not type(actual):
+    if path and path[-1] in NUMERIC_FIELDS:
         return _numeric_equal(expected, actual)
+    if type(expected) is not type(actual):
+        return False
     if isinstance(expected, dict):
+        # Pinned Tau2 constructs FlightInfo/Passenger/Payment from these dicts;
+        # metadata outside their fields is discarded before execution.
+        if len(path) == 2 and path[0] in MODEL_INPUTS.get(tool_name, set()):
+            fields = MODEL_FIELDS[path[0]]
+            expected = {k: v for k, v in expected.items() if k in fields}
+            actual = {k: v for k, v in actual.items() if k in fields}
+        free_baggage = _numeric_equal(expected.get("nonfree_baggages"), 0)
+        if state_before is not None:
+            prior = state_before.get("nonfree_baggages")
+            target = expected.get("nonfree_baggages")
+            free_baggage = (
+                state_before.get("reservation_id") == expected.get("reservation_id")
+                and type(prior) is int and prior >= 0
+                and type(target) in (int, float) and 0 <= target <= prior
+            )
         ignored_keys = (
             {"payment_id"}
             if tool_name == "update_reservation_baggages"
             and not path
-            and _numeric_equal(expected.get("nonfree_baggages"), 0)
+            and free_baggage
             else set()
         )
         return expected.keys() == actual.keys() and all(
@@ -127,7 +159,8 @@ def arguments_equal(
 def _event_satisfies(action: dict[str, Any], event: ToolEvent) -> bool:
     if event.name != action["name"] or not event.success:
         return False
-    if not arguments_equal(action["arguments"], event.arguments, tool_name=event.name):
+    if not arguments_equal(action["arguments"], event.arguments, tool_name=event.name,
+                           state_before=event.state_before):
         return False
     if event.name in MUTATING_TOOLS and event.db_effect is not True:
         return False

@@ -472,6 +472,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             if procredit else None
         )
         progress_trace = None
+        if progress_inputs is not None and self.project.get("credit", {}).get("version") == "procredit-turn-v3":
+            progress_inputs["version"] = "progress-v2"
         response_turn_ids: list[int] = []
         response_mask: list[int] = []
         aligned_log_probs: list[float] = []
@@ -741,6 +743,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                                 else "model_caused_execution_error"
                             ),
                             result=result.result,
+                            state_before=result.state_before,
                         )
                         _mark_repetition(event, tool_events)
                         tool_events.append(event)
@@ -796,7 +799,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             # partial transcript for cleanup/audit without assigning credit.
             if (
                 infrastructure_error is None
-                and self.project.get("credit", {}).get("version") == "procredit-turn-v2"
+                and self.project.get("credit", {}).get("version") in {"procredit-turn-v2", "procredit-turn-v3"}
             ):
                 trajectory_for_judge = annotate_policy_turns(
                     trajectory_for_judge, progress_inputs["prefix_lengths"]

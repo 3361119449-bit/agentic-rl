@@ -60,6 +60,12 @@ from tau2_agentic_rl.versions import sha256_file, sha256_json
 def build_evaluation_command(
     args, *, project_root, data_file, run_root, project, identity
 ):
+    from tau2_agentic_rl.training_config import (
+        precision_overrides,
+        validate_precision_overrides,
+    )
+
+    validate_precision_overrides(project, args.extra)
     agent_config = project_root / "configs" / "rl" / "agent_loop_v1.yaml"
     command = [
         sys.executable,
@@ -125,6 +131,7 @@ def build_evaluation_command(
                 "actor_rollout_ref.rollout.load_format=safetensors",
             ]
         )
+    command.extend(f"{key}={value}" for key, value in precision_overrides(project).items())
     command.extend(args.extra)
     return command
 

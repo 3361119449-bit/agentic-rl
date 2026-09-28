@@ -17,7 +17,7 @@ class CreditConfig:
     violation_penalty: float = 1.0
 
     def __post_init__(self):
-        if self.version not in {"procredit-turn-v1", "procredit-turn-v2"}:
+        if self.version not in {"procredit-turn-v1", "procredit-turn-v2", "procredit-turn-v3"}:
             raise ValueError("unknown ProCredit version")
         if type(self.violation_penalty) is bool or self.violation_penalty != 1.0:
             raise ValueError("policy-local credit requires violation penalty 1.0")
@@ -110,8 +110,10 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
         "checkset_fingerprint",
         "initial_state_fingerprint",
     )
-    identities, ids, validated, policies = [], set(), [], []
+    identities, ids, validated, policies, process_costs = [], set(), [], [], []
     for row in rows:
+        if config.version != "procredit-turn-v3" and "process_credit" in row:
+            raise ValueError("v3 process credit cannot silently fall back to an older algorithm")
         if config.version == "procredit-turn-v1" and "policy_credit" in row:
             raise ValueError("v2 policy credit cannot silently fall back to v1")
         trajectory_id = row.get("trajectory_id")
@@ -137,6 +139,18 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
         if not isinstance(mapping, list) or not mapping:
             raise ValueError("missing token-to-turn mapping")
         turns = len(phi) - 1
+        costs = [0.0] * turns
+        if config.version == "procredit-turn-v3":
+            process = row.get("process_credit")
+            if not isinstance(process, dict) or process.get("version") != "process-credit-v1":
+                raise ValueError("v3 requires process credit")
+            values = process.get("turn_costs")
+            if not isinstance(values, list) or len(values) != turns:
+                raise ValueError("process costs differ from actor turns")
+            costs = [_number(value, 0, .2, "process cost") for value in values]
+            if math.fsum(costs) > .2 + 1e-12:
+                raise ValueError("process costs exceed trajectory cap")
+        process_costs.append(costs)
         if any(type(t) is not int or t < -1 or t >= turns for t in mapping):
             raise ValueError("invalid token-to-turn mapping")
         present = set(mapping) - {-1}
@@ -146,7 +160,7 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             multiplier * (terminal + config.progress_scale * (phi[-1] - before))
             for before in phi[:-1]
         ]
-        if config.version == "procredit-turn-v2":
+        if config.version != "procredit-turn-v1":
             bad, complete = _policy_attribution(row, turns)
             if not row["valid"] and terminal != 0:
                 raise ValueError("policy-invalid terminal success must remain zero")
@@ -176,18 +190,20 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
     ]
     turn_mean = math.fsum(valid_returns) / len(valid_returns) if valid_returns else 0.0
     results = []
-    for row, (score, mapping, present, returns), (bad, complete) in zip(
-        rows, validated, policies, strict=True
+    for row, (score, mapping, present, returns), (bad, complete), costs in zip(
+        rows, validated, policies, process_costs, strict=True
     ):
         trajectory_advantage = (score - mean) / (std + config.epsilon)
         turn_advantages = [
             value - turn_mean if complete and t in present else 0.0
             for t, value in enumerate(returns)
         ]
-        for t in bad & present:
+        for t in present:
             # Keep penalty local and outside centering. Even an all-bad group
             # must have negative feedback; centering the penalty would erase it.
-            turn_advantages[t] = min(turn_advantages[t], 0.0) - config.violation_penalty
+            penalty = max(config.violation_penalty if t in bad else 0.0, costs[t])
+            if penalty:
+                turn_advantages[t] = min(turn_advantages[t], 0.0) - penalty
         tokens = [
             trajectory_advantage + config.turn_coefficient * turn_advantages[t]
             if t >= 0
@@ -217,7 +233,9 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
         ),
         "trajectories": results,
     }
-    if config.version == "procredit-turn-v2":
+    if config.version != "procredit-turn-v1":
         result["policy_violation_turns"] = sum(len(bad) for bad, _ in policies)
         result["unresolved_trajectories"] = sum(not complete for _, complete in policies)
+    if config.version == "procredit-turn-v3":
+        result["process_cost_turns"] = sum(value > 0 for costs in process_costs for value in costs)
     return result

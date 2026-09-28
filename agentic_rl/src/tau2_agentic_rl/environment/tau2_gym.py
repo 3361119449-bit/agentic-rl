@@ -12,6 +12,21 @@ from tau2_agentic_rl.environment.cached_user import build_cached_agent_gym_env
 from tau2_agentic_rl.versions import sha256_json
 
 
+def snapshot_baggage_state(backend, name: str, arguments: dict) -> dict | None:
+    """Read only the state needed for zero-charge matching, before this call."""
+    if name != "update_reservation_baggages":
+        return None
+    target = arguments.get("reservation_id")
+    if not isinstance(target, str):
+        return None
+    db = getattr(getattr(backend, "tools", None), "db", None)
+    reservation = getattr(db, "reservations", {}).get(target)
+    count = getattr(reservation, "nonfree_baggages", None)
+    if type(count) is not int or count < 0:
+        return None
+    return {"reservation_id": target, "nonfree_baggages": count}
+
+
 @dataclass
 class ToolStepResult:
     """Per-call result from one assistant tool turn."""
@@ -22,6 +37,7 @@ class ToolStepResult:
     success: bool
     db_changed: bool | None
     result: str | None
+    state_before: dict | None = None
 
 
 @dataclass
@@ -181,6 +197,7 @@ class Tau2GymAdapter:
 
         def audited_get_response(tool_call: ToolCall):
             before = backend.get_db_hash()
+            state_before = snapshot_baggage_state(backend, tool_call.name, tool_call.arguments)
             tool_message = original_get_response(tool_call)
             after = backend.get_db_hash()
             before_hash = str(before) if before is not None else None
@@ -201,6 +218,7 @@ class Tau2GymAdapter:
                         if tool_message.content is not None
                         else None
                     ),
+                    state_before=state_before,
                 )
             )
             return tool_message

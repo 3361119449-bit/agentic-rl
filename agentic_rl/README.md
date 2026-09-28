@@ -592,6 +592,13 @@ veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num
 
 ## 离线重新打分
 
+### ProCredit v3 contract 修复（2026-09-28）
+
+新增 `configs/rl/airline_procredit_v3.yaml`：canonical matcher 与 safety 解耦、
+Judge applicability、DB/REQ progress 去重、零分轨迹局部过程惩罚、训练任务
+信号筛选，以及显式 BF16。须启动新 run；详见
+[行为、启动命令和验证边界](REWARD_CONTRACTS_V3.md)。
+
 ### ProCredit 新奖励实验（2026-09-27）
 
 独立配置 `configs/rl/airline_procredit_v1.yaml` 启用 `strict_progress_v1`。

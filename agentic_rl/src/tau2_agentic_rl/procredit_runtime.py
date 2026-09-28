@@ -151,7 +151,8 @@ def credit_from_record(record) -> dict:
         "phi": trace["phi"],
         "response_turn_ids": record.response_turn_ids,
     }
-    if reward.details.get("credit_version") == "procredit-turn-v2":
+    version = reward.details.get("credit_version", "procredit-turn-v1")
+    if version in {"procredit-turn-v2", "procredit-turn-v3"}:
         if record.judge_result is None:
             raise ValueError("policy-local credit requires a frozen Judge result")
         expected_policy = build_policy_credit(
@@ -161,6 +162,29 @@ def credit_from_record(record) -> dict:
         if expected_policy != reward.details.get("policy_credit"):
             raise ValueError("record policy attribution differs from frozen scoring evidence")
         row["policy_credit"] = expected_policy
+    if version == "procredit-turn-v3":
+        from dataclasses import asdict
+
+        from tau2_agentic_rl.reward.process_penalty import build_process_credit
+        from tau2_agentic_rl.reward.score import build_reward_config
+
+        frozen = record.scoring_inputs.get("reward_project_config", {})
+        config = build_reward_config(frozen)
+        if (
+            config.credit_version != version
+            or trace["version"] != "progress-v2"
+            or reward.details.get("process_config") != asdict(config.process)
+        ):
+            raise ValueError("record process configuration differs from frozen inputs")
+        expected_process = build_process_credit(
+            record.tool_events, record.assistant_turns, config.process,
+        )
+        if (
+            expected_process != reward.details.get("process_credit")
+            or not math.isclose(expected_process["total_cost"], reward.process_penalty, abs_tol=1e-12)
+        ):
+            raise ValueError("record process attribution differs from frozen scoring evidence")
+        row["process_credit"] = expected_process
     return row
 
 
@@ -224,7 +248,7 @@ def build_credit_tensors(
             report["credit"]["valid_turns"] for report in reports.values()
         ),
     }
-    if config.version == "procredit-turn-v2":
+    if config.version != "procredit-turn-v1":
         metrics.update({
             "procredit/policy_violation_turns": sum(
                 report["credit"]["policy_violation_turns"] for report in reports.values()
@@ -233,4 +257,8 @@ def build_credit_tensors(
                 report["credit"]["unresolved_trajectories"] for report in reports.values()
             ),
         })
+    if config.version == "procredit-turn-v3":
+        metrics["procredit/process_cost_turns"] = sum(
+            report["credit"]["process_cost_turns"] for report in reports.values()
+        )
     return {"advantages": advantages, "returns": advantages.clone()}, metrics

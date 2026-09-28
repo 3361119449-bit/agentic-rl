@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from math import isfinite
 from typing import Any
 
@@ -19,6 +19,7 @@ from tau2_agentic_rl.reward.normal_branch import (
 from tau2_agentic_rl.reward.policy_credit import build_policy_credit
 from tau2_agentic_rl.reward.process_penalty import (
     ProcessPenaltyConfig,
+    build_process_credit,
     compute_process_penalty,
 )
 from tau2_agentic_rl.reward.progress import (
@@ -82,9 +83,9 @@ class RewardConfig:
     process: ProcessPenaltyConfig = field(default_factory=ProcessPenaltyConfig)
 
     def __post_init__(self) -> None:
-        if self.credit_version not in {"procredit-turn-v1", "procredit-turn-v2"}:
+        if self.credit_version not in {"procredit-turn-v1", "procredit-turn-v2", "procredit-turn-v3"}:
             raise ValueError("unknown credit version")
-        if self.credit_version == "procredit-turn-v2" and self.mode != "strict_progress_v1":
+        if self.credit_version != "procredit-turn-v1" and self.mode != "strict_progress_v1":
             raise ValueError("policy-local credit requires strict terminal reward")
         if self.mode not in {"legacy", "strict_progress_v1"}:
             raise ValueError("unknown reward mode")
@@ -178,7 +179,7 @@ def _judge_policy_checks(judge: JudgeResult) -> list[PolicyCheckResult]:
     return [
         PolicyCheckResult(
             rule_id=item.criterion_id,
-            applicable=True,
+            applicable=item.applicable,
             passed=item.passed,
             reason=item.short_reason,
         )
@@ -340,6 +341,8 @@ def score_trajectory(
         return result
     if progress_trace is None:
         raise ValueError("ProCredit reward requires frozen progress")
+    if config.credit_version == "procredit-turn-v3" and progress_trace.get("version") != "progress-v2":
+        raise ValueError("ProCredit v3 requires progress-v2")
     phi = validate_progress_trace(progress_trace, turns=kwargs["assistant_turns"])
     validate_progress_inputs(
         progress_trace, required_actions=kwargs["required_actions"],
@@ -367,10 +370,15 @@ def score_trajectory(
         "progress": phi[-1],
         "details": details,
     })
-    if config.credit_version == "procredit-turn-v2":
+    if config.credit_version != "procredit-turn-v1":
         scored.details["credit_version"] = config.credit_version
         scored.details["policy_credit"] = build_policy_credit(
             reward=scored, judge=kwargs["judge"], events=kwargs["events"],
             turns=kwargs["assistant_turns"],
+        )
+    if config.credit_version == "procredit-turn-v3":
+        scored.details["process_config"] = asdict(config.process)
+        scored.details["process_credit"] = build_process_credit(
+            kwargs["events"], kwargs["assistant_turns"], config.process,
         )
     return scored

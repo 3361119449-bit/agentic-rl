@@ -69,7 +69,7 @@ def build_policy_credit(
         add("invalid_transfer", transfer_turns, "executed_tool")
     failed_judge_ids = set()
     for check in judge.mandatory_policy_checks:
-        if check.passed:
+        if not check.applicable or check.passed:
             continue
         failed_judge_ids.add(check.criterion_id)
         if check.violation_assistant_turn_ids:
@@ -90,7 +90,7 @@ def build_policy_credit(
         checks.append(safety)
     for check in checks:
         rule_id = check["rule_id"]
-        if check.get("passed", True) or rule_id in failed_judge_ids:
+        if not check.get("applicable", True) or check.get("passed", True) or rule_id in failed_judge_ids:
             continue
         ids = check.get("evidence_event_ids", [])
         if any(event_id not in by_event for event_id in ids):

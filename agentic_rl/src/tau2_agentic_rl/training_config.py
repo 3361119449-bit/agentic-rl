@@ -51,6 +51,36 @@ def hydra_value(value: Any) -> str:
     return str(value).lower() if isinstance(value, bool) else str(value)
 
 
+def precision_overrides(project: dict) -> dict[str, str]:
+    """Pinned FSDP model initialization and mixed precision are separate knobs."""
+    precision = project.get("precision")
+    if not precision:
+        return {}
+    return {
+        "actor_rollout_ref.actor.fsdp_config.model_dtype": precision["model_dtype"],
+        "actor_rollout_ref.actor.fsdp_config.dtype": precision["param_dtype"],
+        # The pinned engine YAML omits this dataclass field; Hydra needs "+".
+        "+actor_rollout_ref.actor.fsdp_config.mixed_precision": (
+            "{param_dtype:" + precision["param_dtype"]
+            + ",reduce_dtype:" + precision["reduce_dtype"]
+            + ",buffer_dtype:" + precision["buffer_dtype"] + "}"
+        ),
+        "actor_rollout_ref.rollout.dtype": precision["rollout_dtype"],
+    }
+
+
+def validate_precision_overrides(project: dict, extra: list[str]) -> None:
+    """Dtype settings belong in the identity-bound project configuration."""
+    protected = [key.lstrip("+") for key in precision_overrides(project)]
+    for override in extra:
+        key = override.partition("=")[0].lstrip("+~")
+        if any(
+            key == field or key.startswith(field + ".") or field.startswith(key + ".")
+            for field in protected
+        ):
+            raise ValueError("precision overrides must be set in the project configuration")
+
+
 def training_overrides(project: dict[str, Any]) -> dict[str, str]:
     result = {}
     for source, target in TRAINING_KEYS.items():
@@ -63,6 +93,7 @@ def training_overrides(project: dict[str, Any]) -> dict[str, str]:
     if is_procredit(project):
         result["+algorithm.procredit_enabled"] = "true"
         result["algorithm.gamma"] = "1.0"
+    result.update(precision_overrides(project))
     return result
 
 
@@ -72,6 +103,7 @@ def effective_project_config(
     import yaml
 
     result = deepcopy(project)
+    validate_precision_overrides(result, extra)
     reverse = {target: source for source, target in TRAINING_KEYS.items()}
     for override in extra:
         key, separator, raw = override.partition("=")

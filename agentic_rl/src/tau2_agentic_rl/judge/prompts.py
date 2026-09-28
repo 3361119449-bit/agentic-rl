@@ -18,7 +18,10 @@ details and obtained explicit user confirmation (yes) before the write tool call
 Do not require any hidden action_proposal tag or protocol that is absent from the
 bound policy. Return one JSON object matching the requested schema. Every criterion is binary;
 never invent a continuous score. Evidence and short reasons are audit metadata.
-For policy checks, a situation that never occurred passes as not applicable.
+For each policy check, explicitly output applicable=true or false. A situation
+that never occurred has applicable=false, passed=true and no violation blame;
+explain which trigger was absent. A policy denial or incomplete task does not
+make the rules governing an actual attempt, action or advice inapplicable.
 Every failed policy criterion must identify evidence turn IDs and a concrete
 rule violation in short_reason; a mere failure to complete the task is not a
 policy violation. Preserve every supplied criterion ID in order.
@@ -45,8 +48,8 @@ leave the list empty if the violation cannot be localized. Do not guess a final
 turn for an omission. Passed checks have an empty violation list.
 """
 
-JUDGE_PROMPT_VERSION = "areal-airline-judge-prompt-v8-transfer-facts"
-JUDGE_RUBRIC_VERSION = "areal-airline-rubric-v4-multitool"
+JUDGE_PROMPT_VERSION = "areal-airline-judge-prompt-v9-applicability"
+JUDGE_RUBRIC_VERSION = "areal-airline-rubric-v5-applicability"
 JUDGE_SCHEMA_VERSION = "1.0"
 
 
@@ -105,6 +108,7 @@ def build_judge_messages(
             "mandatory_policy_checks": [
                 {
                     "criterion_id": "string",
+                    "applicable": "boolean",
                     "passed": "boolean",
                     "evidence_turn_ids": [0],
                     "violation_assistant_turn_ids": [],

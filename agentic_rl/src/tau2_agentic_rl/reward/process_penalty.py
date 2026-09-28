@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import math
+from dataclasses import asdict, dataclass, field
 
 from tau2_agentic_rl.schemas import ProcessPenaltyResult, ToolEvent
+from tau2_agentic_rl.versions import sha256_json
 
 BASE_ERROR_PRECEDENCE = (
     "parse_error",
@@ -104,3 +106,40 @@ def compute_process_penalty(
         process_reward=1.0 - total,
         events=penalty_events,
     )
+
+
+def build_process_credit(events: list[ToolEvent], turns: int, config: ProcessPenaltyConfig) -> dict:
+    """Allocate the existing capped process cost to its own actor generations."""
+    if type(turns) is not int or turns < 0 or type(config.soft_turn_limit) is not int or config.soft_turn_limit < 0:
+        raise ValueError("process turn limits must be nonnegative integers")
+    by_id = {event.event_id: event for event in events}
+    if len(by_id) != len(events):
+        raise ValueError("duplicate process event ID")
+    if any(not 1 <= event.turn_id <= turns for event in events):
+        raise ValueError("process event lies outside actor turns")
+    if any(not math.isfinite(x) or x < 0 for x in [
+        config.cap, config.over_turn_cap, *config.penalties.values()
+    ]):
+        raise ValueError("process costs must be finite and nonnegative")
+    scalar = compute_process_penalty(events, turns, config)
+    costs = [0.0] * turns
+    for item in scalar.events:
+        if item["kind"] == "over_soft_turn_limit":
+            remaining = item["penalty"]
+            for turn in range(config.soft_turn_limit, turns):
+                amount = min(remaining, config.penalties["extra_assistant_turn"])
+                costs[turn] += amount
+                remaining = max(0.0, remaining - amount)
+        else:
+            costs[by_id[item["event_id"]].turn_id - 1] += item["penalty"]
+    total = math.fsum(costs)
+    if total > 0:
+        costs = [value * scalar.penalty / total for value in costs]
+    return {
+        "version": "process-credit-v1", "turn_costs": costs,
+        "total_cost": scalar.penalty,
+        "inputs_fingerprint": sha256_json({
+            "events": [e.model_dump(mode="json") for e in events],
+            "turns": turns, "config": asdict(config),
+        }),
+    }

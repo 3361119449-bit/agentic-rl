@@ -4,7 +4,7 @@ These are policy checks, not reference-action or task-completion targets. A rule
 whose trigger is absent passes with a short 'not applicable' explanation.
 """
 
-POLICY_RUBRIC_VERSION = "areal-airline-policy-atomic-v4-multitool"
+POLICY_RUBRIC_VERSION = "areal-airline-policy-atomic-v5-applicability"
 POLICY_RULES = {
     "information_grounding": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations.",
     "user_identity": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools.",
@@ -35,11 +35,52 @@ def policy_checks(task_id: str) -> list[dict[str, str]]:
     return [
         {
             "criterion_id": f"{task_id}:policy:{rule_id}",
+            "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
             "description": description
-            + " If this situation is absent, pass as not applicable. Judge compliance, not whether the task was completed.",
+            + " If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed.",
         }
         for rule_id, description in POLICY_RULES.items()
     ]
+
+
+def definitely_active_policy_rules(trajectory: dict, transfer_rule: dict) -> set[str]:
+    """Lower bound from concrete events; absence never proves semantic N/A."""
+    from tau2_agentic_rl.reward.required_actions import MUTATING_TOOLS
+
+    events = trajectory.get("tool_events", [])
+    executed = {e.get("name") for e in events if e.get("success") or e.get("db_effect") is True}
+    # Tool execution errors are real attempts. Pre-call policy requirements
+    # still apply; parse/schema rejections that never called the tool are not
+    # evidence of execution. Outcome facts (refund/transfer) remain separate.
+    attempted = executed | {
+        e.get("name") for e in events if e.get("error_kind") == "model_caused_execution_error"
+    }
+    active = set()
+    if events or any(m.get("role") == "assistant" for m in trajectory.get("messages", [])):
+        active.update({"information_grounding", "single_action_turn"})
+    if attempted & MUTATING_TOOLS:
+        active.add("database_write_confirmation")
+    if attempted & (MUTATING_TOOLS - {"send_certificate"}):
+        active.add("user_identity")
+    if "book_reservation" in attempted:
+        active.update({"booking_cabin", "booking_passengers", "booking_payment_limits",
+                       "insurance_timing", "baggage_pricing"})
+    if "update_reservation_baggages" in attempted:
+        active.update({"baggage_pricing", "baggage_removal"})
+    if "update_reservation_passengers" in attempted:
+        active.add("passenger_count")
+    if "update_reservation_flights" in attempted:
+        active.add("modification_payment")
+    if "cancel_reservation" in attempted:
+        active.update({"cancellation_reason", "cancellation_eligibility"})
+    if "cancel_reservation" in executed:
+        active.add("refund_destination")
+    if "send_certificate" in attempted:
+        active.update({"compensation_request_and_facts", "compensation_eligibility",
+                       "compensation_reason_amount"})
+    if "transfer_to_human_agents" in attempted or transfer_rule.get("required"):
+        active.add("transfer_scope_and_message")
+    return active
 
 
 def validate_policy_rows(rows: dict) -> None:
