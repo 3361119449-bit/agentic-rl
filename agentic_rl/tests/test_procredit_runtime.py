@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from test_policy_credit import policy_row, v2
 from test_procredit_credit import row
 
 from tau2_agentic_rl import procredit_runtime as runtime
@@ -94,9 +95,16 @@ def test_actual_buffer_does_not_call_scalar_filter_for_new_mode():
     assert buffer._dapo_filtered_keys("train")[0] == {"group"}
 
 
-def test_real_torch_nested_advantages_reach_production_trainer():
+@pytest.mark.parametrize("policy_local", [False, True])
+def test_real_torch_nested_advantages_reach_production_trainer(policy_local):
     torch = pytest.importorskip("torch")
     keys, extras = queue_rows()
+    config = CreditConfig()
+    expected = [0.25, 0.25, 0, -0.25, -0.25]
+    if policy_local:
+        extras = [{"procredit": policy_row(i)} for i in range(8)]
+        config = v2()
+        expected = [0.25, 0.25, 0, 0, -1.25]
     mask = torch.nested.as_nested_tensor(
         [torch.tensor([1, 1, 0, 1, 1]) for _ in keys], layout=torch.jagged
     )
@@ -120,14 +128,37 @@ def test_real_torch_nested_advantages_reach_production_trainer():
         TensorDict=lambda fields, **kwargs: fields,
     )
     trainer = cls()
-    trainer._procredit_runtime = lambda: (CreditConfig(), None)
+    trainer._procredit_runtime = lambda: (config, None)
     batch = SimpleNamespace(keys=keys, partition_id="train")
     metrics = {}
     assert trainer._compute_advantage(batch, metrics) is batch
-    assert stored["advantages"].unbind()[0].tolist() == [0.25, 0.25, 0, -0.25, -0.25]
-    assert stored["returns"].unbind()[0].tolist() == [0.25, 0.25, 0, -0.25, -0.25]
+    assert stored["advantages"].unbind()[0].tolist() == expected
+    assert stored["returns"].unbind()[0].tolist() == expected
     assert stored["old_log_probs"] is old
-    assert metrics["procredit/nonzero_token_fraction"] == 1
+    assert metrics["procredit/nonzero_token_fraction"] == (0.75 if policy_local else 1)
+    if policy_local:
+        assert metrics["procredit/policy_violation_turns"] == 8
+        assert metrics["procredit/constant_score_with_turn_signal"] == 1
+
+
+def test_zero_score_policy_group_survives_production_buffer_filter():
+    keys, _ = queue_rows()
+    extras = [{"procredit": policy_row(i, phi=[0, 0, 0, 0])} for i in range(8)]
+
+    class Parent:
+        def _dapo_filtered_keys(self, partition):
+            raise AssertionError("scalar filtering must not run")
+
+    cls = production_method(
+        "CappedDynamicReplayBuffer", "_dapo_filtered_keys", Parent,
+        tq=SimpleNamespace(kv_batch_get=lambda **kwargs: {"extra_fields": extras}),
+    )
+    buffer = cls()
+    buffer.credit_config, buffer.group_audit_dir = v2(), None
+    buffer.credit_cache = {}
+    buffer.finished_keys = {"train": {"group"}}
+    buffer.partitions = {"train": dict.fromkeys(keys)}
+    assert buffer._dapo_filtered_keys("train")[0] == set()
 
 
 def test_mask_mismatch_is_rejected_instead_of_training_observations():

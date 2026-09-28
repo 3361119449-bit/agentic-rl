@@ -20,7 +20,7 @@ from tau2_agentic_rl.judge.prompts import (
     JUDGE_SCHEMA_VERSION,
     build_judge_messages,
 )
-from tau2_agentic_rl.schemas import JudgeResult
+from tau2_agentic_rl.schemas import JudgeResult, TransferCheck
 from tau2_agentic_rl.versions import sha256_json
 
 
@@ -39,7 +39,7 @@ class JudgeConfig:
     prompt_version: str = JUDGE_PROMPT_VERSION
     rubric_version: str = JUDGE_RUBRIC_VERSION
     schema_version: str = JUDGE_SCHEMA_VERSION
-    scorer_code_version: str = "tau2-agentic-rl-scorer-v3"
+    scorer_code_version: str = "tau2-agentic-rl-scorer-v4-transfer-facts"
 
 
 class DeepSeekJudge:
@@ -131,7 +131,8 @@ class DeepSeekJudge:
 
         for check in result.mandatory_policy_checks:
             if not check.passed and (
-                not check.evidence_turn_ids or not check.short_reason.strip()
+                not (check.evidence_turn_ids or check.violation_assistant_turn_ids)
+                or not check.short_reason.strip()
             ):
                 raise ValueError(
                     "failed policy criterion requires evidence and a concrete reason"
@@ -144,12 +145,21 @@ class DeepSeekJudge:
         )
         transfer_required = bool(inputs.get("transfer_rule", {}).get("required", False))
         expected_transfer_applicable = transferred or transfer_required
-        if result.transfer_check.applicable != expected_transfer_applicable:
-            raise ValueError(
-                "judge transfer_check.applicable disagrees with the fixed trajectory/rubric"
+        if not transferred:
+            # These are environment facts, not model decisions. Keep the raw
+            # response for audit, but never discard an otherwise scoreable
+            # rollout because the Judge imagined an executed transfer.
+            result.transfer_check = TransferCheck(
+                applicable=expected_transfer_applicable,
+                valid=False,
+                short_reason="No successful transfer tool execution.",
             )
-        if not transferred and result.transfer_check.valid:
-            raise ValueError("judge cannot mark a non-executed transfer as valid")
+        else:
+            # A model that said 'not applicable' did not establish validity.
+            result.transfer_check.valid = (
+                result.transfer_check.applicable and result.transfer_check.valid
+            )
+            result.transfer_check.applicable = True
         validate_evidence_turn_ids(result, inputs.get("trajectory", {}))
 
     async def evaluate(self, **inputs: Any) -> tuple[JudgeResult, str, str, str]:

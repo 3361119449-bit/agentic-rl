@@ -646,6 +646,31 @@ python scripts/rescore_procredit_groups.py \
 本次本地验证覆盖 CPU 算法、生产循环和真实 PyTorch/TensorDict 张量，
 完整固定依赖栈、真实 API 和 GPU optimizer 更新仍需在训练环境验收。
 
+### ProCredit v2：保留违规轨迹中的局部信号（2026-09-28）
+
+`configs/rl/airline_procredit_v2.yaml` 保留终局 hard gate，新增对已定位违规 turn 的
+局部负 credit，并允许归因完整轨迹中已验证的早期进度参与逐轮回报。违规动作
+产生的正进度被屏蔽；旧 Judge 的支持性 `evidence_turn_ids` 不被猜作违规轮次。
+无法定位的 policy 失败暂不产生正进度 credit，但已定位的违规仍受惩罚。
+
+Judge 的 transfer 执行事实改由工具记录决定：没有成功 transfer 时强制
+`valid=false`，不因矛盾的 transfer 字段丢弃整条轨迹，原始响应仍保留用于审计。
+其他有效性检查继续执行。prompt/scorer 已更新，不能直接复用旧缓存身份。
+
+沿用上方环境设置，用新 run name 启动：
+
+```bash
+python scripts/train_airline_grpo.py \
+  --config configs/rl/airline_procredit_v2.yaml \
+  --stage smoke --run-name procredit_v2_smoke_seed42 \
+  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
+```
+
+v1 的 credit 数学和组审计兼容性保留。v2 是新训练条件，不绕过旧 checkpoint 的
+恢复身份检查。提供的旧 smoke 完整组在离线诊断中由无信号变为有负信号，
+八条终局分数仍为零；这不代表真实 GPU smoke 已通过。数学定义、归因边界和
+诊断计数见 [v2 设计说明](../docs/superpowers/specs/2026-09-28-policy-local-credit.md)。
+
 ### 单轨迹重评分
 
 当只调整 reward 权重、过程扣分或必须动作标注，而且 Judge rubric 未变时，

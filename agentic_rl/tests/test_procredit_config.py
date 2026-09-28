@@ -72,3 +72,17 @@ def test_ablation_is_explicit_and_keeps_legacy_files_untouched():
     assert baseline["credit"]["turn_coefficient"] == 1
     legacy = load_yaml(ROOT / "configs/rl/airline_grpo_v1.yaml")
     assert legacy["reward"]["normal_weights"]["db"] == 0.30
+
+
+def test_v2_config_is_explicit_and_keeps_v1_reproducible():
+    from tau2_agentic_rl.advantages import CreditConfig
+
+    cfg = load_yaml(ROOT / "configs/rl/airline_procredit_v2.yaml")
+    effective = effective_project_config(cfg, [])
+    assert CreditConfig.from_project(effective).version == "procredit-turn-v2"
+    assert effective["reward"]["mandatory_policy_gate"] is True
+    assert effective["credit"]["violation_penalty"] == 1
+    assert project()["credit"]["version"] == "procredit-turn-v1"
+    cfg["credit"]["turn_centering"] = "valid_turn_mean"
+    with pytest.raises(ValueError):
+        effective_project_config(cfg, [])

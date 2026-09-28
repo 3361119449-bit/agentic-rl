@@ -31,9 +31,21 @@ Every evidence_turn_ids entry must be a nonnegative integer explicitly present
 as a messages.turn_idx or tool_events.turn_id in TRAJECTORY_DATA. These are two
 different evidence views; do not invent IDs, infer array indices, or cite unsent
 actor text absent from both views. Empty evidence lists do not assert support.
+Use fixed transfer_facts to determine transfer applicability. A transfer is
+executed only if a transfer_to_human_agents tool event succeeded. Mentioning a
+transfer, attempting a rejected call, or deciding a transfer would be useful is
+not execution. Without successful execution, transfer_check.valid must be false
+and its evidence list empty; applicable is true only if the task requires transfer.
+For every failed policy check, also return violation_assistant_turn_ids: the
+one-based actor generations that actually committed the violation, using only
+explicit assistant_turn_id fields on assistant messages or turn_id on tool_events.
+Supporting user/tool messages are context, not offending actions. Do not copy
+messages.turn_idx into this field. Cite all offending generations when known;
+leave the list empty if the violation cannot be localized. Do not guess a final
+turn for an omission. Passed checks have an empty violation list.
 """
 
-JUDGE_PROMPT_VERSION = "areal-airline-judge-prompt-v7-multitool"
+JUDGE_PROMPT_VERSION = "areal-airline-judge-prompt-v8-transfer-facts"
 JUDGE_RUBRIC_VERSION = "areal-airline-rubric-v4-multitool"
 JUDGE_SCHEMA_VERSION = "1.0"
 
@@ -60,10 +72,18 @@ def build_judge_messages(
     transfer_rule: dict[str, Any],
 ) -> list[dict[str, str]]:
     """Build an isolated, injection-resistant judge request."""
+    transferred = any(
+        item.get("name") == "transfer_to_human_agents" and item.get("success")
+        for item in trajectory.get("tool_events", [])
+    )
     rubric = {
         "semantic_checks": semantic_checks,
         "mandatory_policy_checks": mandatory_policy_checks,
         "transfer_rule": transfer_rule,
+        "transfer_facts": {
+            "executed": transferred,
+            "applicable": transferred or bool(transfer_rule.get("required", False)),
+        },
         "output_schema": {
             "schema_version": JUDGE_SCHEMA_VERSION,
             "semantic_checks": [
@@ -87,6 +107,7 @@ def build_judge_messages(
                     "criterion_id": "string",
                     "passed": "boolean",
                     "evidence_turn_ids": [0],
+                    "violation_assistant_turn_ids": [],
                     "short_reason": "string",
                 }
             ],

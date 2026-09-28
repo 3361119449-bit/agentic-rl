@@ -83,6 +83,7 @@ def queue_group_reports(
 
 def credit_from_record(record) -> dict:
     """Rebuild only from a fully scored versioned record, never terminal guesses."""
+    from tau2_agentic_rl.reward.policy_credit import build_policy_credit
     from tau2_agentic_rl.reward.progress import validate_progress_trace
 
     reward, trace = record.custom_reward, record.progress_trace
@@ -137,7 +138,7 @@ def credit_from_record(record) -> dict:
         raise ValueError(
             "record token-to-turn mapping differs from original policy tokens"
         )
-    return {
+    row = {
         "trajectory_id": record.trajectory_id,
         "task_id": record.task_id,
         "policy_version": record.policy_version,
@@ -150,6 +151,17 @@ def credit_from_record(record) -> dict:
         "phi": trace["phi"],
         "response_turn_ids": record.response_turn_ids,
     }
+    if reward.details.get("credit_version") == "procredit-turn-v2":
+        if record.judge_result is None:
+            raise ValueError("policy-local credit requires a frozen Judge result")
+        expected_policy = build_policy_credit(
+            reward=reward, judge=record.judge_result, events=record.tool_events,
+            turns=record.assistant_turns,
+        )
+        if expected_policy != reward.details.get("policy_credit"):
+            raise ValueError("record policy attribution differs from frozen scoring evidence")
+        row["policy_credit"] = expected_policy
+    return row
 
 
 def build_credit_tensors(
@@ -212,4 +224,13 @@ def build_credit_tensors(
             report["credit"]["valid_turns"] for report in reports.values()
         ),
     }
+    if config.version == "procredit-turn-v2":
+        metrics.update({
+            "procredit/policy_violation_turns": sum(
+                report["credit"]["policy_violation_turns"] for report in reports.values()
+            ),
+            "procredit/unresolved_trajectories": sum(
+                report["credit"]["unresolved_trajectories"] for report in reports.values()
+            ),
+        })
     return {"advantages": advantages, "returns": advantages.clone()}, metrics

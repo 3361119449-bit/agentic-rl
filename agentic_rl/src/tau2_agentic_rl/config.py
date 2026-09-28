@@ -59,20 +59,27 @@ def validate_procredit_config(config: dict) -> None:
     if not is_procredit(config):
         return
     build_reward_config(config)
-    CreditConfig.from_project(config)
+    credit = CreditConfig.from_project(config)
     if config.get("judge", {}).get("enabled") is not True:
         raise ValueError("ProCredit requires Agent reward Judge; use legacy official-only otherwise")
     expected_credit = {
         "mode": "procredit_turn",
-        "version": "procredit-turn-v1",
+        "version": credit.version,
         "gamma": 1.0,
-        "turn_centering": "valid_turn_mean",
+        "turn_centering": (
+            "policy_attributed_turn_mean" if credit.version == "procredit-turn-v2"
+            else "valid_turn_mean"
+        ),
         "trajectory_std": "population",
         "process_penalty_in_turn_return": False,
     }
     for key, expected in expected_credit.items():
         if config.get("credit", {}).get(key) != expected:
             raise ValueError(f"ProCredit requires credit.{key}={expected}")
+    if credit.version == "procredit-turn-v2" and config["credit"].get(
+        "unresolved_policy_credit"
+    ) != "no_positive_progress":
+        raise ValueError("unresolved policy evidence must suppress positive progress credit")
     reward = config["reward"]
     if reward.get("score_floor") != 0 or reward.get("penalty_placement") != "outside_truncation":
         raise ValueError("ProCredit requires nonnegative scores and undiscounted penalties")

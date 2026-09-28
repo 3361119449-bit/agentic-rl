@@ -18,6 +18,17 @@ def validate_evidence_turn_ids(result: JudgeResult, trajectory: dict[str, Any]) 
         for item in trajectory.get(section, [])
         if type(item.get(key)) is int and item[key] >= 0
     }
+    actor_ids = {
+        item[key]
+        for section, key in (("messages", "assistant_turn_id"), ("tool_events", "turn_id"))
+        for item in trajectory.get(section, [])
+        if type(item.get(key)) is int and item[key] > 0
+        and (section != "messages" or item.get("role") == "assistant")
+    }
+    for check in result.mandatory_policy_checks:
+        missing = set(check.violation_assistant_turn_ids) - actor_ids
+        if missing:
+            raise ValueError(f"judge violation references absent assistant turns: {sorted(missing)}")
     groups = (
         ("semantic_checks", result.semantic_checks),
         ("transfer_semantic_checks", result.transfer_semantic_checks),

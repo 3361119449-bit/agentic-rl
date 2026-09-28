@@ -8,15 +8,18 @@ from tau2_agentic_rl.environment.tau2_gym import GymStep
 from tau2_agentic_rl.procredit_runtime import credit_from_record
 from tau2_agentic_rl.reward.progress import build_progress_trace
 from tau2_agentic_rl.reward.score import build_reward_config
-from tau2_agentic_rl.schemas import JudgeResult
+from tau2_agentic_rl.schemas import JudgeCheck, JudgeResult
 from tau2_agentic_rl.scoring_retry import retry_scoring
 
 
-def rollout_fixture(scratch_dir):
+def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=False):
     loop, scope = minimal_loop(scratch_dir)
+    cleaned, judge_calls = [], []
     loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
     loop.project["reward"] = {"mode": "strict_progress_v1"}
     loop.project["judge"] = {"enabled": True}
+    if policy_credit_v2:
+        loop.project["credit"] = {"version": "procredit-turn-v2"}
     loop.reward_config = build_reward_config(loop.project)
     loop.semantic, loop.transfer, loop.policy_rules = {"0": {}}, {"0": {}}, {"0": {}}
     loop.required_actions, loop.action_dependencies = {"0": []}, {}
@@ -38,6 +41,8 @@ def rollout_fixture(scratch_dir):
                 {"role": "assistant", "content": content},
                 {"role": "user", "content": "thanks"},
             ]
+            if fail_after_delivery:
+                raise RuntimeError("backend failed after delivery")
             return GymStep([self.messages[-1]], 0, False, {}, False, None, None)
 
         def full_trajectory(self):
@@ -47,6 +52,7 @@ def rollout_fixture(scratch_dir):
             return "initial"
 
         async def force_cleanup_stop(self):
+            cleaned.append(True)
             self.messages.append({"role": "assistant", "content": "cleanup"})
 
         def official_reward_payload(self):
@@ -89,9 +95,16 @@ def rollout_fixture(scratch_dir):
 
     class Judge:
         async def evaluate(self, **kwargs):
+            judge_calls.append(True)
             text = str(kwargs["trajectory"]["messages"])
             assert "cleanup" not in text and "unsent" not in text
-            return JudgeResult(), "", "", ""
+            result = JudgeResult()
+            if policy_credit_v2:
+                result.mandatory_policy_checks = [JudgeCheck(
+                    criterion_id="mixed", passed=False, evidence_turn_ids=[2],
+                    violation_assistant_turn_ids=[2], short_reason="mixed text/tool action",
+                )]
+            return result, "", "", ""
 
     loop.tokenizer = SimpleNamespace(
         eos_token_id=9,
@@ -124,8 +137,27 @@ def rollout_fixture(scratch_dir):
         )
 
     scope["build_progress_trace"] = local_verifier
+    if fail_after_delivery:
+        with pytest.raises(RuntimeError, match="tau2_text_step; audit record saved") as caught:
+            asyncio.run(loop._run_trajectory({}, extra_info={"task_id": "0"}))
+        assert str(caught.value.__cause__) == "backend failed after delivery"
+        assert cleaned == [True]
+        assert not judge_calls
+        return loop, None, next(loop.store.records())
     output = asyncio.run(loop._run_trajectory({}, extra_info={"task_id": "0"}))
     return loop, output, next(loop.store.records())
+
+
+def test_v2_partial_environment_failure_keeps_original_failure_and_audit(scratch_dir):
+    _, _, record = rollout_fixture(
+        scratch_dir, policy_credit_v2=True, fail_after_delivery=True
+    )
+    assert record.metadata["failure_phase"] == "tau2_text_step"
+    assert record.custom_reward is None and record.progress_trace is None
+    assert [m.get("content") for m in record.environment_transcript] == [
+        "help", "refund", "thanks"
+    ]
+    assert record.token_turns[0].output_token_ids == [4, 9]
 
 
 def test_actor_records_delivered_prefixes_and_maps_every_policy_token(scratch_dir):
@@ -162,4 +194,31 @@ def test_credit_record_rejects_changes_to_bound_scoring_evidence(scratch_dir, ch
     else:
         record.custom_reward.details["checkset_fingerprint"] = "other"
     with pytest.raises(ValueError):
+        credit_from_record(record)
+
+
+def test_v2_actor_scoring_retry_and_group_credit_preserve_local_policy_signal(scratch_dir):
+    from copy import deepcopy
+
+    from tau2_agentic_rl.advantages import CreditConfig, compute_group_credit
+
+    loop, output, record = rollout_fixture(scratch_dir, policy_credit_v2=True)
+    assert output.reward_score == record.custom_reward.strict_success == 0
+    assert record.custom_reward.details["policy_credit"]["violating_turns"] == [1]
+    assert record.environment_transcript[1]["assistant_turn_id"] == 1
+    assert record.scoring_inputs["reward_project_config"]["credit"]["version"] == "procredit-turn-v2"
+    rows = [deepcopy(output.extra_fields["procredit"]) for _ in range(8)]
+    for i, item in enumerate(rows):
+        item["trajectory_id"] = f"sample-{i}"
+    credit = compute_group_credit(rows, CreditConfig(version="procredit-turn-v2"))
+    assert credit["has_signal"]
+    assert credit["trajectories"][0]["turn_advantages"][0] > 0
+    assert credit["trajectories"][0]["turn_advantages"][1] < 0
+    expected = record.custom_reward.model_dump()
+    record.custom_reward = None
+    record.metadata["failure_phase"] = "judge"
+    assert asyncio.run(retry_scoring(record, loop.judge, loop.store))
+    assert record.custom_reward.model_dump() == expected
+    record.custom_reward.details["policy_credit"]["violating_turns"] = [0]
+    with pytest.raises(ValueError, match="policy"):
         credit_from_record(record)

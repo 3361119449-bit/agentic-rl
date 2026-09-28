@@ -13,7 +13,6 @@ from verl.experimental.agent_loop.agent_loop import (
     AgentLoopBase,
     AgentLoopMetrics,
     AgentLoopOutput,
-    register,
 )
 from verl.experimental.agent_loop.tool_parser import ToolParser
 from verl.tools.base_tool import OpenAIFunctionToolSchema
@@ -46,6 +45,7 @@ from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
 from tau2_agentic_rl.policy_rules import validate_policy_rows
 from tau2_agentic_rl.procredit_runtime import credit_from_record
+from tau2_agentic_rl.reward.policy_credit import annotate_policy_turns
 from tau2_agentic_rl.reward.progress import build_progress_trace
 from tau2_agentic_rl.reward.required_actions import (
     arguments_equal,
@@ -135,7 +135,6 @@ def _termination_reason(tau_reason: str | None) -> str:
     return tau_reason if tau_reason in known else "environment_terminated"
 
 
-@register("tau2_airline")
 class Tau2AirlineAgentLoop(AgentLoopBase):
     """Run one isolated Tau2 trajectory and return aligned veRL tokens."""
 
@@ -792,6 +791,16 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         trajectory_for_judge = snapshot_transcript(environment)
         if progress_inputs is not None:
             progress_inputs["messages"] = deepcopy(environment.full_trajectory())
+            # A failed environment step may already have appended messages,
+            # while its prefix boundary was never finalized. Preserve that
+            # partial transcript for cleanup/audit without assigning credit.
+            if (
+                infrastructure_error is None
+                and self.project.get("credit", {}).get("version") == "procredit-turn-v2"
+            ):
+                trajectory_for_judge = annotate_policy_turns(
+                    trajectory_for_judge, progress_inputs["prefix_lengths"]
+                )
         interaction_termination_reason = termination_reason
         user_sim_inputs = None
         if filter_enabled(self.project) and infrastructure_error is None:
@@ -841,6 +850,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             "action_dependencies": self.action_dependencies.get(task_id, []),
             "reward_project_config": {
                 "reward": self.project.get("reward", {}),
+                "credit": self.project.get("credit", {}),
                 "rollout": self.project["rollout"],
             },
         }

@@ -16,6 +16,7 @@ from tau2_agentic_rl.reward.normal_branch import (
     normalized_weighted_mean,
     strict_success,
 )
+from tau2_agentic_rl.reward.policy_credit import build_policy_credit
 from tau2_agentic_rl.reward.process_penalty import (
     ProcessPenaltyConfig,
     compute_process_penalty,
@@ -56,6 +57,7 @@ class RewardConfig:
 
     mode: str = "legacy"
     progress_scale: float = 0.5
+    credit_version: str = "procredit-turn-v1"
     normal_weights: dict[str, float] = field(
         default_factory=lambda: {
             "db": 0.30,
@@ -80,6 +82,10 @@ class RewardConfig:
     process: ProcessPenaltyConfig = field(default_factory=ProcessPenaltyConfig)
 
     def __post_init__(self) -> None:
+        if self.credit_version not in {"procredit-turn-v1", "procredit-turn-v2"}:
+            raise ValueError("unknown credit version")
+        if self.credit_version == "procredit-turn-v2" and self.mode != "strict_progress_v1":
+            raise ValueError("policy-local credit requires strict terminal reward")
         if self.mode not in {"legacy", "strict_progress_v1"}:
             raise ValueError("unknown reward mode")
         if self.mode == "strict_progress_v1" and (
@@ -111,6 +117,7 @@ def build_reward_config(project_config: dict[str, Any]) -> RewardConfig:
     process_defaults = defaults.process
     return RewardConfig(
         mode=reward.get("mode", "legacy"),
+        credit_version=project_config.get("credit", {}).get("version", "procredit-turn-v1"),
         progress_scale=float(reward.get("progress_scale", 0.5)),
         normal_weights={
             str(key): float(value)
@@ -353,10 +360,17 @@ def score_trajectory(
     }
     # The legacy pre-truncation quantity is not the new reward's intermediate.
     details.pop("reward_before_truncation", None)
-    return RewardResult.model_validate({
+    scored = RewardResult.model_validate({
         **result.model_dump(),
         "reward_mode": config.mode,
         "train_reward": max(0.0, raw_score) if valid else 0.0,
         "progress": phi[-1],
         "details": details,
     })
+    if config.credit_version == "procredit-turn-v2":
+        scored.details["credit_version"] = config.credit_version
+        scored.details["policy_credit"] = build_policy_credit(
+            reward=scored, judge=kwargs["judge"], events=kwargs["events"],
+            turns=kwargs["assistant_turns"],
+        )
+    return scored

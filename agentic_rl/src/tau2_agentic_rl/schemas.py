@@ -81,6 +81,9 @@ class JudgeCheck(BaseModel):
     criterion_id: str
     passed: bool
     evidence_turn_ids: list[EvidenceTurnId] = Field(default_factory=list)
+    # Explicit offending actor generations, one-based; supporting/context
+    # evidence_turn_ids above uses a different, historical namespace.
+    violation_assistant_turn_ids: list[EvidenceTurnId] = Field(default_factory=list)
     short_reason: str = ""
 
 

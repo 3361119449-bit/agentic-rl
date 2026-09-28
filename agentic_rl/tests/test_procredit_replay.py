@@ -2,12 +2,14 @@ import json
 from copy import deepcopy
 
 import pytest
+from test_policy_credit import policy_row, v2
 from test_procredit_config import ROOT, project
 from test_procredit_runtime import queue_rows
 
 from scripts import rescore_procredit_groups
 from scripts.train_airline_grpo import build_command
 from tau2_agentic_rl.advantages import CreditConfig
+from tau2_agentic_rl.config import load_yaml
 from tau2_agentic_rl.procredit_runtime import queue_group_reports
 from tau2_agentic_rl.rl_resume import (
     build_resume_identity,
@@ -45,6 +47,18 @@ def test_missing_original_group_member_is_not_replaced(scratch_dir):
     file.write_text(json.dumps(content), encoding="utf-8")
     with pytest.raises(ValueError):
         rescore_procredit_groups.rescore_groups(source, scratch_dir / "new", project())
+
+
+def test_v2_audit_replays_exactly_and_cannot_silently_change_algorithm(scratch_dir):
+    source, output = scratch_dir / "source", scratch_dir / "new"
+    keys, _ = queue_rows()
+    extras = [{"procredit": policy_row(i)} for i in range(8)]
+    queue_group_reports(keys, extras, v2(), audit_dir=source)
+    cfg = load_yaml(ROOT / "configs/rl/airline_procredit_v2.yaml")
+    assert rescore_procredit_groups.rescore_groups(source, output, cfg) == 1
+    assert next(source.glob("*.json")).read_bytes() == next(output.glob("*.json")).read_bytes()
+    with pytest.raises(ValueError, match="fall back"):
+        rescore_procredit_groups.rescore_groups(source, scratch_dir / "legacy", project())
 
 
 def test_new_resume_identity_binds_code_and_credit_coefficient(scratch_dir):

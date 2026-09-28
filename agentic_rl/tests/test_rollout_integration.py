@@ -36,12 +36,15 @@ def production_loop_class():
             isinstance(node, ast.ImportFrom) and (node.module or "").startswith("verl.")
         )
     ]
+    def register(*args):
+        raise AssertionError("YAML registers the loop; importing it must not replace registry config")
+
     scope = {
         "__name__": "loop_fixture",
         "AgentLoopBase": object,
         "AgentLoopOutput": SimpleNamespace,
         "AgentLoopMetrics": SimpleNamespace,
-        "register": lambda name: lambda cls: cls,
+        "register": register,
         "OpenAIFunctionToolSchema": lambda **kwargs: kwargs,
     }
     exec(compile(parsed, str(path), "exec"), scope)
