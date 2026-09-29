@@ -55,6 +55,13 @@ from tau2_agentic_rl.reward.required_actions import (
 from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
 from tau2_agentic_rl.rollout_audit import audited_official_scores, snapshot_transcript
 from tau2_agentic_rl.schemas import TokenTurn, ToolEvent, TrajectoryRecord
+from tau2_agentic_rl.scoring_retry import SCORING_FAILURES, retry_scoring
+from tau2_agentic_rl.slot_recovery import (
+    RolloutInfrastructureError,
+    SlotRecoveryExhausted,
+    run_training_slot,
+    slot_metadata,
+)
 from tau2_agentic_rl.storage import TrajectoryStore
 from tau2_agentic_rl.token_alignment import validate_aligned_response
 from tau2_agentic_rl.tooling import (
@@ -311,6 +318,14 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
 
     async def _run_valid_trajectory(self, sampling_params, **kwargs):
         """Replace invalid USER episodes before any tokens reach DAPO/PPO."""
+        if (
+            self.project.get("credit", {}).get("version") == "procredit-turn-v4"
+            and not os.environ.get("EVALUATION_MANIFEST_ID")
+            and _split(kwargs)[1] == "train"
+        ):
+            return await run_training_slot(
+                self._run_trajectory, sampling_params, project=self.project, kwargs=kwargs,
+            )
         if not filter_enabled(self.project):
             return await self._run_trajectory(sampling_params, **kwargs)
         max_replacements = self.project["user_sim_filter"].get("max_resamples", 2)
@@ -396,6 +411,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     initial_db_hash=environment.initial_db_hash(),
                     final_db_hash=environment.safe_db_hash(),
                     metadata={
+                        **slot_metadata(kwargs),
                         "evaluation_sample_index": kwargs.get("extra_info", {}).get(
                             "evaluation_sample_index"
                         ),
@@ -406,9 +422,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     },
                 )
             )
-            raise RuntimeError(
-                "Tau2 environment reset failed; audit record saved"
-            ) from exc
+            raise RolloutInfrastructureError("environment_reset", trajectory_id) from exc
         messages = []
         prompt_measurement = None
         try:
@@ -447,6 +461,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     initial_db_hash=environment.initial_db_hash(),
                     final_db_hash=environment.safe_db_hash(),
                     metadata={
+                        **slot_metadata(kwargs),
                         "evaluation_sample_index": kwargs.get("extra_info", {}).get(
                             "evaluation_sample_index"
                         ),
@@ -458,9 +473,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     },
                 )
             )
-            raise RuntimeError(
-                "rollout prompt initialization failed; audit saved"
-            ) from exc
+            raise RolloutInfrastructureError("prompt_initialization", trajectory_id) from exc
         initial_prompt_ids = list(prompt_ids)
         procredit = is_procredit(self.project)
         progress_inputs = (
@@ -472,7 +485,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             if procredit else None
         )
         progress_trace = None
-        if progress_inputs is not None and self.project.get("credit", {}).get("version") == "procredit-turn-v3":
+        if progress_inputs is not None and self.project.get("credit", {}).get("version") in {"procredit-turn-v3", "procredit-turn-v4"}:
             progress_inputs["version"] = "progress-v2"
         response_turn_ids: list[int] = []
         response_mask: list[int] = []
@@ -799,7 +812,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             # partial transcript for cleanup/audit without assigning credit.
             if (
                 infrastructure_error is None
-                and self.project.get("credit", {}).get("version") in {"procredit-turn-v2", "procredit-turn-v3"}
+                and self.project.get("credit", {}).get("version") in {"procredit-turn-v2", "procredit-turn-v3", "procredit-turn-v4"}
             ):
                 trajectory_for_judge = annotate_policy_turns(
                     trajectory_for_judge, progress_inputs["prefix_lengths"]
@@ -859,6 +872,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         }
         if progress_inputs is not None:
             scoring_inputs["progress_inputs"] = progress_inputs
+        if self.project.get("credit", {}).get("version") == "procredit-turn-v4":
+            scoring_inputs["judge"]["require_policy_attribution"] = True
         quality_record = None
         if user_sim_inputs is not None and infrastructure_error is None:
             quality_record = TrajectoryRecord(
@@ -884,6 +899,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 initial_db_hash=environment.initial_db_hash(),
                 final_db_hash=final_db_hash,
                 metadata={
+                    **slot_metadata(kwargs),
                     "reward_judge_enabled": reward_judge_enabled(self.project),
                     "tau2_commit": self.project["project"]["tau2_commit"],
                     "verl_commit": self.project["project"]["verl_commit"],
@@ -906,12 +922,29 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                         semantic_row.get("semantic_checks", []),
                         policy_row.get("judge_checks", []),
                         transfer_rule,
+                        require_policy_attribution=self.project.get("credit", {}).get("version") == "procredit-turn-v4",
                     ),
                 },
             )
-            if not await check_user_simulation(
-                quality_record, self.user_sim_judge, self.store
-            ):
+            screen_retries = (
+                self.project.get("slot_recovery", {}).get("max_scoring_retries", 0)
+                if self.project.get("credit", {}).get("version") == "procredit-turn-v4"
+                else 0
+            )
+            for attempt in range(screen_retries + 1):
+                try:
+                    user_valid = await check_user_simulation(
+                        quality_record, self.user_sim_judge, self.store
+                    )
+                    break
+                except Exception as exc:
+                    if attempt == screen_retries:
+                        if screen_retries:
+                            raise SlotRecoveryExhausted(
+                                f"user Judge retry limit for frozen trajectory {trajectory_id}"
+                            ) from exc
+                        raise
+            if not user_valid:
                 raise UserSimulationRejected(
                     f"invalid simulator trajectory {trajectory_id}; quarantined, resampling required"
                 )
@@ -1011,6 +1044,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             user_sim_result=quality_record.user_sim_result if quality_record else None,
             metadata={
                 **(quality_record.metadata if quality_record else {}),
+                **slot_metadata(kwargs),
                 "reward_judge_enabled": reward_judge_enabled(self.project),
                 "agent_system_prompt_sha256": prompt_sha256(self.agent_system_prompt),
                 "initial_prompt": prompt_measurement,
@@ -1028,6 +1062,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     semantic_row.get("semantic_checks", []),
                     policy_row.get("judge_checks", []),
                     transfer_rule,
+                    require_policy_attribution=self.project.get("credit", {}).get("version") == "procredit-turn-v4",
                 ),
                 "user_prompt_hashes": environment.user_prompt_hashes(),
                 "tau2_commit": self.project["project"]["tau2_commit"],
@@ -1047,11 +1082,23 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             },
         )
         self.store.save(record)
+        if (
+            infrastructure_error is not None
+            and infrastructure_error[0] in SCORING_FAILURES
+            and self.project.get("credit", {}).get("version") == "procredit-turn-v4"
+        ):
+            for _ in range(self.project["slot_recovery"]["max_scoring_retries"]):
+                if await retry_scoring(record, self.judge, self.store):
+                    infrastructure_error = None
+                    custom_reward = record.custom_reward
+                    break
+            if infrastructure_error is not None:
+                raise SlotRecoveryExhausted(
+                    f"scoring retry limit for frozen trajectory {trajectory_id}; siblings retained"
+                ) from infrastructure_error[1]
         if infrastructure_error is not None:
             phase, error = infrastructure_error
-            raise RuntimeError(
-                f"rollout infrastructure failure during {phase}; audit record saved"
-            ) from error
+            raise RolloutInfrastructureError(phase, trajectory_id) from error
         assert custom_reward is not None or not reward_judge_enabled(self.project)
         assert official is not None
         credit_fields = {}

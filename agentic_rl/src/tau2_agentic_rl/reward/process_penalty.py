@@ -37,9 +37,9 @@ class ProcessPenaltyConfig:
             "extra_assistant_turn": 0.02,
         }
     )
-    cap: float = 0.20
+    cap: float | None = 0.20
     soft_turn_limit: int = 15
-    over_turn_cap: float = 0.08
+    over_turn_cap: float | None = 0.08
 
 
 def compute_process_penalty(
@@ -49,6 +49,17 @@ def compute_process_penalty(
 ) -> ProcessPenaltyResult:
     """Apply one base error per call, then independent retry/repetition errors."""
     config = config or ProcessPenaltyConfig()
+    if config.cap is None or config.over_turn_cap is None:
+        raise ValueError("scalar process scoring requires legacy caps")
+    total, penalty_events = _process_events(events, assistant_turns, config)
+    total = min(total, config.cap)
+    return ProcessPenaltyResult(
+        penalty=total, process_reward=1.0 - total, events=penalty_events,
+    )
+
+
+def _process_events(events, assistant_turns, config, *, local_only=False):
+    """One base error per call plus its distinct retry/repetition signals."""
     penalty_events: list[dict] = []
     total = 0.0
 
@@ -86,10 +97,9 @@ def compute_process_penalty(
             )
 
     extra_turns = max(0, assistant_turns - config.soft_turn_limit)
-    turn_penalty = min(
-        extra_turns * config.penalties["extra_assistant_turn"],
-        config.over_turn_cap,
-    )
+    turn_penalty = extra_turns * config.penalties["extra_assistant_turn"]
+    if not local_only:
+        turn_penalty = min(turn_penalty, config.over_turn_cap)
     if turn_penalty:
         total += turn_penalty
         penalty_events.append(
@@ -100,16 +110,13 @@ def compute_process_penalty(
             }
         )
 
-    total = min(total, config.cap)
-    return ProcessPenaltyResult(
-        penalty=total,
-        process_reward=1.0 - total,
-        events=penalty_events,
-    )
+    return total, penalty_events
 
 
-def build_process_credit(events: list[ToolEvent], turns: int, config: ProcessPenaltyConfig) -> dict:
-    """Allocate the existing capped process cost to its own actor generations."""
+def build_process_credit(
+    events: list[ToolEvent], turns: int, config: ProcessPenaltyConfig, *, local_only=False,
+) -> dict:
+    """v1 allocates a capped cost; v2 charges fixed costs only where they occur."""
     if type(turns) is not int or turns < 0 or type(config.soft_turn_limit) is not int or config.soft_turn_limit < 0:
         raise ValueError("process turn limits must be nonnegative integers")
     by_id = {event.event_id: event for event in events}
@@ -117,29 +124,45 @@ def build_process_credit(events: list[ToolEvent], turns: int, config: ProcessPen
         raise ValueError("duplicate process event ID")
     if any(not 1 <= event.turn_id <= turns for event in events):
         raise ValueError("process event lies outside actor turns")
-    if any(not math.isfinite(x) or x < 0 for x in [
-        config.cap, config.over_turn_cap, *config.penalties.values()
-    ]):
+    if local_only and (config.cap is not None or config.over_turn_cap is not None):
+        raise ValueError("local process credit cannot have trajectory caps")
+    if not local_only and (config.cap is None or config.over_turn_cap is None):
+        raise ValueError("legacy process credit requires caps")
+    amounts = list(config.penalties.values())
+    if not local_only:
+        amounts += [config.cap, config.over_turn_cap]
+    if any(not math.isfinite(x) or x < 0 for x in amounts):
         raise ValueError("process costs must be finite and nonnegative")
-    scalar = compute_process_penalty(events, turns, config)
+    if local_only:
+        _, penalty_events = _process_events(events, turns, config, local_only=True)
+    else:
+        scalar = compute_process_penalty(events, turns, config)
+        penalty_events = scalar.events
     costs = [0.0] * turns
-    for item in scalar.events:
+    for item in penalty_events:
         if item["kind"] == "over_soft_turn_limit":
             remaining = item["penalty"]
             for turn in range(config.soft_turn_limit, turns):
-                amount = min(remaining, config.penalties["extra_assistant_turn"])
+                amount = (
+                    config.penalties["extra_assistant_turn"] if local_only
+                    else min(remaining, config.penalties["extra_assistant_turn"])
+                )
                 costs[turn] += amount
                 remaining = max(0.0, remaining - amount)
         else:
             costs[by_id[item["event_id"]].turn_id - 1] += item["penalty"]
     total = math.fsum(costs)
-    if total > 0:
+    if not local_only and total > 0:
         costs = [value * scalar.penalty / total for value in costs]
-    return {
-        "version": "process-credit-v1", "turn_costs": costs,
-        "total_cost": scalar.penalty,
+    result = {
+        "version": "process-credit-v2" if local_only else "process-credit-v1",
+        "turn_costs": costs,
+        "total_cost": total if local_only else scalar.penalty,
         "inputs_fingerprint": sha256_json({
             "events": [e.model_dump(mode="json") for e in events],
             "turns": turns, "config": asdict(config),
         }),
     }
+    if local_only:
+        result["events"] = penalty_events
+    return result

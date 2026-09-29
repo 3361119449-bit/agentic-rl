@@ -13,7 +13,7 @@ from tau2_agentic_rl.scoring_retry import retry_scoring
 
 
 def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=False,
-                    credit_version=None):
+                    credit_version=None, judge_failures=0):
     loop, scope = minimal_loop(scratch_dir)
     cleaned, judge_calls = [], []
     loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
@@ -23,6 +23,13 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
         policy_credit_v2 = True
     if policy_credit_v2:
         loop.project["credit"] = {"version": credit_version or "procredit-turn-v2"}
+    if credit_version == "procredit-turn-v4":
+        loop.project["reward"].update(
+            mode="turn_local_v1", mandatory_policy_gate=False, task_safety_gate=False,
+        )
+        loop.project["slot_recovery"] = {
+            "max_resamples": 2, "max_scoring_retries": 2, "on_exhaustion": "stop",
+        }
     loop.reward_config = build_reward_config(loop.project)
     loop.semantic, loop.transfer, loop.policy_rules = {"0": {}}, {"0": {}}, {"0": {}}
     loop.required_actions, loop.action_dependencies = {"0": []}, {}
@@ -99,6 +106,8 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
     class Judge:
         async def evaluate(self, **kwargs):
             judge_calls.append(True)
+            if len(judge_calls) <= judge_failures:
+                raise RuntimeError("temporary Judge error")
             text = str(kwargs["trajectory"]["messages"])
             assert "cleanup" not in text and "unsent" not in text
             result = JudgeResult()

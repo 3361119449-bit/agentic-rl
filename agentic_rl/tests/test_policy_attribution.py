@@ -111,6 +111,24 @@ def test_old_ambiguous_policy_evidence_is_unresolved_not_guessed():
     assert "grounding" in result["unresolved_checks"]
 
 
+@pytest.mark.parametrize("blame,complete", [([2], True), ([], False)])
+def test_v4_missing_required_transfer_uses_only_explicit_transfer_blame(blame, complete):
+    result = build_policy_credit(
+        reward=reward(reward_mode="turn_local_v1", details={"policy_checks": [{
+            "rule_id": "required_human_transfer_completed", "passed": False,
+            "evidence_event_ids": [],
+        }]}),
+        judge=JudgeResult(mandatory_policy_checks=[JudgeCheck(
+            criterion_id="4:policy:transfer_scope_and_message", passed=False,
+            evidence_turn_ids=[3], violation_assistant_turn_ids=blame,
+            short_reason="actor refused a required transfer",
+        )]),
+        events=[], turns=3,
+    )
+    assert result["attribution_complete"] is complete
+    assert result["violating_turns"] == ([1] if complete else [])
+
+
 def test_task_safety_uses_event_ids_and_deduplicates_penalty_turns():
     events = [
         ToolEvent(event_id="write", sequence=0, turn_id=2, name="cancel_reservation")

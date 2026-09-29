@@ -17,8 +17,10 @@ class CreditConfig:
     violation_penalty: float = 1.0
 
     def __post_init__(self):
-        if self.version not in {"procredit-turn-v1", "procredit-turn-v2", "procredit-turn-v3"}:
+        if self.version not in {"procredit-turn-v1", "procredit-turn-v2", "procredit-turn-v3", "procredit-turn-v4"}:
             raise ValueError("unknown ProCredit version")
+        if self.version == "procredit-turn-v4" and self.turn_coefficient != 1.0:
+            raise ValueError("v4 requires mandatory local policy punishment")
         if type(self.violation_penalty) is bool or self.violation_penalty != 1.0:
             raise ValueError("policy-local credit requires violation penalty 1.0")
         if self.progress_scale != 0.5 or self.turn_coefficient not in (0.0, 1.0):
@@ -50,7 +52,7 @@ class CreditConfig:
 
 
 def is_procredit(project: dict) -> bool:
-    return project.get("reward", {}).get("mode") == "strict_progress_v1"
+    return project.get("reward", {}).get("mode") in {"strict_progress_v1", "turn_local_v1"}
 
 
 def _number(value: Any, low: float, high: float, name: str) -> float:
@@ -112,7 +114,10 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
     )
     identities, ids, validated, policies, process_costs = [], set(), [], [], []
     for row in rows:
-        if config.version != "procredit-turn-v3" and "process_credit" in row:
+        local_only = config.version == "procredit-turn-v4"
+        if (local_only or "credit_version" in row) and row.get("credit_version") != config.version:
+            raise ValueError("credit row version differs from algorithm")
+        if config.version not in {"procredit-turn-v3", "procredit-turn-v4"} and "process_credit" in row:
             raise ValueError("v3 process credit cannot silently fall back to an older algorithm")
         if config.version == "procredit-turn-v1" and "policy_credit" in row:
             raise ValueError("v2 policy credit cannot silently fall back to v1")
@@ -129,7 +134,7 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
         terminal = _number(row["terminal_success"], 0, 1, "terminal_success")
         if terminal not in (0, 1) or type(row["valid"]) is not bool:
             raise ValueError("success and gate must be binary")
-        if not row["valid"] and score != 0:
+        if not local_only and not row["valid"] and score != 0:
             raise ValueError("invalid trajectory must have zero score")
         multiplier = _number(row["multiplier"], 0.75, 1, "multiplier")
         if multiplier not in (0.75, 1):
@@ -140,15 +145,16 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             raise ValueError("missing token-to-turn mapping")
         turns = len(phi) - 1
         costs = [0.0] * turns
-        if config.version == "procredit-turn-v3":
+        if config.version in {"procredit-turn-v3", "procredit-turn-v4"}:
             process = row.get("process_credit")
-            if not isinstance(process, dict) or process.get("version") != "process-credit-v1":
-                raise ValueError("v3 requires process credit")
+            process_version = "process-credit-v2" if local_only else "process-credit-v1"
+            if not isinstance(process, dict) or process.get("version") != process_version:
+                raise ValueError(f"{config.version} requires {process_version}")
             values = process.get("turn_costs")
             if not isinstance(values, list) or len(values) != turns:
                 raise ValueError("process costs differ from actor turns")
-            costs = [_number(value, 0, .2, "process cost") for value in values]
-            if math.fsum(costs) > .2 + 1e-12:
+            costs = [_number(value, 0, math.inf if local_only else .2, "process cost") for value in values]
+            if not local_only and math.fsum(costs) > .2 + 1e-12:
                 raise ValueError("process costs exceed trajectory cap")
         process_costs.append(costs)
         if any(type(t) is not int or t < -1 or t >= turns for t in mapping):
@@ -162,17 +168,22 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
         ]
         if config.version != "procredit-turn-v1":
             bad, complete = _policy_attribution(row, turns)
-            if not row["valid"] and terminal != 0:
+            if not local_only and not row["valid"] and terminal != 0:
                 raise ValueError("policy-invalid terminal success must remain zero")
-            deltas = [
-                min(after - before, 0.0) if t in bad else after - before
-                for t, (before, after) in enumerate(zip(phi[:-1], phi[1:], strict=True))
-            ]
-            returns = [
-                multiplier * (terminal + config.progress_scale * math.fsum(deltas[t:]))
-                if complete and t not in bad else 0.0
-                for t in range(turns)
-            ]
+            if local_only and not complete:
+                raise ValueError("v4 requires complete policy attribution")
+            if local_only and bad - present:
+                raise ValueError("policy violation turn has no trainable tokens")
+            if not local_only:
+                deltas = [
+                    min(after - before, 0.0) if t in bad else after - before
+                    for t, (before, after) in enumerate(zip(phi[:-1], phi[1:], strict=True))
+                ]
+                returns = [
+                    multiplier * (terminal + config.progress_scale * math.fsum(deltas[t:]))
+                    if complete and t not in bad else 0.0
+                    for t in range(turns)
+                ]
             policies.append((bad, complete))
         else:
             policies.append((set(), row["valid"]))
@@ -199,6 +210,11 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             for t, value in enumerate(returns)
         ]
         for t in present:
+            if config.version == "procredit-turn-v4":
+                # Costs do not affect any task return or group baseline. Count
+                # policy once per turn and add the independent process cost.
+                turn_advantages[t] -= (config.violation_penalty if t in bad else 0.0) + costs[t]
+                continue
             # Keep penalty local and outside centering. Even an all-bad group
             # must have negative feedback; centering the penalty would erase it.
             penalty = max(config.violation_penalty if t in bad else 0.0, costs[t])
@@ -210,6 +226,13 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             else 0.0
             for t in mapping
         ]
+        if config.version == "procredit-turn-v4":
+            # Enforce the sign AFTER the trajectory and local terms combine.
+            # A high task score must never reward the violating generation.
+            tokens = [
+                min(value, -config.violation_penalty - costs[turn]) if turn in bad else value
+                for turn, value in zip(mapping, tokens, strict=True)
+            ]
         results.append(
             {
                 "trajectory_id": row["trajectory_id"],
@@ -219,6 +242,10 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
                 "token_advantages": tokens,
             }
         )
+        if config.version == "procredit-turn-v4":
+            results[-1]["policy_turn_rewards"] = [
+                -config.violation_penalty if t in bad else 0.0 for t in range(len(returns))
+            ]
     result = {
         "version": config.version,
         "config": config.audit_config(),
@@ -236,6 +263,6 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
     if config.version != "procredit-turn-v1":
         result["policy_violation_turns"] = sum(len(bad) for bad, _ in policies)
         result["unresolved_trajectories"] = sum(not complete for _, complete in policies)
-    if config.version == "procredit-turn-v3":
+    if config.version in {"procredit-turn-v3", "procredit-turn-v4"}:
         result["process_cost_turns"] = sum(value > 0 for costs in process_costs for value in costs)
     return result

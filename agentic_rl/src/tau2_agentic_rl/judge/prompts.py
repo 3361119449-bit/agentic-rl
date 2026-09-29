@@ -53,7 +53,7 @@ JUDGE_RUBRIC_VERSION = "areal-airline-rubric-v5-applicability"
 JUDGE_SCHEMA_VERSION = "1.0"
 
 
-def rubric_fingerprint(semantic_checks, mandatory_policy_checks, transfer_rule):
+def rubric_fingerprint(semantic_checks, mandatory_policy_checks, transfer_rule, *, require_policy_attribution=False):
     return sha256_json(
         {
             "prompt_version": JUDGE_PROMPT_VERSION,
@@ -61,6 +61,7 @@ def rubric_fingerprint(semantic_checks, mandatory_policy_checks, transfer_rule):
             "semantic_checks": semantic_checks,
             "mandatory_policy_checks": mandatory_policy_checks,
             "transfer_rule": transfer_rule,
+            **({"require_policy_attribution": True} if require_policy_attribution else {}),
         }
     )
 
@@ -73,6 +74,7 @@ def build_judge_messages(
     semantic_checks: list[dict[str, Any]],
     mandatory_policy_checks: list[dict[str, Any]],
     transfer_rule: dict[str, Any],
+    require_policy_attribution: bool = False,
 ) -> list[dict[str, str]]:
     """Build an isolated, injection-resistant judge request."""
     transferred = any(
@@ -123,6 +125,17 @@ def build_judge_messages(
             },
         },
     }
+    if require_policy_attribution:
+        rubric["policy_attribution_requirement"] = (
+            "This run uses turn-only penalties. Every failed policy check must cite "
+            "the specific violating actor generation in violation_assistant_turn_ids. "
+            "A verdict without localized blame cannot be trained and must be reviewed. "
+            "For an omission cite an actual premature completion/refusal that violates "
+            "the requirement if present; never guess an arbitrary final turn. "
+            "If transfer_rule.required is true and no transfer tool succeeded, "
+            "transfer_scope_and_message cannot pass: identify the actual violating "
+            "decision, or leave blame empty if the evidence cannot localize one."
+        )
     content = (
         "FIXED_AIRLINE_POLICY:\n"
         + policy

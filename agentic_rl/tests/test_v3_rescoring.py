@@ -15,15 +15,18 @@ from tau2_agentic_rl.scoring_retry import retry_scoring
 from tau2_agentic_rl.storage import TrajectoryStore
 
 
-def test_v3_offline_changed_cost_remains_replayable_with_new_frozen_config(scratch_dir, monkeypatch):
+@pytest.mark.parametrize("version", ["v3", "v4"])
+def test_offline_changed_cost_remains_replayable_with_new_frozen_config(scratch_dir, monkeypatch, version):
     root = Path(__file__).parents[1]
-    loop, _, record = rollout_fixture(scratch_dir, credit_version="procredit-turn-v3")
-    cfg = load_yaml(root / "configs/rl/airline_procredit_v3.yaml")
+    loop, _, record = rollout_fixture(scratch_dir, credit_version=f"procredit-turn-{version}")
+    cfg = load_yaml(root / f"configs/rl/airline_procredit_{version}.yaml")
     cfg["reward"]["process_penalties"]["mixed_content_and_tool_call"] = .05
     config_path = scratch_dir / "changed.yaml"
     config_path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
     record.metadata["agent_system_prompt_sha256"] = prompt_sha256(load_agent_system_prompt(cfg, root))
-    record.metadata["judge_rubric_sha256"] = rubric_fingerprint([], [], {})
+    record.metadata["judge_rubric_sha256"] = rubric_fingerprint(
+        [], [], {}, require_policy_attribution=version == "v4",
+    )
     monkeypatch.setattr(script, "load_required_actions", lambda path: {"0": []})
     monkeypatch.setattr(script, "load_action_dependencies", lambda path: {})
     monkeypatch.setattr(script, "load_task_mapping", lambda path: {"0": {}})

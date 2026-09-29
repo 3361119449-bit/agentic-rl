@@ -141,6 +141,8 @@ class DeepSeekJudge:
                 raise ValueError("Judge cannot mark an active policy rule as not applicable")
             if not check.applicable and not check.short_reason.strip():
                 raise ValueError("inapplicable policy requires a concrete trigger-absence reason")
+            if inputs.get("require_policy_attribution") and not check.passed and not check.violation_assistant_turn_ids:
+                raise ValueError("turn-only policy scoring requires explicit violation attribution")
             if not check.passed and (
                 not (check.evidence_turn_ids or check.violation_assistant_turn_ids)
                 or not check.short_reason.strip()
@@ -155,6 +157,15 @@ class DeepSeekJudge:
             for item in tool_events
         )
         transfer_required = bool(inputs.get("transfer_rule", {}).get("required", False))
+        if inputs.get("require_policy_attribution") and transfer_required and not transferred:
+            transfer_verdicts = [
+                check for check in result.mandatory_policy_checks
+                if check.criterion_id.endswith(":policy:transfer_scope_and_message")
+            ]
+            if not transfer_verdicts or any(check.passed for check in transfer_verdicts):
+                # Otherwise score_trajectory rejects the omission after this
+                # response is cached, and frozen retries cannot repair it.
+                raise ValueError("missing required transfer needs an attributed policy failure")
         expected_transfer_applicable = transferred or transfer_required
         if not transferred:
             # These are environment facts, not model decisions. Keep the raw

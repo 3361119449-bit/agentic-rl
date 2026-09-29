@@ -93,6 +93,22 @@ def build_policy_credit(
         if not check.get("applicable", True) or check.get("passed", True) or rule_id in failed_judge_ids:
             continue
         ids = check.get("evidence_event_ids", [])
+        if (
+            reward.reward_mode == "turn_local_v1"
+            and rule_id == "required_human_transfer_completed"
+            and not ids
+        ):
+            # Omissions have no executed event. Reuse only the Judge's explicit
+            # blame for this transfer decision, never an arbitrary final turn.
+            transfer_blame = [
+                turn
+                for verdict in judge.mandatory_policy_checks
+                if verdict.applicable and not verdict.passed
+                and verdict.criterion_id.endswith(":policy:transfer_scope_and_message")
+                for turn in verdict.violation_assistant_turn_ids
+            ]
+            add(rule_id, transfer_blame, "judge_explicit_blame")
+            continue
         if any(event_id not in by_event for event_id in ids):
             raise ValueError("policy violation refers to a missing tool event")
         add(rule_id, [by_event[event_id].turn_id for event_id in ids], "tool_event_id")

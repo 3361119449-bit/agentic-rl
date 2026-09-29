@@ -77,3 +77,53 @@ def test_failed_attempt_does_not_invent_completed_refund_or_transfer():
     result = JudgeResult()
     DeepSeekJudge._validate_requested_criteria(result, {"trajectory": trajectory})
     assert not result.transfer_check.applicable and not result.transfer_check.valid
+
+
+def test_v4_requires_specific_blame_in_judge_response():
+    criterion = "0:policy:information_grounding"
+    result = JudgeResult(mandatory_policy_checks=[
+        JudgeCheck(criterion_id=criterion, passed=False, applicable=True,
+                   evidence_turn_ids=[1], short_reason="invented information")])
+    with pytest.raises(ValueError, match="attribution"):
+        DeepSeekJudge._validate_requested_criteria(result, {
+            "require_policy_attribution": True,
+            "mandatory_policy_checks": [{"criterion_id": criterion}],
+            "trajectory": {"messages": [
+                {"role": "assistant", "turn_idx": 1, "assistant_turn_id": 1, "content": "invented"}
+            ]},
+        })
+
+
+def test_v4_missing_required_transfer_cannot_cache_an_unattributable_pass(scratch_dir, monkeypatch):
+    import asyncio
+
+    from test_judge_evidence import install_mock_api
+
+    from tau2_agentic_rl.judge.client import JudgeConfig
+
+    criterion = "0:policy:transfer_scope_and_message"
+    bad = JudgeResult(mandatory_policy_checks=[JudgeCheck(
+        criterion_id=criterion, applicable=True, passed=True,
+        short_reason="incorrectly assumes transfer completed",
+    )]).model_dump()
+    good = JudgeResult(mandatory_policy_checks=[JudgeCheck(
+        criterion_id=criterion, applicable=True, passed=False,
+        violation_assistant_turn_ids=[1], short_reason="refused required transfer",
+    )]).model_dump()
+    calls = install_mock_api(monkeypatch, [bad, good])
+    judge = DeepSeekJudge(JudgeConfig(model="fixture", cache_dir=str(scratch_dir), max_retries=1))
+    inputs = {
+        "policy": "transfer required", "task": {}, "semantic_checks": [],
+        "mandatory_policy_checks": [{"criterion_id": criterion}],
+        "transfer_rule": {"required": True}, "require_policy_attribution": True,
+        "trajectory": {"messages": [{
+            "role": "assistant", "turn_idx": 1, "assistant_turn_id": 1,
+            "content": "I refuse to transfer you.",
+        }], "tool_events": []},
+    }
+    result = asyncio.run(judge.evaluate(**inputs))
+    assert len(calls) == 2
+    assert result[0].mandatory_policy_checks[0].violation_assistant_turn_ids == [1]
+    assert asyncio.run(judge.evaluate(**inputs)) == result
+    assert len(calls) == 2
+    assert len(list(scratch_dir.glob("*.json"))) == 1

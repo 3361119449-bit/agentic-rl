@@ -90,21 +90,34 @@ def credit_from_record(record) -> dict:
     if (
         record.schema_version != "2.0"
         or reward is None
-        or reward.reward_mode != "strict_progress_v1"
+        or reward.reward_mode not in {"strict_progress_v1", "turn_local_v1"}
         or trace is None
         or record.response_turn_ids is None
     ):
         raise ValueError("record lacks complete ProCredit scoring inputs")
     validate_progress_trace(trace, turns=record.assistant_turns)
     valid = reward.policy_gate and reward.task_safety_gate
+    version = reward.details.get("credit_version", "procredit-turn-v1")
+    local_only = version == "procredit-turn-v4"
+    terminal = reward.strict_success
+    if local_only:
+        from tau2_agentic_rl.reward.normal_branch import strict_success
+
+        terminal = strict_success(reward.components)
+        if (
+            reward.reward_mode != "turn_local_v1"
+            or reward.details.get("task_completion") != terminal
+            or reward.details.get("policy_gate_applied") is not False
+        ):
+            raise ValueError("v4 task completion or policy contract changed")
     multiplier = reward.details["truncation_multiplier"]
     expected_score = (
         max(
             0,
-            multiplier * (reward.strict_success + 0.5 * trace["phi"][-1])
-            - reward.process_penalty,
+            multiplier * (terminal + 0.5 * trace["phi"][-1])
+            - (0 if local_only else reward.process_penalty),
         )
-        if valid
+        if valid or local_only
         else 0
     )
     if (
@@ -146,13 +159,12 @@ def credit_from_record(record) -> dict:
         "initial_state_fingerprint": trace["initial_state_fingerprint"],
         "score": reward.train_reward,
         "valid": valid,
-        "terminal_success": reward.strict_success,
+        "terminal_success": terminal,
         "multiplier": multiplier,
         "phi": trace["phi"],
         "response_turn_ids": record.response_turn_ids,
     }
-    version = reward.details.get("credit_version", "procredit-turn-v1")
-    if version in {"procredit-turn-v2", "procredit-turn-v3"}:
+    if version in {"procredit-turn-v2", "procredit-turn-v3", "procredit-turn-v4"}:
         if record.judge_result is None:
             raise ValueError("policy-local credit requires a frozen Judge result")
         expected_policy = build_policy_credit(
@@ -162,7 +174,14 @@ def credit_from_record(record) -> dict:
         if expected_policy != reward.details.get("policy_credit"):
             raise ValueError("record policy attribution differs from frozen scoring evidence")
         row["policy_credit"] = expected_policy
-    if version == "procredit-turn-v3":
+        if local_only:
+            rewards = [-1.0 if t in expected_policy["violating_turns"] else 0.0 for t in range(record.assistant_turns)]
+            if not expected_policy["attribution_complete"] or reward.details.get("policy_turn_rewards") != rewards:
+                raise ValueError("v4 policy attribution or turn rewards changed")
+            if set(expected_policy["violating_turns"]) - set(mapping):
+                raise ValueError("policy violation has no trainable tokens")
+            row["credit_version"] = version
+    if version in {"procredit-turn-v3", "procredit-turn-v4"}:
         from dataclasses import asdict
 
         from tau2_agentic_rl.reward.process_penalty import build_process_credit
@@ -177,11 +196,14 @@ def credit_from_record(record) -> dict:
         ):
             raise ValueError("record process configuration differs from frozen inputs")
         expected_process = build_process_credit(
-            record.tool_events, record.assistant_turns, config.process,
+            record.tool_events, record.assistant_turns, config.process, local_only=local_only,
         )
         if (
             expected_process != reward.details.get("process_credit")
-            or not math.isclose(expected_process["total_cost"], reward.process_penalty, abs_tol=1e-12)
+            or not math.isclose(
+                0 if local_only else expected_process["total_cost"], reward.process_penalty, abs_tol=1e-12,
+            )
+            or (local_only and reward.details.get("process_penalty_placement") != "turn_only")
         ):
             raise ValueError("record process attribution differs from frozen scoring evidence")
         row["process_credit"] = expected_process
@@ -257,7 +279,7 @@ def build_credit_tensors(
                 report["credit"]["unresolved_trajectories"] for report in reports.values()
             ),
         })
-    if config.version == "procredit-turn-v3":
+    if config.version in {"procredit-turn-v3", "procredit-turn-v4"}:
         metrics["procredit/process_cost_turns"] = sum(
             report["credit"]["process_cost_turns"] for report in reports.values()
         )

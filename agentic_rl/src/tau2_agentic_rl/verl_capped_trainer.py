@@ -46,6 +46,7 @@ from tau2_agentic_rl.dynamic_sampling import TrainingStepClock
 from tau2_agentic_rl.ppo_audit import audit_update
 from tau2_agentic_rl.procredit_runtime import build_credit_tensors, queue_group_reports
 from tau2_agentic_rl.rl_resume import snapshot_resume_identity
+from tau2_agentic_rl.slot_recovery import SlotRecoveryExhausted
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,17 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         self._clear_groups(partition_id, all_prompt_uids)
 
     def _terminal_eviction_reasons(self, global_steps: int, partition_id: str):
+        if (
+            partition_id == "train"
+            and getattr(getattr(self, "credit_config", None), "version", None) == "procredit-turn-v4"
+            and self.failure_keys[partition_id]
+        ):
+            # Each AgentLoop already retried its own slot. Do not throw away
+            # successful siblings or replace the prompt group on exhaustion.
+            raise SlotRecoveryExhausted(
+                "failed rollout slots remain after bounded recovery; groups retained: "
+                + ", ".join(sorted(self.failure_keys[partition_id]))
+            )
         reasons = super()._terminal_eviction_reasons(global_steps, partition_id)
         if partition_id != "train":
             return reasons

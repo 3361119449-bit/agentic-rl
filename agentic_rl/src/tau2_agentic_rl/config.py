@@ -76,24 +76,40 @@ def validate_procredit_config(config: dict) -> None:
     for key, expected in expected_credit.items():
         if config.get("credit", {}).get(key) != expected:
             raise ValueError(f"ProCredit requires credit.{key}={expected}")
+    local_only = credit.version == "procredit-turn-v4"
     if credit.version != "procredit-turn-v1" and config["credit"].get(
         "unresolved_policy_credit"
-    ) != "no_positive_progress":
-        raise ValueError("unresolved policy evidence must suppress positive progress credit")
-    if credit.version == "procredit-turn-v3":
+    ) != ("retry_frozen" if local_only else "no_positive_progress"):
+        raise ValueError(
+            "v4 unresolved policy evidence must retry frozen scoring"
+            if local_only else "unresolved policy evidence must suppress positive progress credit"
+        )
+    if local_only:
+        if config["credit"].get("violation_sign") != "strictly_negative":
+            raise ValueError("v4 requires negative final advantages on every violation turn")
+        recovery = config.get("slot_recovery", {})
+        if recovery.get("on_exhaustion") != "stop":
+            raise ValueError("slot exhaustion must stop instead of replacing a group")
+        for key in ("max_resamples", "max_scoring_retries"):
+            if type(recovery.get(key)) is not int or not 0 <= recovery[key] <= 10:
+                raise ValueError(f"slot_recovery.{key} must be an integer within [0, 10]")
+    if credit.version in {"procredit-turn-v3", "procredit-turn-v4"}:
         if config["reward"].get("progress_version") != "progress-v2":
-            raise ValueError("ProCredit v3 requires reward.progress_version=progress-v2")
-        if config["credit"].get("process_credit") != "capped_local_max":
-            raise ValueError("ProCredit v3 requires capped_local_max process credit")
+            raise ValueError("ProCredit v3/v4 requires reward.progress_version=progress-v2")
+        expected_process = "uncapped_local_additive" if local_only else "capped_local_max"
+        if config["credit"].get("process_credit") != expected_process:
+            raise ValueError(f"{credit.version} requires {expected_process} process credit")
         if config.get("training_selection", {}).get("mode") != "verified_progress":
-            raise ValueError("ProCredit v3 requires verified progress training selection")
+            raise ValueError("ProCredit v3/v4 requires verified progress training selection")
         if config.get("precision") != {
             "model_dtype": "bfloat16", "param_dtype": "bfloat16",
             "rollout_dtype": "bfloat16", "reduce_dtype": "float32", "buffer_dtype": "float32",
         }:
-            raise ValueError("ProCredit v3 requires explicit BF16 precision")
+            raise ValueError("ProCredit v3/v4 requires explicit BF16 precision")
     reward = config["reward"]
-    if reward.get("score_floor") != 0 or reward.get("penalty_placement") != "outside_truncation":
+    if reward.get("score_floor") != 0 or reward.get("penalty_placement") != (
+        "turn_only" if local_only else "outside_truncation"
+    ):
         raise ValueError("ProCredit requires nonnegative scores and undiscounted penalties")
     if config.get("dynamic_sampling", {}).get("criterion") != "final_advantage_nonzero":
         raise ValueError("ProCredit requires final-advantage group filtering")

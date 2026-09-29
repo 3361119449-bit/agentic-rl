@@ -592,6 +592,16 @@ veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num
 
 ## 离线重新打分
 
+### ProCredit v4 逐轮政策惩罚（2026-09-29）
+
+新增 `configs/rl/airline_procredit_v4.yaml`：训练奖励取消 policy/safety 整轨迹门控，
+违规 turn 的局部奖励固定为 -1，叠加 trajectory advantage 后仍保证该 turn 的
+最终 advantage ≤ -1。process 只在本轮按固定值扣分，取消整轨迹扣分与 cap，
+与同轮 policy 相加；task/progress 不受 policy clipping。交互异常只补采原槽位，
+Judge 异常只重评冻结轨迹；
+重试耗尽则停止，不丢弃同组正常成员。显式 BF16 延续 v3。
+详见 [公式、重试边界和启动方式](REWARD_TURN_LOCAL_V4.md)。
+
 ### ProCredit v3 contract 修复（2026-09-28）
 
 新增 `configs/rl/airline_procredit_v3.yaml`：canonical matcher 与 safety 解耦、

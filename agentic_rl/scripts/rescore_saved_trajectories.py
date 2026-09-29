@@ -60,6 +60,7 @@ def main() -> None:
             semantic[record.task_id].get("semantic_checks", []),
             policy[record.task_id].get("judge_checks", []),
             transfer[record.task_id],
+            require_policy_attribution=reward_config.credit_version == "procredit-turn-v4",
         )
         if record.metadata.get("judge_rubric_sha256") != expected_rubric:
             raise ValueError(
@@ -84,7 +85,7 @@ def main() -> None:
         )
         metadata = dict(record.metadata)
         scoring_inputs = record.scoring_inputs
-        if reward_config.credit_version == "procredit-turn-v3":
+        if reward_config.credit_version in {"procredit-turn-v3", "procredit-turn-v4"}:
             source_fingerprint = sha256_json(scoring_inputs)
             if not scoring_inputs or source_fingerprint != metadata.get("scoring_inputs_sha256"):
                 raise ValueError("v3 rescoring requires intact frozen scoring inputs")

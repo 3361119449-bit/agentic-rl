@@ -185,7 +185,7 @@ class RewardResult(BaseModel):
     """Complete custom score while keeping official reward separate."""
 
     branch: Literal["normal", "human_transfer"]
-    reward_mode: Literal["legacy", "strict_progress_v1"] = "legacy"
+    reward_mode: Literal["legacy", "strict_progress_v1", "turn_local_v1"] = "legacy"
     train_reward: float = Field(ge=0.0, le=1.5)
     strict_success: float = Field(ge=0.0, le=1.0)
     progress: float = Field(ge=0.0, le=1.0)

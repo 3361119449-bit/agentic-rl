@@ -303,7 +303,7 @@ def main() -> None:
         pythonpath.append(old_pythonpath)
     os.environ["PYTHONPATH"] = os.pathsep.join(pythonpath)
 
-    if project.get("credit", {}).get("version") == "procredit-turn-v3":
+    if project.get("credit", {}).get("version") in {"procredit-turn-v3", "procredit-turn-v4"}:
         from tau2_agentic_rl.training_selection import prepare_training_selection
 
         sys.path.insert(0, str(args.tau2_root / "src"))

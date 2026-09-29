@@ -36,6 +36,7 @@ from tau2_agentic_rl.schemas import (
     JudgeResult,
     OfficialScores,
     PolicyCheckResult,
+    ProcessPenaltyResult,
     RewardResult,
     TerminationReason,
     ToolEvent,
@@ -83,20 +84,24 @@ class RewardConfig:
     process: ProcessPenaltyConfig = field(default_factory=ProcessPenaltyConfig)
 
     def __post_init__(self) -> None:
-        if self.credit_version not in {"procredit-turn-v1", "procredit-turn-v2", "procredit-turn-v3"}:
+        if self.credit_version not in {"procredit-turn-v1", "procredit-turn-v2", "procredit-turn-v3", "procredit-turn-v4"}:
             raise ValueError("unknown credit version")
-        if self.credit_version != "procredit-turn-v1" and self.mode != "strict_progress_v1":
+        local_only = self.credit_version == "procredit-turn-v4"
+        if local_only != (self.mode == "turn_local_v1"):
+            raise ValueError("turn_local_v1 requires ProCredit v4")
+        if self.credit_version != "procredit-turn-v1" and self.mode not in {"strict_progress_v1", "turn_local_v1"}:
             raise ValueError("policy-local credit requires strict terminal reward")
-        if self.mode not in {"legacy", "strict_progress_v1"}:
+        if self.mode not in {"legacy", "strict_progress_v1", "turn_local_v1"}:
             raise ValueError("unknown reward mode")
-        if self.mode == "strict_progress_v1" and (
+        if self.mode in {"strict_progress_v1", "turn_local_v1"} and (
             self.progress_scale != 0.5
             or self.truncation_multiplier != 0.75
-            or not self.enable_mandatory_policy_gate
-            or not self.enable_task_safety_gate
-            or self.process.cap != 0.20
+            or self.enable_mandatory_policy_gate == local_only
+            or self.enable_task_safety_gate == local_only
+            or (not local_only and self.process.cap != 0.20)
+            or (local_only and (self.process.cap is not None or self.process.over_turn_cap is not None))
         ):
-            raise ValueError("ProCredit v1 requires c=.5, truncation=.75, cap=.20 and gates")
+            raise ValueError("ProCredit requires c=.5, truncation=.75 and version-specific gates/process caps")
         if not isfinite(self.truncation_multiplier) or not (
             0.0 <= self.truncation_multiplier <= 1.0
         ):
@@ -106,7 +111,10 @@ class RewardConfig:
 def build_reward_config(project_config: dict[str, Any]) -> RewardConfig:
     """Map the versioned YAML schema to the runtime reward dataclasses."""
     reward = project_config.get("reward", {})
-    if reward.get("mode") == "strict_progress_v1":
+    local_only = project_config.get("credit", {}).get("version") == "procredit-turn-v4"
+    if local_only and {"process_penalty_cap", "over_turn_penalty_cap"} & reward.keys():
+        raise ValueError("v4 process penalties are local and cannot use trajectory caps")
+    if reward.get("mode") in {"strict_progress_v1", "turn_local_v1"}:
         legacy = {
             "normal_weights", "transfer_weights", "progress_coefficient",
             "strict_success_coefficient",
@@ -154,11 +162,11 @@ def build_reward_config(project_config: dict[str, Any]) -> RewardConfig:
                     "process_penalties", process_defaults.penalties
                 ).items()
             },
-            cap=float(reward.get("process_penalty_cap", process_defaults.cap)),
+            cap=None if local_only else float(reward.get("process_penalty_cap", process_defaults.cap)),
             soft_turn_limit=int(
                 rollout.get("max_soft_turns", process_defaults.soft_turn_limit)
             ),
-            over_turn_cap=float(
+            over_turn_cap=None if local_only else float(
                 reward.get("over_turn_penalty_cap", process_defaults.over_turn_cap)
             ),
         ),
@@ -212,7 +220,11 @@ def _score_legacy(
     )
     truncated = termination_reason in TRUNCATED_TERMINATIONS
     multiplier = config.truncation_multiplier if truncated else 1.0
-    process = compute_process_penalty(events, assistant_turns, config.process)
+    process = (
+        ProcessPenaltyResult(penalty=0, process_reward=1, events=[])
+        if config.credit_version == "procredit-turn-v4"
+        else compute_process_penalty(events, assistant_turns, config.process)
+    )
     policy_checks = evaluate_mandatory_policy(
         events,
         required_actions,
@@ -255,7 +267,9 @@ def _score_legacy(
             + config.strict_coefficient * strict
             - process.penalty
         )
-        if policy_blocks_reward or safety_blocks_reward or not valid:
+        if policy_blocks_reward or safety_blocks_reward or (
+            not valid and config.credit_version != "procredit-turn-v4"
+        ):
             reward = 0.0
             strict = 0.0
         return RewardResult(
@@ -341,7 +355,7 @@ def score_trajectory(
         return result
     if progress_trace is None:
         raise ValueError("ProCredit reward requires frozen progress")
-    if config.credit_version == "procredit-turn-v3" and progress_trace.get("version") != "progress-v2":
+    if config.credit_version in {"procredit-turn-v3", "procredit-turn-v4"} and progress_trace.get("version") != "progress-v2":
         raise ValueError("ProCredit v3 requires progress-v2")
     phi = validate_progress_trace(progress_trace, turns=kwargs["assistant_turns"])
     validate_progress_inputs(
@@ -350,14 +364,17 @@ def score_trajectory(
         transfer_rule=kwargs.get("transfer_rule") or {},
     )
     valid = result.policy_gate and result.task_safety_gate
+    local_only = config.credit_version == "procredit-turn-v4"
     multiplier = result.details["truncation_multiplier"]
     task_score = result.strict_success + config.progress_scale * phi[-1]
-    raw_score = multiplier * task_score - result.process_penalty
+    raw_score = multiplier * task_score
+    if not local_only:
+        raw_score -= result.process_penalty
     details = {
         **result.details,
         "task_score": task_score,
         "score_before_floor": raw_score,
-        "score_floor_applied": valid and raw_score < 0,
+        "score_floor_applied": (valid or local_only) and raw_score < 0,
         "progress_version": progress_trace["version"],
         "checkset_fingerprint": progress_trace["checkset_fingerprint"],
     }
@@ -366,7 +383,8 @@ def score_trajectory(
     scored = RewardResult.model_validate({
         **result.model_dump(),
         "reward_mode": config.mode,
-        "train_reward": max(0.0, raw_score) if valid else 0.0,
+        "train_reward": max(0.0, raw_score) if valid or local_only else 0.0,
+        "strict_success": result.strict_success if valid else 0.0,
         "progress": phi[-1],
         "details": details,
     })
@@ -376,9 +394,22 @@ def score_trajectory(
             reward=scored, judge=kwargs["judge"], events=kwargs["events"],
             turns=kwargs["assistant_turns"],
         )
-    if config.credit_version == "procredit-turn-v3":
+    if local_only:
+        policy = scored.details["policy_credit"]
+        if not policy["attribution_complete"]:
+            raise ValueError("v4 requires complete policy attribution; retry this frozen Judge input")
+        scored.details["task_completion"] = result.strict_success
+        scored.details["policy_gate_applied"] = False
+        scored.details["policy_turn_rewards"] = [
+            -1.0 if t in policy["violating_turns"] else 0.0
+            for t in range(kwargs["assistant_turns"])
+        ]
+    if config.credit_version in {"procredit-turn-v3", "procredit-turn-v4"}:
         scored.details["process_config"] = asdict(config.process)
         scored.details["process_credit"] = build_process_credit(
-            kwargs["events"], kwargs["assistant_turns"], config.process,
+            kwargs["events"], kwargs["assistant_turns"], config.process, local_only=local_only,
         )
+        if local_only:
+            scored.details["process_events"] = scored.details["process_credit"]["events"]
+            scored.details["process_penalty_placement"] = "turn_only"
     return scored
