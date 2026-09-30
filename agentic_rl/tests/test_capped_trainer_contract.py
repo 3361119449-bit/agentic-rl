@@ -29,7 +29,9 @@ def test_live_eviction_override_excludes_partially_failed_training_groups():
     # Execute the actual production method with only its veRL parent mocked.
     # No duplicate implementation, Ray, torch, or GPU needed in this unit test.
     wrapper = ast.parse("class UnderTest(FakeParent):\n    pass\n")
-    wrapper.body[0].body = [method]
+    isolates = next(node for node in cls.body if isinstance(node, ast.FunctionDef)
+                    and node.name == "_isolates_failed_groups")
+    wrapper.body[0].body = [method, isolates]
     ast.fix_missing_locations(wrapper)
 
     class FakeParent:

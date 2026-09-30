@@ -71,26 +71,42 @@ v4 禁止 `turn_coefficient=0`。一组八条都违规、标量全零时仍有�
 
 | 情况 | v4 处理 |
 | --- | --- |
-| 模型生成、环境交互等已分类基础设施异常 | 保存失败记录，仅用新 trajectory ID 重跑原槽位，保留环境 seed |
+| 模型生成、环境交互等明确可恢复的服务异常 | 保存失败记录，仅用新 trajectory ID 重跑原槽位，保留环境 seed |
 | User Simulator 被判无效 | 沿用独立 user replacement 预算，仅重跑该槽位并更换 user seed |
 | 已完成交互，但 Agent Judge/奖励评分异常 | 保留同一 ID、消息、事件、token、seed，重试冻结评分 |
 | User Simulator Judge 调用失败 | 在同一冻结交互上重试筛查 |
-| token/log-prob/策略版本对齐、工具结果数量、提示初始化或确定性配置错误 | 保存审计后立即停止，不补采 |
-| 重试耗尽、worker 故障或未分类异常 | 停止训练；buffer 不清除失败组的正常成员、不拿 7 条训练、不整组 refill |
+| token/log-prob/策略版本对齐、工具结果数量、提示初始化或确定性配置错误 | 保存审计后停止该槽位，隔离所属组，不补采 |
+| 重试耗尽、worker 故障或未分类异常 | 隔离所属组；其他完整好组继续训练，不拿残缺 7 条训练、不按失败组数量 refill |
 | 任务取消 | 立即停止后续补采，等已发出的后台交互结束后释放 lease 并传播取消 |
 
 默认 `slot_recovery.max_resamples=2`、`max_scoring_retries=2`，耗尽策略固定
-为 `stop`。API client 自身的重试预算仍独立存在。轨迹和输出
+为 `quarantine_group`。API client 自身的重试预算仍独立存在。轨迹和输出
 `slot_recovery` 元数据保存父 ID、attempt、失败 ID/阶段及两种 replacement 计数；
-冻结奖励重试另存 `scoring_retries`。成功成员保存在队列与轨迹审计中；
+冻结奖励重试另存 `scoring_retries`。失败组的正常成员在当前采样步骤排空前
+保留于队列；步骤结束时保存 `group_audits/quarantined/` 成员索引，再清理
+该组队列数据，原始 trajectory 审计保留。失败组不能混入下一策略版本。
+完整好组不足四组时，仍按正常 8 提示一批、最多三批的逻辑预算采样，
+失败组本身不产生额外 refill 次数或预算；上限耗尽则跳过本次更新。
 本次不提供整个训练进程重启后恢复未完成组的机制。
 
-`max_rollouts_per_optimizer_step=192` 与现有 generated_rollouts 指标统计的是
-**逻辑槽位数**。单槽位补采不占新槽位，但增加实际交互/API 成本。
+`max_rollouts_per_optimizer_step=192` 限制的是**逻辑槽位数**。
+`training/dynamic_sampling/generated_logical_rollouts` 明确记录这个口径；
+旧 `generated_rollouts` 保留为同值兼容别名。
+`physical_rollout_attempts` 则在每次真实交互发起前，由 Ray 作业共享计数器
+累加，包括随后失败、user-invalid、无训练信号、隔离或被丢弃的轨迹。
+其组成分别为 `initial_rollout_attempts`、`infrastructure_replacements`、
+`user_replacements`。每个采样步骤在首批提交前取基线，避免漏掉首批或
+混入上一轮费用；计数不依赖最终保留的训练 batch。
+单槽位补采不占新槽位，但增加实际交互/API 成本。
 默认每槽位最多 1 + 2 次 infrastructure replacement + 2 次 user replacement，
-实际交互计数应从 trajectory/slot_recovery 审计统计，不能把 192 当作物理尝试上限。
+默认逻辑预算下最多可发起 192 × 5 = 960 次交互；192 不是物理尝试上限。
+冻结评分重试和 API client 内部 HTTP 重试不算新的物理 rollout。
 评估轨迹的替换仍交给原评估 driver，避免训练端重复替换评估样本。
-训练和评估均检查异常 cause/context 链及 ExceptionGroup；包装过的配置、
+训练和评估均检查异常 cause/context 链及 ExceptionGroup；只认可明确的
+连接、超时错误和 HTTP 408/429/500/502/503/504。未知 RuntimeError、
+缺失异常证据、属性错误、模型文件不存在等默认不补采。
+HTTPX/HTTPCore/AnyIO 超时的内部取消保留可重试语义，顶层任务取消仍不补采。
+包装过的配置、
 类型、键、断言或对齐错误也不能触发补采。失败记录保存
 `interaction_retryable`；评估遇到不可重试记录或已知对齐失败阶段会停止，
 不会把它当成缺失槽位重新生成。冻结评分重试仍使用原轨迹。
@@ -128,7 +144,7 @@ v9 修复：合法但被无效同轮调用阻断的工具使用
 使用新 run 目录，旧 v8 记录不能当作新实验的有效评分直接续训。
 
 2026-09-30 本地完整 `tests` 套件（真实 Torch/TensorDict）：
-621 passed、25 skipped；Ruff 和 `git diff --check` 通过。
+646 passed、25 skipped；Ruff 和 `git diff --check` 通过。
 独立审查发现的 required-transfer 缓存边界和 transfer 残留门控均已修复，
 并通过先复现失败、再修复的回归测试；最终审查无剩余实质问题。
 
@@ -137,7 +153,9 @@ v9 修复：合法但被无效同轮调用阻断的工具使用
 同轮 policy/process 相加、违规 turn 保留完整 task/progress return、
 真实 Torch/TensorDict 进入生产 trainer 方法且 old log-prob 不变、8 槽只重试
 失败槽、冻结评分重试/耗尽、两种取消调度顺序下停止补采并保留 lease、
-包装/分组异常分类、评估不可重试错误停止、离线重新评分及 BF16 配置约束。
+包装/分组异常分类、真实 HTTPX/AnyIO 超时及断流链、评估不可重试错误停止、
+坏组隔离而好组继续训练、逻辑预算不因坏组扩张、跨步骤物理尝试计数、
+离线重新评分及 BF16 配置约束。
 
 本地未执行真实 GPU/API smoke，未运行依赖固定 Tau2/veRL/Ray 环境的完整契约
 测试。不能据本地回归宣称 smoke 已完成或 Judge 失败率已经降低。

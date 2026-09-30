@@ -336,9 +336,13 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             and not os.environ.get("EVALUATION_MANIFEST_ID")
             and _split(kwargs)[1] == "train"
         ):
+            async def count_attempt(kind):
+                await self.shared_budget.acall("record_rollout_attempt", "train", kind)
+
             return await run_training_slot(
                 self._run_trajectory, sampling_params, project=self.project, kwargs=kwargs,
                 stop_requested=stop_requested,
+                on_attempt=count_attempt,
             )
         if not filter_enabled(self.project):
             return await self._run_trajectory(sampling_params, **kwargs)

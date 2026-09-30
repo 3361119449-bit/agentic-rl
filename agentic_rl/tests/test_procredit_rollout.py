@@ -28,7 +28,7 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
             mode="turn_local_v1", mandatory_policy_gate=False, task_safety_gate=False,
         )
         loop.project["slot_recovery"] = {
-            "max_resamples": 2, "max_scoring_retries": 2, "on_exhaustion": "stop",
+            "max_resamples": 2, "max_scoring_retries": 2, "on_exhaustion": "quarantine_group",
         }
     loop.reward_config = build_reward_config(loop.project)
     loop.semantic, loop.transfer, loop.policy_rules = {"0": {}}, {"0": {}}, {"0": {}}

@@ -41,12 +41,16 @@ from verl.utils.tracking import (
 
 from tau2_agentic_rl.advantages import CreditConfig, is_procredit
 from tau2_agentic_rl.checkpoints import restore_step_clock
+from tau2_agentic_rl.concurrency import api_budget
 from tau2_agentic_rl.config import load_runtime_config
 from tau2_agentic_rl.dynamic_sampling import TrainingStepClock
 from tau2_agentic_rl.ppo_audit import audit_update
-from tau2_agentic_rl.procredit_runtime import build_credit_tensors, queue_group_reports
+from tau2_agentic_rl.procredit_runtime import (
+    _save_group_audit,
+    build_credit_tensors,
+    queue_group_reports,
+)
 from tau2_agentic_rl.rl_resume import snapshot_resume_identity
-from tau2_agentic_rl.slot_recovery import SlotRecoveryExhausted
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +67,7 @@ class DynamicSamplingCapReached(RuntimeError):
         return (
             "dynamic-sampling cap reached after "
             f"{self.generated_prompt_groups} prompt groups / "
-            f"{self.generated_trajectories} trajectories"
+            f"{self.generated_trajectories} logical rollout slots"
         )
 
 
@@ -78,6 +82,7 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         rollout_group_size: int,
         credit_config: CreditConfig | None = None,
         group_audit_dir: Path | None = None,
+        rollout_counts_fn=None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -95,6 +100,33 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         self.credit_config = credit_config
         self.group_audit_dir = group_audit_dir
         self.credit_cache = {}
+        self.rollout_counts_fn = rollout_counts_fn
+        self.rollout_counts_start = rollout_counts_fn() if rollout_counts_fn else None
+
+    def begin_attempt(self):
+        """Snapshot before the trainer submits even the first logical batch."""
+        if self.rollout_counts_fn is not None:
+            self.rollout_counts_start = self.rollout_counts_fn()
+
+    def _isolates_failed_groups(self, partition_id):
+        return (
+            partition_id == "train"
+            and getattr(getattr(self, "credit_config", None), "version", None) == "procredit-turn-v4"
+        )
+
+    def _audit_quarantined_groups(self, partition_id, uids):
+        if self.group_audit_dir is None:
+            return
+        directory = self.group_audit_dir / "quarantined"
+        for uid in sorted(uids):
+            report = {
+                "uid": uid, "status": "quarantined", "reason": "failed_rollout_slot",
+                "materializable_members": sorted(
+                    key for key in self.partitions[partition_id] if key.split("_")[0] == uid
+                ),
+                "policy_version": self.prompt_global_steps[partition_id][uid],
+            }
+            _save_group_audit(directory, report)
 
     def _dapo_filtered_keys(self, partition_id: str):
         if self.credit_config is None:
@@ -134,25 +166,24 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         self._clear_groups(partition_id, all_prompt_uids)
 
     def _terminal_eviction_reasons(self, global_steps: int, partition_id: str):
-        if (
-            partition_id == "train"
-            and getattr(getattr(self, "credit_config", None), "version", None) == "procredit-turn-v4"
-            and self.failure_keys[partition_id]
-        ):
-            # Each AgentLoop already retried its own slot. Do not throw away
-            # successful siblings or replace the prompt group on exhaustion.
-            raise SlotRecoveryExhausted(
-                "failed rollout slots remain after bounded recovery; groups retained: "
-                + ", ".join(sorted(self.failure_keys[partition_id]))
-            )
         reasons = super()._terminal_eviction_reasons(global_steps, partition_id)
         if partition_id != "train":
             return reasons
         stale, constant, failed, counts = reasons
+        if self._isolates_failed_groups(partition_id):
+            # Keep failed groups until all in-flight work drains; no group refill.
+            failed = self.failure_keys[partition_id]
+            return stale - failed, constant - failed, set(), counts
         # The pinned parent only evicts failed groups with zero materializable
         # trajectories. Our GRPO contract also excludes 7-success + 1-API-error
         # groups, even if their surviving rewards have variance.
         return stale, constant, failed | set(self.failure_keys[partition_id]), counts
+
+    def _sampleable_terminal_keys(self, partition_id, eviction_reasons):
+        sampleable = super()._sampleable_terminal_keys(partition_id, eviction_reasons)
+        if self._isolates_failed_groups(partition_id):
+            sampleable -= self.failure_keys[partition_id]
+        return sampleable
 
     def _add_sampling_metrics(
         self,
@@ -168,6 +199,9 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
                 "training/dynamic_sampling/generated_rollouts": (
                     generated_groups * self.rollout_group_size
                 ),
+                "training/dynamic_sampling/generated_logical_rollouts": (
+                    generated_groups * self.rollout_group_size
+                ),
                 "training/dynamic_sampling/valid_groups": valid_groups,
                 "training/dynamic_sampling/keep_rate": valid_groups / generated_groups,
                 "training/dynamic_sampling/all_zero_groups": int(
@@ -178,6 +212,15 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
                 ),
             }
         )
+        if self.rollout_counts_fn is not None:
+            counts = self.rollout_counts_fn()
+            delta = {key: value - self.rollout_counts_start[key] for key, value in counts.items()}
+            metrics.update({
+                "training/dynamic_sampling/physical_rollout_attempts": sum(delta.values()),
+                "training/dynamic_sampling/initial_rollout_attempts": delta["initial"],
+                "training/dynamic_sampling/infrastructure_replacements": delta["infrastructure"],
+                "training/dynamic_sampling/user_replacements": delta["user"],
+            })
 
     @SkipManager.annotate_tq(role="rollout_tq", phase="sample")
     def sample(
@@ -189,9 +232,15 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         generated_batches = 1  # The trainer submits the first logical batch.
         last_debug_time = time.time()
         eviction_metrics: dict = {}
+        quarantined = set()
 
         while True:
             self._sync_metadata_from_transfer_queue()
+            if self._isolates_failed_groups(partition_id):
+                new_failures = self.failure_keys[partition_id] - quarantined
+                self._audit_quarantined_groups(partition_id, new_failures)
+                quarantined.update(new_failures)
+                eviction_metrics["training/dynamic_sampling/quarantined_groups"] = len(quarantined)
             eviction_reasons = self._terminal_eviction_reasons(
                 global_steps, partition_id
             )
@@ -235,6 +284,7 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
                     raise RuntimeError(
                         "selected groups contain no materializable trajectories"
                     )
+                self._clear_groups(partition_id, quarantined)
                 return self._materialize_batch(
                     partition_id, selected_uids, partition_snapshot
                 ), eviction_metrics
@@ -435,6 +485,11 @@ class CappedPPOTrainerSync(PPOTrainerSync):
                 "capped trainer is fixed to 4 prompt groups x 8 trajectories"
             )
         credit_runtime = self._procredit_runtime()
+        rollout_counts_fn = None
+        if credit_runtime and credit_runtime[0].version == "procredit-turn-v4":
+            budget = api_budget()
+            def rollout_counts_fn():
+                return budget.call("rollout_counts", "train")
         return CappedDynamicReplayBuffer(
             trainer_mode="sync",
             trainer_config=self.config.trainer.v1.sync,
@@ -454,11 +509,13 @@ class CappedPPOTrainerSync(PPOTrainerSync):
             rollout_group_size=self.rollout_group_size,
             credit_config=credit_runtime[0] if credit_runtime else None,
             group_audit_dir=credit_runtime[1] if credit_runtime else None,
+            rollout_counts_fn=rollout_counts_fn,
         )
 
     def step(self, metrics: dict, timing_raw: dict) -> KVBatchMeta:
         if self.parameter_sync_step != 1:
             raise ValueError("capped trainer requires parameter_sync_step=1")
+        self.replay_buffer.begin_attempt()
         self._add_prompts_to_generate(self.conceptual_gen_batch_size)
         self.local_trigger_step = 0
         return self._step_once(metrics, timing_raw, sample_batch_size=4)

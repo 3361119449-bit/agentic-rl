@@ -162,4 +162,4 @@ precision:
 slot_recovery:
   max_resamples: 2
   max_scoring_retries: 2
-  on_exhaustion: stop
+  on_exhaustion: quarantine_group

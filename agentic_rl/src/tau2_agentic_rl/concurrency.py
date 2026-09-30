@@ -94,6 +94,7 @@ class BudgetState:
         self.active = {key: set() for key in limits}
         self.peak = dict.fromkeys(limits, 0)
         self.progress_revision = dict.fromkeys(limits, 0)
+        self.rollout_attempts = {}
         self.lock = threading.Lock()
 
     def try_acquire(self, resource, lease, limits):
@@ -134,7 +135,24 @@ class BudgetState:
                 "peak_active_trajectories": self.peak["trajectories"],
                 "peak_user_api_inflight": self.peak["user_api"],
                 "peak_judge_api_inflight": self.peak["judge_api"],
+                "rollout_attempts": {key: dict(value) for key, value in self.rollout_attempts.items()},
             }
+
+    def record_rollout_attempt(self, partition_id, kind):
+        """Count starts, including attempts that later fail or are filtered out."""
+        if kind not in {"initial", "infrastructure", "user"}:
+            raise ValueError("unknown rollout attempt kind")
+        with self.lock:
+            counts = self.rollout_attempts.setdefault(
+                partition_id, dict.fromkeys(("initial", "infrastructure", "user"), 0),
+            )
+            counts[kind] += 1
+
+    def rollout_counts(self, partition_id):
+        with self.lock:
+            return dict(self.rollout_attempts.get(
+                partition_id, dict.fromkeys(("initial", "infrastructure", "user"), 0),
+            ))
 
 
 _local_budgets = {}

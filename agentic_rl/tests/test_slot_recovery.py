@@ -8,6 +8,7 @@ from test_procredit_runtime import production_method
 from test_rollout_integration import minimal_loop
 
 from tau2_agentic_rl.advantages import CreditConfig
+from tau2_agentic_rl.concurrency import SharedBudget
 from tau2_agentic_rl.slot_recovery import (
     RolloutInfrastructureError,
     SlotRecoveryExhausted,
@@ -15,9 +16,10 @@ from tau2_agentic_rl.slot_recovery import (
 
 
 def configure(loop):
+    loop.shared_budget = SharedBudget({"trajectories": 1, "user_api": 1, "judge_api": 1})
     loop.project["credit"] = {"version": "procredit-turn-v4"}
     loop.project["slot_recovery"] = {
-        "max_resamples": 2, "max_scoring_retries": 2, "on_exhaustion": "stop",
+        "max_resamples": 2, "max_scoring_retries": 2, "on_exhaustion": "quarantine_group",
     }
     loop.project["user_sim_filter"] = {"enabled": False}
 
@@ -36,7 +38,7 @@ def test_eight_slot_group_only_resamples_the_failed_slot(scratch_dir, monkeypatc
             calls[slot] += 1
             captured.append(deepcopy(kwargs))
             if slot == 3 and calls[slot] == 1:
-                raise RolloutInfrastructureError("model_generation", kwargs["trajectory_id"])
+                raise RolloutInfrastructureError("model_generation", kwargs["trajectory_id"]) from ConnectionError("offline")
             result = SimpleNamespace(
                 response_ids=[slot, 9], response_logprobs=[-0.3, -0.4],
                 extra_fields={"policy_valid": False if slot == 4 else True},
@@ -71,7 +73,7 @@ def test_exhausted_slot_stops_without_infinite_reroll(scratch_dir, monkeypatch):
 
     async def broken(params, **kwargs):
         calls.append(kwargs["trajectory_id"])
-        raise RolloutInfrastructureError("environment_reset", kwargs["trajectory_id"])
+        raise RolloutInfrastructureError("environment_reset", kwargs["trajectory_id"]) from ConnectionError("offline")
 
     loop._run_trajectory = broken
     with pytest.raises(SlotRecoveryExhausted):
@@ -82,6 +84,8 @@ def test_exhausted_slot_stops_without_infinite_reroll(scratch_dir, monkeypatch):
 def test_v4_buffer_never_evicts_seven_successes_due_to_one_exhausted_slot():
     class Parent:
         failure_keys = {"train": {"group"}}
+        def _isolates_failed_groups(self, partition):
+            return True
         def _terminal_eviction_reasons(self, step, partition):
             return set(), set(), set(), {}
 
@@ -91,8 +95,7 @@ def test_v4_buffer_never_evicts_seven_successes_due_to_one_exhausted_slot():
     )
     buffer = cls()
     buffer.credit_config = CreditConfig(version="procredit-turn-v4")
-    with pytest.raises(SlotRecoveryExhausted):
-        buffer._terminal_eviction_reasons(1, "train")
+    assert buffer._terminal_eviction_reasons(1, "train")[2] == set()
     assert buffer.failure_keys["train"] == {"group"}
 
 
@@ -125,7 +128,7 @@ def test_user_and_infrastructure_replacements_share_slot_but_have_separate_budge
         if len(captured) == 1:
             raise UserSimulationRejected("invalid user")
         if len(captured) == 2:
-            raise RolloutInfrastructureError("environment_reset", kwargs["trajectory_id"])
+            raise RolloutInfrastructureError("environment_reset", kwargs["trajectory_id"]) from ConnectionError("offline")
         return SimpleNamespace(extra_fields={})
 
     loop._run_trajectory = generate
