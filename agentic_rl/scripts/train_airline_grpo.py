@@ -31,6 +31,7 @@ from tau2_agentic_rl.user_simulation import reward_judge_enabled
 
 TAU2_COMMIT = "a2c024725189473d2d7cea3a5cfdbcc67478e41f"
 VERL_COMMIT = "483b8a009ba3a97563edee3a19887e4862b8094a"
+DEFAULT_CONFIG = "configs/rl/airline_procredit_v4.yaml"
 
 
 def _git_commit(root: Path) -> str:
@@ -80,7 +81,7 @@ def build_command(
     project = effective_project_config(
         project_config
         or load_yaml(
-            Path(__file__).resolve().parents[1] / "configs/rl/airline_grpo_v1.yaml"
+            Path(__file__).resolve().parents[1] / DEFAULT_CONFIG
         ),
         extra,
     )
@@ -252,7 +253,7 @@ def main() -> None:
     if not train_file.exists() or not val_file.exists():
         raise FileNotFoundError("run scripts/prepare_tau2_dataset.py first")
 
-    config_path = project_root / "configs" / "rl" / "airline_grpo_v1.yaml"
+    config_path = project_root / DEFAULT_CONFIG
     config_path = (args.config or config_path).resolve()
     project = effective_project_config(load_yaml(config_path), args.extra)
     if args.reward_judge is not None:

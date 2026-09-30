@@ -110,6 +110,12 @@ def effective_project_config(
         normalized = key.lstrip("+")
         if not separator:
             raise ValueError("--extra must use key=value")
+        if normalized.lstrip("~") == "trainer.critic_warmup":
+            value = yaml.safe_load(raw)
+            if normalized.startswith("~") or type(value) is not int or value != 0:
+                raise ValueError("GRPO requires trainer.critic_warmup=0; every counted step must update the actor")
+        if normalized.lstrip("~") == "trainer":
+            raise ValueError("parent trainer overrides cannot bypass trainer.critic_warmup=0; use individual settings")
         if normalized.lstrip("~") == "algorithm.procredit_enabled":
             raise ValueError("ProCredit is selected by the project reward mode, not --extra")
         if is_procredit(result) and normalized == "algorithm.gamma" and yaml.safe_load(raw) != 1:

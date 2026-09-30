@@ -95,6 +95,7 @@ class BudgetState:
         self.peak = dict.fromkeys(limits, 0)
         self.progress_revision = dict.fromkeys(limits, 0)
         self.rollout_attempts = {}
+        self.first_fatal_rollout = None
         self.lock = threading.Lock()
 
     def try_acquire(self, resource, lease, limits):
@@ -153,6 +154,18 @@ class BudgetState:
             return dict(self.rollout_attempts.get(
                 partition_id, dict.fromkeys(("initial", "infrastructure", "user"), 0),
             ))
+
+    def record_rollout_failure(self, report):
+        """Fatal severity must survive veRL's generic group failure status."""
+        if report.get("kind") not in {"fatal", "transient_exhausted"}:
+            raise ValueError("unknown rollout failure kind")
+        with self.lock:
+            if report["kind"] == "fatal" and self.first_fatal_rollout is None:
+                self.first_fatal_rollout = dict(report)
+
+    def fatal_rollout(self):
+        with self.lock:
+            return dict(self.first_fatal_rollout) if self.first_fatal_rollout is not None else None
 
 
 _local_budgets = {}

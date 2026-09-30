@@ -13,7 +13,7 @@ from scripts import evaluate_airline
 
 @pytest.mark.parametrize(
     "flags,expected",
-    [([], False), (["--reward-judge"], True), (["--no-reward-judge"], False)],
+    [([], True), (["--reward-judge"], True), (["--no-reward-judge"], False)],
 )
 def test_agent_reward_judge_cli_switch(flags, expected):
     assert evaluate_airline.parse_args(flags).reward_judge is expected
@@ -71,6 +71,7 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
     if reward_judge:
         argv.append("--reward-judge")
     else:
+        argv.append("--no-reward-judge")
         monkeypatch.delenv("DEEPSEEK_JUDGE_MODEL", raising=False)
     monkeypatch.setattr(sys, "argv", argv)
     root = scratch_dir / "outputs/evaluations/test-run"
@@ -289,6 +290,7 @@ def test_user_filter_refills_invalid_slot_but_never_rerolls_pending_check(
             str(model),
             "--tag",
             "screened",
+            "--no-reward-judge",
         ],
     )
     root = scratch_dir / "outputs/evaluations/screened"

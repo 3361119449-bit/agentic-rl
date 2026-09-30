@@ -35,6 +35,7 @@ from tau2_agentic_rl.concurrency import (
 )
 from tau2_agentic_rl.config import load_runtime_config
 from tau2_agentic_rl.environment.tau2_gym import GymStep, Tau2GymAdapter
+from tau2_agentic_rl.failures import scoring_retryable
 from tau2_agentic_rl.initial_prompt import (
     encode_full_chat,
     initial_messages,
@@ -961,6 +962,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     )
                     break
                 except Exception as exc:
+                    if not scoring_retryable("user_sim_judge", exc):
+                        raise
                     if attempt == screen_retries:
                         if screen_retries:
                             raise SlotRecoveryExhausted(
@@ -1115,6 +1118,11 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             and infrastructure_error[0] in SCORING_FAILURES
             and self.project.get("credit", {}).get("version") == "procredit-turn-v4"
         ):
+            if not scoring_retryable(*infrastructure_error):
+                record.metadata["failure_kind"] = "fatal"
+                self.store.save(record)
+                phase, error = infrastructure_error
+                raise RolloutInfrastructureError(phase, trajectory_id) from error
             for _ in range(self.project["slot_recovery"]["max_scoring_retries"]):
                 if await retry_scoring(record, self.judge, self.store):
                     infrastructure_error = None

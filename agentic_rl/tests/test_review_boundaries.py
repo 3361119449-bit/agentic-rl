@@ -253,7 +253,7 @@ def test_judge_retry_failure_keeps_slot_pending(scratch_dir):
 
     class Judge:
         async def evaluate(self, **inputs):
-            raise RuntimeError("judge unavailable")
+            raise ConnectionError("judge unavailable")
 
     store = TrajectoryStore(scratch_dir, attach_evaluation_identity=False)
     assert not asyncio.run(retry_scoring(record, Judge(), store))

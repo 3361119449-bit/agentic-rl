@@ -13,6 +13,7 @@ import pytest
 
 from tau2_agentic_rl.advantages import CreditConfig
 from tau2_agentic_rl.concurrency import BudgetState
+from tau2_agentic_rl.failures import raise_if_fatal
 from tau2_agentic_rl.procredit_runtime import _save_group_audit
 from tau2_agentic_rl.slot_recovery import (
     RolloutInfrastructureError,
@@ -70,6 +71,7 @@ def buffer_class():
         "DAPO_FILTERED_REWARD_COUNTS_KEY": "_dapo_filtered_reward_counts",
         "_accumulate_eviction_metrics": lambda *args: None,
         "_save_group_audit": _save_group_audit,
+        "raise_if_fatal": raise_if_fatal,
     }
     exec(compile(module, str(path), "exec"), scope)
     return scope["CappedDynamicReplayBuffer"]
@@ -146,6 +148,8 @@ def test_trainer_snapshots_counts_before_first_batch_is_submitted(scratch_dir):
         state.record_rollout_attempt("train", "initial")
     cls = production_method("CappedPPOTrainerSync", "step", object)
     trainer = cls()
+    from types import SimpleNamespace
+    trainer.config = SimpleNamespace(trainer=SimpleNamespace(critic_warmup=0))
     trainer.parameter_sync_step, trainer.conceptual_gen_batch_size = 1, 8
     trainer.replay_buffer = buffer
     def submit(n):

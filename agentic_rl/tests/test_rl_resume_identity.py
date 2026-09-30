@@ -241,6 +241,8 @@ def test_real_launcher_fresh_resume_and_changed_cli_fail_before_launch(
         str(scratch_dir),
         "--run-name",
         "run",
+        "--config",
+        str(scratch_dir / "configs/rl/airline_grpo_v1.yaml"),
     ]
     if not reward_judge:
         argv.append("--no-reward-judge")

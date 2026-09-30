@@ -13,6 +13,13 @@ model:
   base: Qwen/Qwen3-4B-Instruct-2507
   sft_input: ${MERGED_SFT_MODEL}
 
+precision:
+  model_dtype: bfloat16
+  param_dtype: bfloat16
+  rollout_dtype: bfloat16
+  reduce_dtype: float32
+  buffer_dtype: float32
+
 rollout:
   tool_parser: hermes
   max_context_length: 16384
@@ -49,7 +56,7 @@ user_simulator:
         type: disabled
 
 judge:
-  enabled: false
+  enabled: true
   provider: DeepSeek
   model: ${DEEPSEEK_JUDGE_MODEL}
   base_url: ${DEEPSEEK_BASE_URL}

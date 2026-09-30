@@ -44,6 +44,7 @@ from tau2_agentic_rl.checkpoints import restore_step_clock
 from tau2_agentic_rl.concurrency import api_budget
 from tau2_agentic_rl.config import load_runtime_config
 from tau2_agentic_rl.dynamic_sampling import TrainingStepClock
+from tau2_agentic_rl.failures import raise_if_fatal
 from tau2_agentic_rl.ppo_audit import audit_update
 from tau2_agentic_rl.procredit_runtime import (
     _save_group_audit,
@@ -83,6 +84,7 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         credit_config: CreditConfig | None = None,
         group_audit_dir: Path | None = None,
         rollout_counts_fn=None,
+        fatal_error_fn=None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -101,12 +103,25 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         self.group_audit_dir = group_audit_dir
         self.credit_cache = {}
         self.rollout_counts_fn = rollout_counts_fn
+        self.fatal_error_fn = fatal_error_fn
         self.rollout_counts_start = rollout_counts_fn() if rollout_counts_fn else None
 
     def begin_attempt(self):
         """Snapshot before the trainer submits even the first logical batch."""
+        self._check_fatal_rollout()
         if self.rollout_counts_fn is not None:
             self.rollout_counts_start = self.rollout_counts_fn()
+
+    def _check_fatal_rollout(self):
+        check = getattr(self, "fatal_error_fn", None)
+        if check is not None:
+            raise_if_fatal(check())
+
+    def _sync_metadata_from_transfer_queue(self):
+        # The parent's validation sampler also polls through this method.
+        self._check_fatal_rollout()
+        super()._sync_metadata_from_transfer_queue()
+        self._check_fatal_rollout()
 
     def _isolates_failed_groups(self, partition_id):
         return (
@@ -262,6 +277,7 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
             # A logical batch is evaluated only after all its prompts terminate.
             # This makes the 8 x 3 accounting exact and avoids policy-version mix.
             if inflight_count == 0 and len(sampleable_uids) >= batch_size:
+                self._check_fatal_rollout()
                 selected_uids, partition_snapshot, _ = self._select_prompt_uids(
                     partition_id, sampleable_uids, batch_size
                 )
@@ -290,6 +306,7 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
                 ), eviction_metrics
 
             if inflight_count == 0:
+                self._check_fatal_rollout()
                 if generated_batches >= self.max_num_gen_batches:
                     generated_prompts = (
                         generated_batches * self.conceptual_gen_batch_size
@@ -359,6 +376,7 @@ class CappedPPOTrainerSync(PPOTrainerSync):
         )
 
     def _update_actor(self, batch: KVBatchMeta, metrics: dict) -> KVBatchMeta:
+        self.replay_buffer._check_fatal_rollout()
         if not self.config.trainer.get("ppo_audit", False):
             return super()._update_actor(batch, metrics)
         from verl.workers.utils.padding import response_from_nested
@@ -485,9 +503,9 @@ class CappedPPOTrainerSync(PPOTrainerSync):
                 "capped trainer is fixed to 4 prompt groups x 8 trajectories"
             )
         credit_runtime = self._procredit_runtime()
+        budget = api_budget()
         rollout_counts_fn = None
         if credit_runtime and credit_runtime[0].version == "procredit-turn-v4":
-            budget = api_budget()
             def rollout_counts_fn():
                 return budget.call("rollout_counts", "train")
         return CappedDynamicReplayBuffer(
@@ -510,9 +528,12 @@ class CappedPPOTrainerSync(PPOTrainerSync):
             credit_config=credit_runtime[0] if credit_runtime else None,
             group_audit_dir=credit_runtime[1] if credit_runtime else None,
             rollout_counts_fn=rollout_counts_fn,
+            fatal_error_fn=lambda: budget.call("fatal_rollout"),
         )
 
     def step(self, metrics: dict, timing_raw: dict) -> KVBatchMeta:
+        if self.config.trainer.critic_warmup != 0:
+            raise ValueError("GRPO requires trainer.critic_warmup=0")
         if self.parameter_sync_step != 1:
             raise ValueError("capped trainer requires parameter_sync_step=1")
         self.replay_buffer.begin_attempt()
@@ -522,6 +543,8 @@ class CappedPPOTrainerSync(PPOTrainerSync):
 
     def fit(self, agent_loop_manager) -> None:
         """Train while treating a capped candidate batch as one skipped step."""
+        if self.config.trainer.critic_warmup != 0:
+            raise ValueError("GRPO requires trainer.critic_warmup=0")
         self.agent_loop_manager = agent_loop_manager
         SkipManager.init(self.config)
         self.logger = Tracking(

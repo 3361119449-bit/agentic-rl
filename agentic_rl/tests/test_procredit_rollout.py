@@ -107,7 +107,7 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
         async def evaluate(self, **kwargs):
             judge_calls.append(True)
             if len(judge_calls) <= judge_failures:
-                raise RuntimeError("temporary Judge error")
+                raise ConnectionError("temporary Judge error")
             text = str(kwargs["trajectory"]["messages"])
             assert "cleanup" not in text and "unsent" not in text
             result = JudgeResult()

@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from tau2_agentic_rl.failures import JudgeEvidenceError
 from tau2_agentic_rl.schemas import JudgeResult
 
 
@@ -28,7 +29,7 @@ def validate_evidence_turn_ids(result: JudgeResult, trajectory: dict[str, Any]) 
     for check in result.mandatory_policy_checks:
         missing = set(check.violation_assistant_turn_ids) - actor_ids
         if missing:
-            raise ValueError(f"judge violation references absent assistant turns: {sorted(missing)}")
+            raise JudgeEvidenceError(f"judge violation references absent assistant turns: {sorted(missing)}")
     groups = (
         ("semantic_checks", result.semantic_checks),
         ("transfer_semantic_checks", result.transfer_semantic_checks),
@@ -40,7 +41,7 @@ def validate_evidence_turn_ids(result: JudgeResult, trajectory: dict[str, Any]) 
             missing = sorted(set(check.evidence_turn_ids) - known_ids)
             if missing:
                 criterion = getattr(check, "criterion_id", "transfer_check")
-                raise ValueError(
+                raise JudgeEvidenceError(
                     f"judge {group}/{criterion} evidence_turn_ids reference absent "
                     f"turn IDs: {missing}; available IDs: {sorted(known_ids)}"
                 )

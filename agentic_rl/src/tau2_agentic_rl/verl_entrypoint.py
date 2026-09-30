@@ -15,7 +15,9 @@ from verl.utils.logging_utils import configure_verl_logging
 
 from tau2_agentic_rl.concurrency import SharedBudget, limits_from_project
 from tau2_agentic_rl.config import load_runtime_config
+from tau2_agentic_rl.failures import raise_if_fatal
 from tau2_agentic_rl.verl_capped_trainer import CappedPPOTrainerSync
+from tau2_agentic_rl.verl_failure_channel import FailureAwareAgentLoopManagerTQ
 
 
 class Tau2TaskRunner:
@@ -28,15 +30,13 @@ class Tau2TaskRunner:
 
     def init_agent_loop_manager(self):
         # Pinned veRL TaskRunnerV1 is already an ActorClass, not a base class.
-        from verl.trainer.ppo.v1 import AgentLoopManagerTQ
-
         manager_fqn = self.config.actor_rollout_ref.rollout.get("agent", {}).get(
             "agent_loop_manager_class"
         )
         manager_cls = (
             load_class_from_fqn(manager_fqn, "AgentLoopManager")
             if manager_fqn
-            else AgentLoopManagerTQ
+            else FailureAwareAgentLoopManagerTQ
         )
         self.agent_loop_manager = manager_cls.create(
             config=self.config,
@@ -70,6 +70,7 @@ class Tau2TaskRunner:
             self.trainer.init()
             self.init_agent_loop_manager()
             self.trainer.fit(self.agent_loop_manager)
+            raise_if_fatal(self.shared_budget.call("fatal_rollout"))
             succeeded = True
         finally:
             try:

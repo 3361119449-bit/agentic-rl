@@ -110,7 +110,8 @@ def evaluation_coverage(records_dir: Path, manifest: dict[str, Any]) -> dict[str
             raise ValueError("duplicate trajectory ID")
         trajectory_ids.add(row["trajectory_id"])
         if (
-            metadata.get("interaction_retryable") is False
+            metadata.get("failure_kind") == "fatal"
+            or metadata.get("interaction_retryable") is False
             or metadata.get("failure_phase") in NONRECOVERABLE_INTERACTION_PHASES
         ):
             raise ValueError(

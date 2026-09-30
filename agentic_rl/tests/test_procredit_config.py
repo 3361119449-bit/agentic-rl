@@ -26,7 +26,8 @@ def test_new_launcher_selects_turn_credit_without_changing_legacy():
     command = build_command(**kwargs, project_config=project())
     assert "+algorithm.procredit_enabled=true" in command
     assert "algorithm.gamma=1.0" in command
-    assert not any("procredit_enabled" in arg for arg in build_command(**kwargs))
+    legacy = load_yaml(ROOT / "configs/rl/airline_grpo_v1.yaml")
+    assert not any("procredit_enabled" in arg for arg in build_command(**kwargs, project_config=legacy))
 
 
 @pytest.mark.parametrize(

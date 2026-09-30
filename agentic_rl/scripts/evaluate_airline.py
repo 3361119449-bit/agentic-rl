@@ -157,8 +157,8 @@ def parse_args(argv=None):
     parser.add_argument(
         "--reward-judge",
         action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Enable Agent reward Judge/custom metrics (default: official pass only). User compliance screening stays enabled.",
+        default=True,
+        help="Default: official pass plus policy-compliant custom strict. --no-reward-judge selects official pass only; user compliance screening stays enabled.",
     )
     return parser.parse_args(argv)
 

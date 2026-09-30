@@ -2,6 +2,7 @@
 
 import asyncio
 
+from tau2_agentic_rl.failures import scoring_retryable
 from tau2_agentic_rl.reward.progress import build_progress_trace
 from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
 from tau2_agentic_rl.versions import sha256_json
@@ -110,7 +111,7 @@ async def retry_scoring(record, judge, store):
         record.metadata.update(
             judge_raw=raw, judge_prompt_hash=prompt_hash, judge_cache_key=cache_key
         )
-        for key in ("failure_phase", "failure_type", "failure_message"):
+        for key in ("failure_phase", "failure_type", "failure_message", "failure_kind"):
             record.metadata[key] = None
         attempt["success"] = True
     except Exception as exc:
@@ -120,6 +121,12 @@ async def retry_scoring(record, judge, store):
             failure_type=type(exc).__name__,
             failure_message=str(exc),
         )
+        if not scoring_retryable(attempt["phase"], exc):
+            record.metadata["failure_kind"] = "fatal"
+            attempts.append(attempt)
+            store.save(record)
+            raise
+        record.metadata["failure_kind"] = "transient_exhausted"
     attempts.append(attempt)
     store.save(record)
     return attempt["success"]

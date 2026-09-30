@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass, field
 from math import isfinite
 from typing import Any
 
+from tau2_agentic_rl.failures import PolicyAttributionPending
 from tau2_agentic_rl.judge.evidence import validate_evidence_turn_ids
 from tau2_agentic_rl.reward.mandatory_policy import (
     evaluate_mandatory_policy,
@@ -405,7 +406,7 @@ def score_trajectory(
     if local_only:
         policy = scored.details["policy_credit"]
         if not policy["attribution_complete"]:
-            raise ValueError("v4 requires complete policy attribution; retry this frozen Judge input")
+            raise PolicyAttributionPending("v4 requires complete policy attribution; retry this frozen Judge input")
         scored.details["task_completion"] = result.strict_success
         scored.details["policy_gate_applied"] = False
         scored.details["policy_turn_rewards"] = [

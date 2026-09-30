@@ -448,9 +448,10 @@ python scripts/summarize_evaluation.py \
   --output outputs/reports/sft_grpo_pass1_pass4.json
 ```
 
-以上命令默认**关闭 Agent 奖励 Judge**，只报告 `official_pass1` / `official_pass4`。
-也可显式传入 `--no-reward-judge`；需要原 Agent Judge / `custom_strict_pass1` /
-`custom_strict_pass4` 时传入 `--reward-judge`，并使用新的 `--tag`。
+以上命令默认**开启 Agent 奖励 Judge**，同时报告 `official_pass1` / `official_pass4`
+和政策合规成功指标 `custom_strict_pass1` / `custom_strict_pass4`。
+只需要官方指标时显式传入 `--no-reward-judge`。切换指标选择时使用新的 `--tag`。
+所有独立评估 split 均显式使用 BF16 模型加载、参数和 rollout 精度；归约和缓冲使用 FP32。
 这不关闭下面的 **User Simulator 合规检查**，后者仍会调用独立的检查模型。
 
 两条评估路径与 `training/tau2_rollout_sft/report_pass1_pass4.py` 使用相同的数学公式：
@@ -480,7 +481,9 @@ RL 汇总文件使用 pass@4，**不能直接与修复后的 pass^4 比较**。�
 ## User Simulator 整条轨迹合规过滤（2026-09-12）
 
 **训练和评估都支持独立 Agent Judge 开关**：`--reward-judge` / `--no-reward-judge`。
-训练未传开关时遵循 YAML `judge.enabled`（默认 true），评估默认 false。
+训练未传开关时遵循 YAML `judge.enabled`（默认 true），评估默认 true。
+训练默认配置为 `configs/rl/airline_procredit_v4.yaml`。GRPO 不使用 critic，
+因此非零 `trainer.critic_warmup` 会在启动时拒绝，避免虚假的 optimizer step 和 checkpoint。
 训练关闭时 `reward_score` 与 DAPO 使用的 `train_reward` 都取审计后的官方奖励，
 不计算原 Agent Judge 驱动的自定义复合奖励，也不伪造 `custom_reward` 或 strict 指标。
 该分支仍保留既有官方截断处理（外部预算截断的官方 reward 计零），不会返回未打折的自定义奖励。
@@ -489,9 +492,14 @@ RL 汇总文件使用 pass@4，**不能直接与修复后的 pass^4 比较**。�
 
 ```bash
 python scripts/train_airline_grpo.py --stage internal_dev \
+  --config configs/rl/airline_grpo_v1.yaml \
   --run-name official_reward_ablation --no-reward-judge --dry-run
 # 正常训练：去掉 --dry-run；如需 Agent Judge，改为 --reward-judge。
 ```
+
+v4 训练中，临时错误或 invalid user 补采耗尽只隔离对应 group，完整且有信号的其他组继续训练。
+配置、断言、token alignment 和未知代码错误通过 Ray job 共享的 fatal 标记传到 trainer，
+阻止后续采样、补采和 actor 更新，不再被 veRL 的通用 `failure` 状态吞掉。
 
 训练 GRPO / DAPO 与 `scripts/evaluate_airline.py` 共用 `user_sim_filter`，默认开启。
 它在一条完整交互收集结束后离线检查（包括因长度/轮数预算截断的已有完整记录），

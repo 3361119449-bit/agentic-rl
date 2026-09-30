@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 
 from tau2_agentic_rl.concurrency import api_budget
+from tau2_agentic_rl.failures import JudgeServiceFailure
 from tau2_agentic_rl.judge.evidence import validate_evidence_turn_ids
 from tau2_agentic_rl.judge.prompts import (
     JUDGE_PROMPT_VERSION,
@@ -247,6 +248,16 @@ class DeepSeekJudge:
                     ValueError,
                 ) as exc:
                     last_error = exc
+                    if isinstance(exc, httpx.HTTPError):
+                        from tau2_agentic_rl.slot_recovery import interaction_retryable
+
+                        if not interaction_retryable("model_generation", exc):
+                            break
                     if attempt < self.config.max_retries:
                         await asyncio.sleep(2**attempt)
-        raise RuntimeError("judge failed after bounded retries") from last_error
+        from tau2_agentic_rl.slot_recovery import interaction_retryable
+
+        retryable = not isinstance(last_error, httpx.HTTPError) or interaction_retryable(
+            "model_generation", last_error
+        )
+        raise JudgeServiceFailure("judge failed after bounded retries", retryable=retryable) from last_error
