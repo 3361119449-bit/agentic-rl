@@ -104,8 +104,10 @@ def credit_from_record(record) -> dict:
         from tau2_agentic_rl.reward.normal_branch import strict_success
 
         terminal = strict_success(reward.components)
+        transfer_target = record.scoring_inputs.get("judge", {}).get("transfer_rule", {}).get("required", False)
         if (
             reward.reward_mode != "turn_local_v1"
+            or reward.branch != ("human_transfer" if transfer_target else "normal")
             or reward.details.get("task_completion") != terminal
             or reward.details.get("policy_gate_applied") is not False
         ):

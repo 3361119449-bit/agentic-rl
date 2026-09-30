@@ -227,7 +227,8 @@ def minimal_loop(scratch_dir):
     return loop, scope
 
 
-def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir):
+@pytest.mark.parametrize("blocked_batch", [False, True])
+def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir, blocked_batch):
     from tau2_agentic_rl.agent_policy import extract_airline_policy, prompt_sha256
     from tau2_agentic_rl.policy_rules import policy_checks
 
@@ -247,6 +248,7 @@ def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir):
 
     class Environment:
         task, tool_schemas, tool_names = {}, [schema], {"cancel_reservation"}
+        last_reward, info = 0, {}
 
         def __init__(self, **kwargs):
             self.messages = [{"role": "user", "content": "Cancel A."}]
@@ -329,6 +331,11 @@ def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir):
         )
 
     async def parse(*args):
+        if blocked_batch:
+            return "", [
+                SimpleNamespace(name="cancel_reservation", arguments=arguments)
+                for arguments in ["{}", '{"reservation_id":"B"}', '{"reservation_id":"C"}', '{"reservation_id":"D"}']
+            ]
         return "", [
             SimpleNamespace(
                 name="cancel_reservation", arguments='{"reservation_id":"A"}'
@@ -378,9 +385,38 @@ def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir):
         ]
     }
     loop.action_dependencies = {}
+    if blocked_batch:
+        loop.hard_turn_limit = 1
+        loop.tokenizer.decode = lambda _: "".join(
+            '<tool_call>{"name":"cancel_reservation","arguments":' + a + "}</tool_call>"
+            for a in ["{}", '{"reservation_id":"B"}', '{"reservation_id":"C"}', '{"reservation_id":"D"}']
+        ) + "<|im_end|>"
+
+        async def bounded(messages, *args):
+            return messages, [7], False
+
+        loop._bounded_environment_messages = bounded
     scope["Tau2GymAdapter"] = Environment
     output = asyncio.run(loop._run_trajectory({}, extra_info={"task_id": "0"}))
     record = next(loop.store.records())
+    if blocked_batch:
+        from tau2_agentic_rl.reward.process_penalty import (
+            ProcessPenaltyConfig,
+            build_process_credit,
+        )
+        from tau2_agentic_rl.schemas import ToolEvent
+
+        assert called == []
+        assert [e.error_kind for e in record.tool_events] == ["schema_invalid", None, None, None]
+        assert all(e.execution_status == "blocked_by_invalid_sibling" for e in record.tool_events[1:])
+        trace = build_process_credit(record.tool_events, 1, ProcessPenaltyConfig(
+            cap=None, over_turn_cap=None), local_only=True)
+        assert trace["turn_costs"] == pytest.approx([.08])
+        retry = ToolEvent(event_id="retry", sequence=4, turn_id=2, name="cancel_reservation",
+                          arguments={"reservation_id": "B"}, error_kind="model_caused_execution_error")
+        scope["_mark_repetition"](retry, record.tool_events)
+        assert not retry.unchanged_retry
+        return
     assert called == [("cancel_reservation", {"reservation_id": "A"})]
     assert record.tool_events[0].confirmed_before is None  # Never fabricate a yes.
     assert record.tool_events[0].success

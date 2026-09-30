@@ -64,6 +64,8 @@ def _process_events(events, assistant_turns, config, *, local_only=False):
     total = 0.0
 
     for event in events:
+        if event.execution_status == "blocked_by_invalid_sibling":
+            continue
         if event.error_kind == "confirmation_required":
             continue  # Retired protocol rejection is not an SFT-policy violation.
         if event.error_kind:

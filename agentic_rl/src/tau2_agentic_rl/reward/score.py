@@ -253,13 +253,18 @@ def _score_legacy(
     policy_blocks_reward = config.enable_mandatory_policy_gate and not policy_gate
     safety_blocks_reward = config.enable_task_safety_gate and not task_safety_gate
 
-    if transfer_event is not None:
-        valid, components = transfer_components(
+    local_only = config.credit_version == "procredit-turn-v4"
+    transfer_target = bool((transfer_rule or {}).get("required"))
+    transfer_valid, transfer_scores = None, None
+    if transfer_event is not None or (local_only and transfer_target):
+        transfer_valid, transfer_scores = transfer_components(
             events,
             messages,
             transfer_rule or {},
             judge,
         )
+    if (local_only and transfer_target) or (not local_only and transfer_event is not None):
+        valid, components = transfer_valid, transfer_scores
         progress = normalized_weighted_mean(components, config.transfer_weights)
         strict = strict_success(components)
         reward = _clip(
@@ -293,6 +298,8 @@ def _score_legacy(
             },
         )
 
+    if local_only and transfer_event is not None:
+        policy_gate = policy_gate and bool(transfer_valid)
     action_result = evaluate_required_actions(
         required_actions, events, action_dependencies
     )
@@ -336,6 +343,7 @@ def _score_legacy(
             "truncation_multiplier": multiplier,
             "reward_before_truncation": reward,
             "required_actions": action_result.model_dump(),
+            **({"transfer_valid": transfer_valid} if local_only and transfer_event is not None else {}),
             "policy_checks": [item.model_dump() for item in policy_checks],
             "task_safety_check": task_safety_check.model_dump(),
             "process_events": process.events,

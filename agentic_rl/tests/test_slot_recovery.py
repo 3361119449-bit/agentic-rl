@@ -152,3 +152,37 @@ def test_evaluation_infrastructure_failure_is_left_to_evaluation_driver(scratch_
     with pytest.raises(RolloutInfrastructureError):
         asyncio.run(loop._run_valid_trajectory({}, extra_info={"task_id": "11"}))
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("phase", [
+    "policy_version_alignment", "rollout_log_probs", "token_alignment",
+    "prompt_initialization", "tool_result_alignment", "unrecognized_phase",
+])
+def test_consistency_errors_stop_without_replacement(scratch_dir, phase):
+    loop, _ = minimal_loop(scratch_dir)
+    configure(loop)
+    calls = []
+
+    async def broken(params, **kwargs):
+        calls.append(kwargs)
+        raise RolloutInfrastructureError(phase, kwargs["trajectory_id"])
+
+    loop._run_trajectory = broken
+    with pytest.raises(RolloutInfrastructureError):
+        asyncio.run(loop._run_valid_trajectory({}, extra_info={"task_id": "11"}))
+    assert len(calls) == 1
+
+
+def test_configuration_error_wrapped_in_service_phase_is_not_retried(scratch_dir):
+    loop, _ = minimal_loop(scratch_dir)
+    configure(loop)
+    calls = []
+
+    async def broken(params, **kwargs):
+        calls.append(kwargs)
+        raise RolloutInfrastructureError("environment_reset", kwargs["trajectory_id"]) from ValueError("bad config")
+
+    loop._run_trajectory = broken
+    with pytest.raises(RolloutInfrastructureError):
+        asyncio.run(loop._run_valid_trajectory({}, extra_info={"task_id": "11"}))
+    assert len(calls) == 1

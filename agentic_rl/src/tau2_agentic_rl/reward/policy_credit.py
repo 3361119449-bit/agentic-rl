@@ -56,15 +56,12 @@ def build_policy_credit(
         bad.update(indices)
         evidence.append({"rule_id": rule_id, "turns": indices, "source": source})
 
-    invalid_transfer = (
-        reward.branch == "human_transfer"
-        and reward.details.get("transfer_valid") is False
-    )
     transfer_turns = [
         event.turn_id
         for event in events
         if event.name == "transfer_to_human_agents" and event.success
     ]
+    invalid_transfer = bool(transfer_turns) and reward.details.get("transfer_valid") is False
     if invalid_transfer:
         add("invalid_transfer", transfer_turns, "executed_tool")
     failed_judge_ids = set()

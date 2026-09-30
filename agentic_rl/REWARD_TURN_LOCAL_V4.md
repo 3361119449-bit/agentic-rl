@@ -17,7 +17,10 @@ A_final[t] = min(A_base[t] - 1 - P_process[t], -1 - P_process[t])（该 turn 违
 `S` 不再乘 policy/safety gate。R_task 是任务完成度，Phi 是去重后的进度；
 截断乘数 m=0.75，否则为 1。process 不扣轨迹标量，也不改变 task/progress
 return 或组内中心，只在对应 turn 最后减去固定扣分。
-R_task 按各任务完成分项计算；transfer validity 也不再把它额外清零，
+R_task 按任务要求选择完成分项：只有 required-transfer 任务使用转人工分支；
+普通任务即使错误转人工，也继续使用 DB、交流、必要动作及语义检查。
+任务未完成不凭 transfer_call 获得完成分，已完成则保留完成分。
+transfer validity 不把真实完成分额外清零，
 违规 transfer 的合规失败单独记录，并在实际 transfer turn 施加负反馈。
 `policy_gate`、`task_safety_gate` 和 `strict_success` 仍记录严格的合规成功结果，
 仅用于审计；`details.task_completion` 记录用于训练的完成值。
@@ -72,6 +75,7 @@ v4 禁止 `turn_coefficient=0`。一组八条都违规、标量全零时仍有�
 | User Simulator 被判无效 | 沿用独立 user replacement 预算，仅重跑该槽位并更换 user seed |
 | 已完成交互，但 Agent Judge/奖励评分异常 | 保留同一 ID、消息、事件、token、seed，重试冻结评分 |
 | User Simulator Judge 调用失败 | 在同一冻结交互上重试筛查 |
+| token/log-prob/策略版本对齐、工具结果数量、提示初始化或确定性配置错误 | 保存审计后立即停止，不补采 |
 | 重试耗尽、worker 故障或未分类异常 | 停止训练；buffer 不清除失败组的正常成员、不拿 7 条训练、不整组 refill |
 | 任务取消 | 直接传播取消，不补采 |
 
@@ -99,20 +103,27 @@ v4 禁止 `turn_coefficient=0`。一组八条都违规、标量全零时仍有�
 ```bash
 python scripts/train_airline_grpo.py \
   --config configs/rl/airline_procredit_v4.yaml \
-  --stage smoke --seed 42 --run-name procredit_v4_smoke_seed42 \
+  --stage smoke --seed 42 --run-name procredit_v4_task_target_smoke_seed42 \
   --extra trainer.total_training_steps=1 --dry-run
 ```
 
 dry-run 会运行初始 evaluator 和生成筛选文件，但不加载模型或调用收费 API；
 去掉 `--dry-run` 才会启动新 smoke。v4 的 reward version 是
-`v8-procredit-turn-only`，credit version 是 `procredit-turn-v4`。
+`v9-procredit-task-target`，credit version 是 `procredit-turn-v4`。
 离线重评分会冻结新评分配置与指纹，源轨迹不改。v4 group audit 不能套用
 v3 算法静默重放。旧 scorer 的精确复现应使用对应旧 commit。
 
 ## 验证边界
 
+v9 修复：合法但被无效同轮调用阻断的工具使用
+`execution_status=blocked_by_invalid_sibling`，不标记 schema 错误，
+不累计 process 或 unchanged-retry 成本。整批不执行的策略保持。
+只对 environment_reset/model_generation/tau2_tool_step/tau2_text_step
+服务阶段有限补采；这些阶段若直接由配置/类型/键/断言错误引起也立即停止。
+使用新 run 目录，旧 v8 记录不能当作新实验的有效评分直接续训。
+
 2026-09-29 本地完整 `tests` 套件（真实 Torch/TensorDict）：
-602 passed、25 skipped；Ruff 和 `git diff --check` 通过。
+611 passed、25 skipped；Ruff 和 `git diff --check` 通过。
 独立审查发现的 required-transfer 缓存边界和 transfer 残留门控均已修复，
 并通过先复现失败、再修复的回归测试；最终审查无剩余实质问题。
 

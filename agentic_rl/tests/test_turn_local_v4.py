@@ -219,8 +219,8 @@ def test_v4_many_process_errors_and_extra_turns_never_dilute_fixed_costs():
     assert trace["total_cost"] == pytest.approx(3.5)
 
 
-@pytest.mark.parametrize("allowed,judge_valid", [(True, False), (False, True)])
-def test_v4_transfer_policy_failure_does_not_gate_component_completion(allowed, judge_valid):
+@pytest.mark.parametrize("allowed,judge_valid,completed", [(True, False, 1), (False, True, 0), (False, True, 1)])
+def test_v4_transfer_policy_failure_does_not_gate_component_completion(allowed, judge_valid, completed):
     from types import SimpleNamespace
 
     from tau2_agentic_rl.reward.progress import build_progress_trace
@@ -246,12 +246,14 @@ def test_v4_transfer_policy_failure_does_not_gate_component_completion(allowed, 
     )
     reward = score_trajectory(
         events=events, messages=[], assistant_turns=3, required_actions=[],
-        official=OfficialScores(reward=1), judge=judge, transfer_rule=rule,
+        official=OfficialScores(reward=completed, db_applicable=True, db_score=completed),
+        judge=judge, transfer_rule=rule,
         config=build_reward_config(cfg), progress_trace=trace,
     )
     assert not reward.policy_gate and reward.strict_success == 0
-    assert reward.details["task_completion"] == 1
-    assert reward.train_reward == 1 + .5 * trace["phi"][-1]
+    assert reward.branch == ("human_transfer" if allowed else "normal")
+    assert reward.details["task_completion"] == completed
+    assert reward.train_reward == completed + .5 * trace["phi"][-1]
     assert reward.details["policy_turn_rewards"] == [0, -1, 0]
     record = SimpleNamespace(
         schema_version="2.0", custom_reward=reward, progress_trace=trace,
@@ -260,6 +262,8 @@ def test_v4_transfer_policy_failure_does_not_gate_component_completion(allowed, 
             prompt_token_ids=list(range(i + 1)), output_token_ids=[9], assistant_turn_index=i,
         ) for i in range(3)],
         trajectory_id="transfer", task_id="0", policy_version=0,
-        judge_result=judge, tool_events=events, scoring_inputs={"reward_project_config": cfg},
+        judge_result=judge, tool_events=events, scoring_inputs={
+            "reward_project_config": cfg, "judge": {"transfer_rule": rule},
+        },
     )
-    assert credit_from_record(record)["terminal_success"] == 1
+    assert credit_from_record(record)["terminal_success"] == completed

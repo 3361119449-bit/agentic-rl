@@ -67,6 +67,7 @@ class ToolEvent(BaseModel):
     confirmation_consumed: bool = False
     observation_truncated: bool = False
     error_kind: ToolErrorKind | None = None
+    execution_status: Literal["blocked_by_invalid_sibling"] | None = None
     unchanged_retry: bool = False
     no_progress: bool = False
     result: str | None = None
@@ -77,6 +78,8 @@ class ToolEvent(BaseModel):
         result = handler(self)
         if self.state_before is None:
             result.pop("state_before", None)
+        if self.execution_status is None:
+            result.pop("execution_status", None)
         return result
 
 

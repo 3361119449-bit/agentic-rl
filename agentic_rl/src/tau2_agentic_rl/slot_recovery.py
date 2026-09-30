@@ -9,6 +9,10 @@ from tau2_agentic_rl.user_simulation import (
     replacement_seed,
 )
 
+RECOVERABLE_INTERACTION_PHASES = frozenset({
+    "environment_reset", "model_generation", "tau2_tool_step", "tau2_text_step",
+})
+
 
 class RolloutInfrastructureError(RuntimeError):
     """A failed interaction whose audit was saved before requesting replacement."""
@@ -66,6 +70,11 @@ async def run_training_slot(generate, sampling_params, *, project: dict, kwargs:
                 raise SlotRecoveryExhausted(f"user replacement limit in slot {first_id}") from exc
             user_count += 1
         except RolloutInfrastructureError as exc:
+            # Unknown phases and broken training contracts must remain visible.
+            if exc.phase not in RECOVERABLE_INTERACTION_PHASES or isinstance(
+                exc.__cause__, (ValueError, TypeError, KeyError, AssertionError),
+            ):
+                raise
             failures.append({"trajectory_id": exc.trajectory_id, "phase": exc.phase})
             if infra_count >= max_infra:
                 raise SlotRecoveryExhausted(f"infrastructure replacement limit in slot {first_id}") from exc

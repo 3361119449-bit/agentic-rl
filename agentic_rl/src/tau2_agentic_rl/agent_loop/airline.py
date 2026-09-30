@@ -93,7 +93,11 @@ def _split(kwargs: dict[str, Any]) -> tuple[str, str, int]:
 
 def _mark_repetition(event: ToolEvent, earlier: list[ToolEvent]) -> None:
     """Mark unchanged failed retries and successful no-progress duplicates."""
+    if event.execution_status == "blocked_by_invalid_sibling":
+        return
     for previous in reversed(earlier):
+        if previous.execution_status == "blocked_by_invalid_sibling":
+            continue
         if previous.name != event.name or not arguments_equal(
             previous.arguments,
             event.arguments,
@@ -656,7 +660,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                         call_ids, calls, checked_calls, strict=True
                     ):
                         if checked.valid:
-                            error_kind = "schema_invalid"
+                            error_kind = None
                             detail = (
                                 "not executed because another tool call in the "
                                 "same assistant turn was invalid"
@@ -664,7 +668,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                         else:
                             error_kind = str(checked.error_kind)
                             detail = str(checked.detail)
-                        message = synthetic_tool_error(call.name, error_kind, detail)
+                        message = synthetic_tool_error(call.name, error_kind or "blocked_by_invalid_sibling", detail)
                         message["tool_call_id"] = call_id
                         local_messages.append(message)
                         event = ToolEvent(
@@ -674,6 +678,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             name=call.name,
                             arguments=checked.arguments,
                             error_kind=error_kind,
+                            execution_status="blocked_by_invalid_sibling" if checked.valid else None,
                             result=detail,
                         )
                         _mark_repetition(event, tool_events)
@@ -732,7 +737,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     batch_results = step.tool_results or []
                     if len(batch_results) != len(checked_calls):
                         infrastructure_error = (
-                            "tau2_tool_step",
+                            "tool_result_alignment",
                             RuntimeError(
                                 "Tau2 multi-tool result count does not match call count"
                             ),

@@ -4,7 +4,7 @@ project:
   tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
   verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
   annotation_version: v4-policy-applicability
-  reward_version: v8-procredit-turn-only
+  reward_version: v9-procredit-task-target
 agent_policy:
   path: configs/prompts/areal_airline_sft.v1.json
   system_prompt_sha256: e490e0859e1357ed6dd777fdbddab15b11d6de96ff7161328a6babcab77348ab
