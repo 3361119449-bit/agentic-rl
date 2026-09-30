@@ -1,5 +1,6 @@
 """Bounded recovery inside one original rollout slot and policy lease."""
 
+import asyncio
 from copy import deepcopy
 from uuid import uuid4
 
@@ -12,6 +13,36 @@ from tau2_agentic_rl.user_simulation import (
 RECOVERABLE_INTERACTION_PHASES = frozenset({
     "environment_reset", "model_generation", "tau2_tool_step", "tau2_text_step",
 })
+NONRECOVERABLE_INTERACTION_PHASES = frozenset({
+    "policy_version_alignment", "rollout_log_probs", "token_alignment",
+    "prompt_initialization", "tool_result_alignment", "tool_parser",
+    "observation_tokenization", "user_sim_context", "official_reward",
+})
+
+
+def interaction_retryable(phase: str, error: BaseException | None = None) -> bool:
+    """Never hide a contract failure inside a service wrapper/exception group."""
+    if phase not in RECOVERABLE_INTERACTION_PHASES:
+        return False
+    pending, seen = [error] if error is not None else [], set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, (
+            ValueError, TypeError, KeyError, AssertionError,
+            asyncio.CancelledError, KeyboardInterrupt, SystemExit,
+        )):
+            return False
+        if isinstance(current, RolloutInfrastructureError) and current.phase not in RECOVERABLE_INTERACTION_PHASES:
+            return False
+        if isinstance(current, BaseExceptionGroup):
+            pending.extend(current.exceptions)
+        pending.extend(
+            cause for cause in (current.__cause__, current.__context__) if cause is not None
+        )
+    return True
 
 
 class RolloutInfrastructureError(RuntimeError):
@@ -32,7 +63,7 @@ def slot_metadata(kwargs: dict) -> dict:
     return {"slot_recovery": deepcopy(context)} if context is not None else {}
 
 
-async def run_training_slot(generate, sampling_params, *, project: dict, kwargs: dict):
+async def run_training_slot(generate, sampling_params, *, project: dict, kwargs: dict, stop_requested=None):
     """Keep uid/session, task, sampling parameters and policy version unchanged."""
     max_infra = project["slot_recovery"]["max_resamples"]
     max_user = project.get("user_sim_filter", {}).get("max_resamples", 2) if filter_enabled(project) else 0
@@ -46,6 +77,8 @@ async def run_training_slot(generate, sampling_params, *, project: dict, kwargs:
     failures = []
     infra_count = user_count = 0
     while True:
+        if stop_requested is not None and stop_requested():
+            raise asyncio.CancelledError
         current_id = first_id if not failures else uuid4().hex
         context = {
             "parent_trajectory_id": first_id, "attempt": len(failures),
@@ -71,9 +104,7 @@ async def run_training_slot(generate, sampling_params, *, project: dict, kwargs:
             user_count += 1
         except RolloutInfrastructureError as exc:
             # Unknown phases and broken training contracts must remain visible.
-            if exc.phase not in RECOVERABLE_INTERACTION_PHASES or isinstance(
-                exc.__cause__, (ValueError, TypeError, KeyError, AssertionError),
-            ):
+            if not interaction_retryable(exc.phase, exc):
                 raise
             failures.append({"trajectory_id": exc.trajectory_id, "phase": exc.phase})
             if infra_count >= max_infra:

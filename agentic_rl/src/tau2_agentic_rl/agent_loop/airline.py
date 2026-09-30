@@ -59,6 +59,7 @@ from tau2_agentic_rl.scoring_retry import SCORING_FAILURES, retry_scoring
 from tau2_agentic_rl.slot_recovery import (
     RolloutInfrastructureError,
     SlotRecoveryExhausted,
+    interaction_retryable,
     run_training_slot,
     slot_metadata,
 )
@@ -262,6 +263,12 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             uuid4().hex
         )  # Allocate before queueing, including queue failures.
         acquired = False
+        recovery_stop = asyncio.Event()
+        owner = asyncio.current_task()
+
+        def stop_requested():
+            # Task.cancel() is visible before this task's handler is scheduled.
+            return recovery_stop.is_set() or owner.cancelling() > 0
         try:
             async with self.shared_budget.aslot("trajectories") as lease:
                 acquired = True
@@ -270,12 +277,14 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                         sampling_params,
                         trajectory_id=trajectory_id,
                         lease=lease,
+                        stop_requested=stop_requested,
                         **kwargs,
                     )
                 )
                 try:
                     return await asyncio.shield(task)
                 except asyncio.CancelledError:
+                    recovery_stop.set()
                     # Tau2's synchronous user call may still be running in a
                     # thread. Retain the lease until the interaction really ends,
                     # even if shutdown sends more than one cancellation.
@@ -320,7 +329,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             )
             raise
 
-    async def _run_valid_trajectory(self, sampling_params, **kwargs):
+    async def _run_valid_trajectory(self, sampling_params, *, stop_requested=None, **kwargs):
         """Replace invalid USER episodes before any tokens reach DAPO/PPO."""
         if (
             self.project.get("credit", {}).get("version") == "procredit-turn-v4"
@@ -329,6 +338,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         ):
             return await run_training_slot(
                 self._run_trajectory, sampling_params, project=self.project, kwargs=kwargs,
+                stop_requested=stop_requested,
             )
         if not filter_enabled(self.project):
             return await self._run_trajectory(sampling_params, **kwargs)
@@ -347,6 +357,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         # and visible there. Training replaces them under the same policy lease.
         rounds = 0 if os.environ.get("EVALUATION_MANIFEST_ID") else max_replacements
         for offset in range(rounds + 1):
+            if stop_requested is not None and stop_requested():
+                raise asyncio.CancelledError
             attempt = start + offset
             current = {
                 **kwargs,
@@ -420,6 +432,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             "evaluation_sample_index"
                         ),
                         "failure_phase": "environment_reset",
+                        "interaction_retryable": interaction_retryable("environment_reset", exc),
                         "queue_wait_seconds": queue_wait_seconds,
                         "failure_type": type(exc).__name__,
                         "failure_message": str(exc),
@@ -470,6 +483,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             "evaluation_sample_index"
                         ),
                         "failure_phase": "prompt_initialization",
+                        "interaction_retryable": False,
                         "initial_prompt": prompt_measurement,
                         "queue_wait_seconds": queue_wait_seconds,
                         "failure_type": type(exc).__name__,
@@ -1075,6 +1089,11 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "rollout_engine_version": os.environ.get("VLLM_VERSION", "unknown"),
                 "failure_phase": (
                     infrastructure_error[0] if infrastructure_error else None
+                ),
+                "interaction_retryable": (
+                    interaction_retryable(*infrastructure_error)
+                    if infrastructure_error and infrastructure_error[0] not in SCORING_FAILURES
+                    else None
                 ),
                 "failure_type": (
                     type(infrastructure_error[1]).__name__

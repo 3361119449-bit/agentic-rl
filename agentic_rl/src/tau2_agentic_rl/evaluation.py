@@ -13,6 +13,7 @@ from tau2_agentic_rl.pass_metrics import (
     validate_unit_score,
 )
 from tau2_agentic_rl.scoring_retry import scoring_pending
+from tau2_agentic_rl.slot_recovery import NONRECOVERABLE_INTERACTION_PHASES
 from tau2_agentic_rl.user_simulation import FILTER_VERSION, validate_saved_screen
 from tau2_agentic_rl.versions import sha256_file, sha256_json
 
@@ -108,6 +109,14 @@ def evaluation_coverage(records_dir: Path, manifest: dict[str, Any]) -> dict[str
         if row["trajectory_id"] in trajectory_ids:
             raise ValueError("duplicate trajectory ID")
         trajectory_ids.add(row["trajectory_id"])
+        if (
+            metadata.get("interaction_retryable") is False
+            or metadata.get("failure_phase") in NONRECOVERABLE_INTERACTION_PHASES
+        ):
+            raise ValueError(
+                f"non-retryable interaction failure: {row['trajectory_id']}: "
+                f"{metadata.get('failure_phase')}; stop instead of refilling the slot"
+            )
         if with_filter:
             verdict = row.get("user_sim_result")
             if verdict is not None:

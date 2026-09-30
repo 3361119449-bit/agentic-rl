@@ -77,7 +77,7 @@ v4 禁止 `turn_coefficient=0`。一组八条都违规、标量全零时仍有�
 | User Simulator Judge 调用失败 | 在同一冻结交互上重试筛查 |
 | token/log-prob/策略版本对齐、工具结果数量、提示初始化或确定性配置错误 | 保存审计后立即停止，不补采 |
 | 重试耗尽、worker 故障或未分类异常 | 停止训练；buffer 不清除失败组的正常成员、不拿 7 条训练、不整组 refill |
-| 任务取消 | 直接传播取消，不补采 |
+| 任务取消 | 立即停止后续补采，等已发出的后台交互结束后释放 lease 并传播取消 |
 
 默认 `slot_recovery.max_resamples=2`、`max_scoring_retries=2`，耗尽策略固定
 为 `stop`。API client 自身的重试预算仍独立存在。轨迹和输出
@@ -90,6 +90,10 @@ v4 禁止 `turn_coefficient=0`。一组八条都违规、标量全零时仍有�
 默认每槽位最多 1 + 2 次 infrastructure replacement + 2 次 user replacement，
 实际交互计数应从 trajectory/slot_recovery 审计统计，不能把 192 当作物理尝试上限。
 评估轨迹的替换仍交给原评估 driver，避免训练端重复替换评估样本。
+训练和评估均检查异常 cause/context 链及 ExceptionGroup；包装过的配置、
+类型、键、断言或对齐错误也不能触发补采。失败记录保存
+`interaction_retryable`；评估遇到不可重试记录或已知对齐失败阶段会停止，
+不会把它当成缺失槽位重新生成。冻结评分重试仍使用原轨迹。
 
 ## 启动与兼容性
 
@@ -119,11 +123,12 @@ v9 修复：合法但被无效同轮调用阻断的工具使用
 `execution_status=blocked_by_invalid_sibling`，不标记 schema 错误，
 不累计 process 或 unchanged-retry 成本。整批不执行的策略保持。
 只对 environment_reset/model_generation/tau2_tool_step/tau2_text_step
-服务阶段有限补采；这些阶段若直接由配置/类型/键/断言错误引起也立即停止。
+服务阶段有限补采；这些阶段若由配置/类型/键/断言错误引起也立即停止，
+包括多层异常包装中的错误。
 使用新 run 目录，旧 v8 记录不能当作新实验的有效评分直接续训。
 
-2026-09-29 本地完整 `tests` 套件（真实 Torch/TensorDict）：
-611 passed、25 skipped；Ruff 和 `git diff --check` 通过。
+2026-09-30 本地完整 `tests` 套件（真实 Torch/TensorDict）：
+621 passed、25 skipped；Ruff 和 `git diff --check` 通过。
 独立审查发现的 required-transfer 缓存边界和 transfer 残留门控均已修复，
 并通过先复现失败、再修复的回归测试；最终审查无剩余实质问题。
 
@@ -131,7 +136,8 @@ v9 修复：合法但被无效同轮调用阻断的工具使用
 过程错误不降低轨迹分数、不改变其他 turn、超过旧 cap 不稀释固定值、
 同轮 policy/process 相加、违规 turn 保留完整 task/progress return、
 真实 Torch/TensorDict 进入生产 trainer 方法且 old log-prob 不变、8 槽只重试
-失败槽、冻结评分重试/耗尽、取消传播、离线重新评分及 BF16 配置约束。
+失败槽、冻结评分重试/耗尽、两种取消调度顺序下停止补采并保留 lease、
+包装/分组异常分类、评估不可重试错误停止、离线重新评分及 BF16 配置约束。
 
 本地未执行真实 GPU/API smoke，未运行依赖固定 Tau2/veRL/Ray 环境的完整契约
 测试。不能据本地回归宣称 smoke 已完成或 Judge 失败率已经降低。
