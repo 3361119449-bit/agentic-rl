@@ -124,6 +124,22 @@ def build_cached_agent_gym_env(**kwargs: Any) -> Any:
         pass
 
     class CachedAgentGymEnv(AgentGymEnv):
+        def _run_orchestrator(self) -> None:
+            """Keep the pinned thread's settlement barrier and original error."""
+            self._orchestrator_error = None
+            simulation_run = None
+            try:
+                if self._orchestrator:
+                    self._log("Starting orchestrator", "INFO")
+                    simulation_run = self._orchestrator.run()
+                    self._log("Orchestrator finished", "INFO")
+            except Exception as error:
+                self._orchestrator_error = error
+                self._log(f"Orchestrator error: {error}", "ERROR")
+            finally:
+                self._simulation_run = simulation_run
+                self._simulation_done.set()
+
         def _get_user(self) -> Any:
             environment = self._get_environment()
             task = self._get_task()

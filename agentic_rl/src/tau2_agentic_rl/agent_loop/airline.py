@@ -335,10 +335,10 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         if (
             self.project.get("credit", {}).get("version") == "procredit-turn-v4"
             and not os.environ.get("EVALUATION_MANIFEST_ID")
-            and _split(kwargs)[1] == "train"
         ):
+            partition = "train" if _split(kwargs)[1] == "train" else "val"
             async def count_attempt(kind):
-                await self.shared_budget.acall("record_rollout_attempt", "train", kind)
+                await self.shared_budget.acall("record_rollout_attempt", partition, kind)
 
             return await run_training_slot(
                 self._run_trajectory, sampling_params, project=self.project, kwargs=kwargs,

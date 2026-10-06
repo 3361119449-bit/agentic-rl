@@ -1,4 +1,4 @@
-"""Select verified progress tasks from the authorized training split only."""
+"""Select authorized training tasks under the versioned credit contract."""
 
 from __future__ import annotations
 
@@ -18,9 +18,11 @@ from tau2_agentic_rl.versions import sha256_file, sha256_json
 
 def select_training_rows(
     *, rows: list[dict], tasks: dict, required: dict, dependencies: dict,
-    transfers: dict, split: dict, evaluator=None,
+    transfers: dict, split: dict, evaluator=None, mode="verified_progress",
 ) -> tuple[list[dict], dict]:
     """Evaluate the actual initial history; no rollout or model calls."""
+    if mode not in {"verified_progress", "task_or_local_credit"}:
+        raise ValueError("unknown training selection mode")
     allowed = set(split["rl_train"])
     heldout = set(split["internal_dev"]) | set(split["official_test"])
     if allowed & heldout:
@@ -43,19 +45,25 @@ def select_training_rows(
             transfer_rule=transfers[task_id], initial_state_fingerprint=sha256_json(initial),
             evaluator=evaluator, version="progress-v2",
         )
-        included = any(check["included"] for check in trace["checks"])
+        progress = any(check["included"] for check in trace["checks"])
+        # v4's terminal task score and local policy/process credit can train
+        # even when initial progress is zero. Only the actual group advantages
+        # determine whether these approved tasks have a gradient.
+        included = progress or mode == "task_or_local_credit"
         entries.append({
             "task_id": task_id, "included": included,
-            "reason": "verified_unmet_progress" if included else "no_unmet_progress",
+            "reason": ("verified_unmet_progress" if progress else
+                       "task_or_local_credit" if included else "no_unmet_progress"),
             "checkset_fingerprint": trace["checkset_fingerprint"],
             "checks": trace["checks"],
         })
         if included:
             selected.append(row)
     if not selected:
-        raise ValueError("training selection contains no verified progress tasks")
+        raise ValueError("training selection contains no eligible training tasks")
     return selected, {
-        "version": "verified-progress-selection-v1",
+        "version": "trainable-credit-selection-v2" if mode == "task_or_local_credit" else "verified-progress-selection-v1",
+        "mode": mode,
         "source_rows_sha256": sha256_json(rows),
         "split_sha256": sha256_json(split),
         "included_task_ids": [item["task_id"] for item in entries if item["included"]],
@@ -113,9 +121,11 @@ def prepare_training_selection(source: Path, project_root: Path, project: dict) 
         dependencies=load_action_dependencies(project_root / annotations["action_dependencies"]),
         transfers=load_task_mapping(project_root / annotations["transfer_rules"]),
         split=json.loads((project_root / "data/splits/airline_internal_dev.v1.json").read_text(encoding="utf-8")),
+        mode=project["training_selection"]["mode"],
     )
     manifest["tau2_commit"] = project["project"]["tau2_commit"]
-    path, identity = write_selection(source, selected, manifest, source.parent / "procredit_v3")
+    directory = "procredit_v4" if project["credit"]["version"] == "procredit-turn-v4" else "procredit_v3"
+    path, identity = write_selection(source, selected, manifest, source.parent / directory)
     print("ProCredit train selection: " + json.dumps({
         "included": manifest["included_task_ids"],
         "excluded": manifest["excluded_task_ids"], "manifest": str(path.with_suffix(".json")),

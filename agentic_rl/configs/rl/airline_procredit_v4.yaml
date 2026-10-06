@@ -151,7 +151,7 @@ credit:
 
   process_credit: uncapped_local_additive
 training_selection:
-  mode: verified_progress
+  mode: task_or_local_credit
 precision:
   model_dtype: bfloat16
   param_dtype: bfloat16

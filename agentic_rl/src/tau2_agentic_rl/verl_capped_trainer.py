@@ -1,3 +1,12 @@
+# Validation method adapted from veRL, Copyright 2024 Bytedance Ltd. and/or
+# its affiliates, licensed under the Apache License, Version 2.0.
+# You may obtain a copy at https://www.apache.org/licenses/LICENSE-2.0
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 """Pinned veRL v0.9.0 trainer extensions for bounded dynamic sampling.
 
 veRL's V1 replay buffer intentionally ignores ``max_num_gen_batches``. This
@@ -15,11 +24,13 @@ import logging
 import os
 import tempfile
 import time
-from collections import Counter
+import uuid
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from pprint import pprint
 
+import numpy as np
 import transfer_queue as tq
 from omegaconf import OmegaConf
 from tensordict import TensorDict
@@ -31,6 +42,7 @@ from verl.trainer.ppo.v1.replay_buffer import (
     _accumulate_eviction_metrics,
 )
 from verl.trainer.ppo.v1.trainer_sync import PPOTrainerSync
+from verl.utils import tensordict_utils as tu
 from verl.utils.debug import marked_timer
 from verl.utils.skip import SkipManager
 from verl.utils.tracking import (
@@ -82,6 +94,7 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         conceptual_gen_batch_size: int,
         max_num_gen_batches: int,
         rollout_group_size: int,
+        validation_group_size: int = 1,
         credit_config: CreditConfig | None = None,
         group_audit_dir: Path | None = None,
         rollout_counts_fn=None,
@@ -101,6 +114,9 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         self.conceptual_gen_batch_size = conceptual_gen_batch_size
         self.max_num_gen_batches = max_num_gen_batches
         self.rollout_group_size = rollout_group_size
+        if type(validation_group_size) is not int or validation_group_size < 1:
+            raise ValueError("validation group size must be a positive integer")
+        self.validation_group_size = validation_group_size
         self.credit_config = credit_config
         self.group_audit_dir = group_audit_dir
         self.credit_cache = {}
@@ -276,10 +292,63 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
                 "training/dynamic_sampling/user_replacements": delta["user"],
             })
 
+    def _sample_validation(self, global_steps: int, batch_size: int):
+        """Drain bounded validation slots; never refill whole validation groups."""
+        last_debug_time = time.time()
+        while True:
+            self._sync_metadata_from_transfer_queue()
+            terminal = self.finished_keys["val"] | self.failure_keys["val"]
+            inflight = self.pending_keys["val"] | self.running_keys["val"]
+            if not inflight:
+                if len(terminal) != batch_size:
+                    raise ValueError("validation prompt settlement count mismatch")
+                metadata = self.terminal_metadata_fn() or {}
+                groups = {
+                    uid: terminal_group_contract(metadata.get("val", {}).get(uid), self.validation_group_size)
+                    for uid in terminal
+                }
+                observed = {uid: set() for uid in groups}
+                rejected = []
+                for key in self.partitions["val"]:
+                    parts = key.rsplit("_", 2)
+                    if parts[0] not in groups:
+                        continue
+                    if len(parts) != 3 or not all(p.isdigit() for p in parts[1:]):
+                        raise ValueError("invalid validation session queue key")
+                    uid, session = parts[0], int(parts[1])
+                    if session in groups[uid]["failed_session_ids"]:
+                        rejected.append(key)
+                    else:
+                        observed[uid].add(session)
+                for uid, tag in groups.items():
+                    if (tag["status"] == "failure") != (uid in self.failure_keys["val"]):
+                        raise ValueError("validation status changed after settlement")
+                    expected = set(range(tag["rollout_n"])) - set(tag["failed_session_ids"])
+                    if observed[uid] != expected:
+                        raise ValueError("validation successful session membership mismatch")
+                if rejected:
+                    tq.kv_clear(keys=rejected, partition_id="val")
+                    for key in rejected:
+                        del self.partitions["val"][key]
+                self._check_fatal_rollout()
+                uids, snapshot, _ = self._select_prompt_uids("val", terminal, batch_size)
+                batch = self._materialize_batch("val", uids, snapshot)
+                requested = sum(tag["rollout_n"] for tag in groups.values())
+                completed = sum(len(sessions) for sessions in observed.values())
+                return batch, {
+                    "val/coverage/requested_slots": requested,
+                    "val/coverage/completed_slots": completed,
+                    "val/coverage/failed_slots": requested - completed,
+                    "val/coverage/failed_groups": len(self.failure_keys["val"]),
+                }
+            last_debug_time = self._wait_for_next_poll("val", last_debug_time)
+
     @SkipManager.annotate_tq(role="rollout_tq", phase="sample")
     def sample(
         self, global_steps: int, partition_id: str, batch_size: int
     ) -> tuple[KVBatchMeta, dict]:
+        if partition_id == "val":
+            return self._sample_validation(global_steps, batch_size)
         if partition_id != "train":
             return super().sample(global_steps, partition_id, batch_size)
 
@@ -420,6 +489,179 @@ class CappedPPOTrainerSync(PPOTrainerSync):
             return None
         root = Path(self.config.trainer.default_local_dir).parent / "group_audits"
         return CreditConfig.from_project(project), root
+
+    def _validate(self) -> dict[str, float]:
+        # Adapted from pinned veRL trainer_base.py (Copyright 2024 Bytedance
+        # Ltd. and/or its affiliates, Apache-2.0): retain its metric/dump path,
+        # aggregate validation coverage and skip empty batches before reward IO.
+        validation_counts = Counter()
+        # Lists to collect samples for the table
+        sample_uids = []
+        sample_inputs = []
+        sample_outputs = []
+        sample_gts = []
+        sample_scores = []
+        sample_turns = []
+        data_sources = []
+        reward_extra_infos_dict: dict[str, list] = defaultdict(list)
+        dump_all_inputs: list[str] = []
+        dump_all_outputs: list[str] = []
+        dump_all_keys: list[str] = []
+        session_to_sample_idx: dict[str, int] = {}
+
+        for batch_dict in self.val_dataloader:
+            # 1. put batch to agent loop manager
+            batch_dict["uid"] = np.array(
+                [str(uuid.uuid4()) for _ in range(len(batch_dict["raw_prompt"]))], dtype=object
+            )
+            batch = tu.get_tensordict(batch_dict)
+            tu.assign_non_tensor_data(batch, "global_steps", self.global_steps)
+            tu.assign_non_tensor_data(batch, "validate", True)
+            # Register each prompt (GRPO group) in TransferQueue as a tag-only status marker.
+            # global_steps is required by ReplayBuffer's metadata sync / staleness ordering.
+            tags = [
+                {"is_prompt": True, "status": "pending", "global_steps": self.global_steps} for _ in range(len(batch))
+            ]
+            tq.kv_batch_put(keys=list(batch["uid"]), partition_id="val", tags=tags)
+            self.agent_loop_manager.generate_sequences(batch)
+
+            # 2. sample batch from replay buffer: one prompt (GRPO group) per submitted row.
+            batch, coverage = self.replay_buffer.sample(
+                global_steps=self.global_steps, partition_id="val", batch_size=len(batch)
+            )
+
+            validation_counts.update(coverage)
+            if not batch.keys:
+                continue
+
+            # 3. [OPTIONAL] compute reward score with colocated reward model
+            if self.reward_loop_manager.reward_loop_worker_handles is None:
+                self.checkpoint_manager.sleep_replicas()
+                batch = self._compute_reward_colocate(batch)
+                self.checkpoint_manager.update_weights()
+
+            # 4. collect necessary data for logging
+            # For multi-output agent loops, only use the final output per session for metrics.
+            # Keys have format {uid}_{session_id}_{index}; keep only the highest index per session.
+            session_max: dict[str, tuple[int, int]] = {}  # session_key -> (max_index, position)
+            for pos, key in enumerate(batch.keys):
+                parts = key.rsplit("_", 2)
+                if len(parts) == 3:
+                    session_key = f"{parts[0]}_{parts[1]}"
+                    index = int(parts[2])
+                    if session_key not in session_max or index > session_max[session_key][0]:
+                        session_max[session_key] = (index, pos)
+                else:
+                    session_max[key] = (0, pos)
+            sorted_sessions = sorted(session_max.items(), key=lambda x: x[1][1])
+            final_indices = [pos for _, (_, pos) in sorted_sessions]
+            final_keys = [batch.keys[i] for i in final_indices]
+            base_offset = len(sample_scores)
+            session_to_sample_idx.update(
+                {session_key: base_offset + j for j, (session_key, _) in enumerate(sorted_sessions)}
+            )
+
+            text_data = tq.kv_batch_get(
+                keys=batch.keys, partition_id=batch.partition_id, select_fields=["prompts", "responses"]
+            )
+            text_data["prompts"] = text_data["prompts"].to_padded_tensor(padding=self.tokenizer.pad_token_id)
+            text_data["responses"] = text_data["responses"].to_padded_tensor(padding=self.tokenizer.pad_token_id)
+            all_inputs = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in text_data["prompts"]]
+            all_outputs = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in text_data["responses"]]
+
+            fields = ["uid", "rm_scores", "num_turns", "reward_model", "data_source", "extra_fields"]
+            data = tq.kv_batch_get(keys=final_keys, partition_id=batch.partition_id, select_fields=fields)
+
+            sample_uids.extend(data.pop("uid").tolist())
+            sample_outputs.extend(all_outputs[i] for i in final_indices)
+            sample_inputs.extend(all_inputs[i] for i in final_indices)
+            scores = data["rm_scores"].sum(dim=1).tolist()
+            sample_scores.extend(scores)
+            sample_turns.extend(data.pop("num_turns").tolist())
+            reward_extra_infos_dict["reward"].extend(scores)
+
+            extra_fields_list = data.pop("extra_fields", None)
+            if extra_fields_list is not None:
+                n_prior = len(reward_extra_infos_dict["reward"]) - len(extra_fields_list.tolist())
+                for extra_field in extra_fields_list.tolist():
+                    reward_extra_info = (
+                        extra_field.get("reward_extra_info", {}) if isinstance(extra_field, dict) else {}
+                    )
+                    for key in reward_extra_infos_dict:
+                        if key != "reward" and key not in reward_extra_info:
+                            reward_extra_infos_dict[key].append(None)
+                    for key, value in reward_extra_info.items():
+                        if key not in reward_extra_infos_dict:
+                            reward_extra_infos_dict[key] = [None] * n_prior
+                        reward_extra_infos_dict[key].append(value)
+                    n_prior += 1
+
+            reward_model = data.pop("reward_model", None)
+            if reward_model is not None:
+                sample_gts.extend([item.get("ground_truth", None) for item in reward_model.tolist()])
+            else:
+                sample_gts.extend([None] * len(final_indices))
+
+            data_source = data.pop("data_source", None)
+            if data_source is not None:
+                data_sources.extend(data_source.tolist())
+            else:
+                data_sources.extend(["unknown"] * len(final_indices))
+
+            dump_all_inputs.extend(all_inputs)
+            dump_all_outputs.extend(all_outputs)
+            dump_all_keys.extend(batch.keys)
+
+            # 5. cleanup transfer queue
+            tq.kv_clear(keys=batch.keys, partition_id=batch.partition_id)
+
+        # logger to wandb
+        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
+
+        # dump to local dir
+        val_data_dir = self.config.trainer.get("validation_data_dir", None)
+        if val_data_dir:
+            # Sort according to uid (so that generations in the same rollout are together)
+            sort_keys = []
+            for key in dump_all_keys:
+                parts = key.rsplit("_", 2)
+                sort_keys.append((parts[0], int(parts[1]), int(parts[2])) if len(parts) == 3 else (key, 0, 0))
+            sorted_indices = sorted(range(len(dump_all_keys)), key=lambda i: sort_keys[i])
+            dump_all_inputs = [dump_all_inputs[i] for i in sorted_indices]
+            dump_all_outputs = [dump_all_outputs[i] for i in sorted_indices]
+            dump_all_keys = [dump_all_keys[i] for i in sorted_indices]
+
+            # For ground truths, scores and reward extra infos, find the values in the
+            # lists for the final samples of each session
+            dump_all_sessions = [
+                f"{parts[0]}_{parts[1]}" if len(parts) == 3 else key
+                for key in dump_all_keys
+                for parts in [key.rsplit("_", 2)]
+            ]
+            session_final_indices = [session_to_sample_idx[session] for session in dump_all_sessions]
+            self._dump_generations(
+                inputs=dump_all_inputs,
+                outputs=dump_all_outputs,
+                gts=[sample_gts[i] for i in session_final_indices],
+                scores=[sample_scores[i] for i in session_final_indices],
+                reward_extra_infos_dict={
+                    k: [v[i] for i in session_final_indices] for k, v in reward_extra_infos_dict.items()
+                }
+                | {"uid": dump_all_keys},
+                dump_path=val_data_dir,
+            )
+
+        metrics = (
+            self._val_metrics_update(data_sources, sample_uids, reward_extra_infos_dict, sample_turns)
+            if sample_scores else {}
+        )
+        metrics.update(validation_counts)
+        requested = validation_counts.get("val/coverage/requested_slots", 0)
+        completed = validation_counts.get("val/coverage/completed_slots", 0)
+        metrics["val/coverage/completion_rate"] = completed / requested if requested else 0.0
+        metrics["val/coverage/empty"] = int(completed == 0)
+        return metrics
+
 
     def _compute_advantage(self, batch: KVBatchMeta, metrics: dict) -> KVBatchMeta:
         runtime = self._procredit_runtime()
@@ -595,6 +837,7 @@ class CappedPPOTrainerSync(PPOTrainerSync):
             conceptual_gen_batch_size=self.conceptual_gen_batch_size,
             max_num_gen_batches=self.max_num_gen_batches,
             rollout_group_size=self.rollout_group_size,
+            validation_group_size=self.config.actor_rollout_ref.rollout.val_kwargs.n,
             credit_config=credit_runtime[0] if credit_runtime else None,
             group_audit_dir=credit_runtime[1] if credit_runtime else None,
             rollout_counts_fn=rollout_counts_fn,

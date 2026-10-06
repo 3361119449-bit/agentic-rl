@@ -93,7 +93,7 @@ class DeepSeekJudge:
     def _validate_requested_criteria(
         result: JudgeResult, inputs: dict[str, Any]
     ) -> None:
-        """Reject missing, duplicated, invented, or reordered rubric decisions."""
+        """Require exact unique IDs, then canonicalize decisions by rubric ID."""
 
         expected_semantic = [
             str(item["criterion_id"]) for item in inputs.get("semantic_checks", [])
@@ -104,32 +104,28 @@ class DeepSeekJudge:
         ]
         if "None" in expected_policy:
             raise ValueError("each mandatory judge check needs criterion_id or rule_id")
-        actual_semantic = [item.criterion_id for item in result.semantic_checks]
         expected_transfer_semantic = [
             str(item["criterion_id"])
             for item in inputs.get("transfer_rule", {}).get("semantic_checks", [])
         ]
-        actual_transfer_semantic = [
-            item.criterion_id for item in result.transfer_semantic_checks
-        ]
-        actual_policy = [item.criterion_id for item in result.mandatory_policy_checks]
-        if actual_semantic != expected_semantic:
-            raise ValueError(
-                "judge semantic criterion IDs do not exactly match the requested rubric: "
-                f"expected={expected_semantic}, actual={actual_semantic}"
-            )
-        if actual_transfer_semantic != expected_transfer_semantic:
-            raise ValueError(
-                "judge transfer-semantic criterion IDs do not exactly match the "
-                "requested rubric: "
-                f"expected={expected_transfer_semantic}, "
-                f"actual={actual_transfer_semantic}"
-            )
-        if actual_policy != expected_policy:
-            raise ValueError(
-                "judge policy criterion IDs do not exactly match the requested rubric: "
-                f"expected={expected_policy}, actual={actual_policy}"
-            )
+        for field, expected in (
+            ("semantic_checks", expected_semantic),
+            ("transfer_semantic_checks", expected_transfer_semantic),
+            ("mandatory_policy_checks", expected_policy),
+        ):
+            checks = getattr(result, field)
+            actual = [check.criterion_id for check in checks]
+            if (
+                len(set(expected)) != len(expected)
+                or len(set(actual)) != len(actual)
+                or set(actual) != set(expected)
+            ):
+                raise ValueError(
+                    f"judge {field} criterion IDs do not exactly match the requested rubric: "
+                    f"expected={expected}, actual={actual}"
+                )
+            by_id = {check.criterion_id: check for check in checks}
+            setattr(result, field, [by_id[criterion_id] for criterion_id in expected])
 
         active = definitely_active_policy_rules(
             inputs.get("trajectory", {}), inputs.get("transfer_rule", {})

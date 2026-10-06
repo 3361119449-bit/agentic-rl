@@ -99,8 +99,9 @@ def validate_procredit_config(config: dict) -> None:
         expected_process = "uncapped_local_additive" if local_only else "capped_local_max"
         if config["credit"].get("process_credit") != expected_process:
             raise ValueError(f"{credit.version} requires {expected_process} process credit")
-        if config.get("training_selection", {}).get("mode") != "verified_progress":
-            raise ValueError("ProCredit v3/v4 requires verified progress training selection")
+        selection_mode = "task_or_local_credit" if local_only else "verified_progress"
+        if config.get("training_selection", {}).get("mode") != selection_mode:
+            raise ValueError(f"{credit.version} requires {selection_mode} training selection")
         if config.get("precision") != {
             "model_dtype": "bfloat16", "param_dtype": "bfloat16",
             "rollout_dtype": "bfloat16", "reduce_dtype": "float32", "buffer_dtype": "float32",

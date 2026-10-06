@@ -53,6 +53,12 @@ v4 禁止 `turn_coefficient=0`。一组八条都违规、标量全零时仍有�
 
 ## 明确归因
 
+v4 的训练任务选择模式为 `task_or_local_credit`。初始 Phi 没有未完成项时，
+终局任务分或局部 policy/process 仍可能产生训练信号，因此保留所有已授权且标注完整
+的训练任务，包括纯拒绝和政策推理任务。仍记录初始进度检查；实际没有最终 advantage
+信号的组由采样器过滤。v3 继续使用 `verified_progress`。选择清单和内容指纹绑定
+resume，v4 的独立筛选产物放在 `procredit_v4/`；此次模式变化须启动新 run。
+
 真实工具事件按原 actor turn 定位，Judge 只能用显式
 `violation_assistant_turn_ids` 定位文本决策。上下文证据编号不能充当违规轮。
 遗漏必要 transfer 时，只接受 Judge 对具体拒绝或提前结束决策的明确归因；
@@ -117,11 +123,21 @@ PPO 保持 32 行 mini-batch 和两个 epoch；合成 EOS padding 只用于 batc
 默认每槽位最多 1 + 2 次 infrastructure replacement + 2 次 user replacement，
 默认逻辑预算下最多可发起 192 × 5 = 960 次交互；192 不是物理尝试上限。
 冻结评分重试和 API client 内部 HTTP 重试不算新的物理 rollout。
-评估轨迹的替换仍交给原评估 driver，避免训练端重复替换评估样本。
+训练内验证采用相同的有界 slot 恢复；耗尽的 user-invalid 和明确临时异常不停止
+整个训练，成功 sibling 继续进入验证指标。验证 sampler 不补采整个 group，
+按 worker 的终态成员清单排除失败 session，即使它已提前写出部分输出。
+`val/coverage/requested_slots`、`completed_slots`、`failed_slots`、
+`failed_groups` 和 `completion_rate` 记录覆盖率；完成奖励指标只使用真实成功
+session，全部失败时不生成奖励指标，以 `val/coverage/empty=1` 标明并继续训练。
+独立 `evaluate_airline.py` 的替换仍交给原评估 driver，避免重复替换评估样本。
 训练和评估均检查异常 cause/context 链及 ExceptionGroup；只认可明确的
 连接、超时错误和 HTTP 408/429/500/502/503/504。未知 RuntimeError、
 缺失异常证据、属性错误、模型文件不存在等默认不补采。
 HTTPX/HTTPCore/AnyIO 超时的内部取消保留可重试语义，顶层任务取消仍不补采。
+Tau2 后台线程在设置终止事件前保留原始异常，reset、文本步和工具步均传递
+原始类型及 cause/context 链，避免把用户 API 超时误判为未知致命错误。
+Judge 的三个检查数组按 criterion ID 对齐并恢复 rubric 顺序；只接受完全相同的
+唯一 ID 集合，继续严格校验证据、applicable 和违规轮归因。
 包装过的配置、
 类型、键、断言或对齐错误也不能触发补采。失败记录保存
 `interaction_retryable`；评估遇到不可重试记录或已知对齐失败阶段会停止，
@@ -160,9 +176,11 @@ v9 修复：合法但被无效同轮调用阻断的工具使用
 使用新 run 目录，旧 v8 记录不能当作新实验的有效评分直接续训。
 
 2026-10-06 本地完整 `tests` 套件（真实 Torch/TensorDict）：
-695 passed、25 skipped；Ruff 和 `git diff --check` 通过。
+725 passed、25 skipped；Ruff 和 `git diff --check` 通过。
 独立审查发现的 required-transfer 缓存边界和 transfer 残留门控均已修复，
-并通过先复现失败、再修复的回归测试；本次轨迹利用修复的独立审查未发现实质问题。
+并通过先复现失败、再修复的回归测试；轨迹利用与本次四项修复的独立审查未发现实质问题。
+新增回归覆盖 Tau2 后台异常在 reset/文本步/工具步传递、验证单槽有界恢复、
+验证全部失败与部分覆盖、Judge 合法乱序及严格 ID 成员校验、v4 零进度任务选择。
 新增覆盖部分组、单成员组、耗尽槽位已写出输出的排除、剩余有效组利用、
 跨补采批保留全部 80 条有效轨迹、dense/nested padding 零梯度、batch 元数据
 保留及部分组审计精确重放。

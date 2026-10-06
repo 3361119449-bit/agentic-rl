@@ -14,6 +14,7 @@ from tau2_agentic_rl.slot_recovery import (
     SlotRecoveryExhausted,
     interaction_retryable,
 )
+from tau2_agentic_rl.user_simulation import UserSimulationRejected
 
 logger = logging.getLogger(__name__)
 # The pinned TQ worker is already a Ray ActorClass. Its underlying Python class
@@ -28,7 +29,9 @@ class FailureAwareAgentLoopWorkerTQ(_TQWorker):
         self.failure_budget = api_budget()
 
     def _report_failure(self, error, *, uid, partition_id, session_id=None):
-        transient = isinstance(error, (SlotRecoveryExhausted, QueueWaitError)) or (
+        transient = (
+            partition_id == "val" and isinstance(error, UserSimulationRejected)
+        ) or isinstance(error, (SlotRecoveryExhausted, QueueWaitError)) or (
             isinstance(error, RolloutInfrastructureError)
             and interaction_retryable(error.phase, error)
         )

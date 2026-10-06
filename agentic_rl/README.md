@@ -497,7 +497,7 @@ python scripts/train_airline_grpo.py --stage internal_dev \
 # 正常训练：去掉 --dry-run；如需 Agent Judge，改为 --reward-judge。
 ```
 
-v4 训练中，临时错误或 invalid user 补采耗尽只隔离对应 group，完整且有信号的其他组继续训练。
+v4 训练中，临时错误或 invalid user 补采耗尽只排除对应 slot，同组成功成员及其他有信号组继续训练。
 配置、断言、token alignment 和未知代码错误通过 Ray job 共享的 fatal 标记传到 trainer，
 阻止后续采样、补采和 actor 更新，不再被 veRL 的通用 `failure` 状态吞掉。
 
@@ -612,6 +612,12 @@ veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num
 Judge 异常只重评冻结轨迹；
 临时错误重试耗尽后利用同组已评分成员；致命错误立即停训。多余有效组及
 补采上限处的剩余有效组均用于当前更新。显式 BF16 延续 v3。
+v4 的训练任务选择使用 `task_or_local_credit`，保留已授权训练集中的任务，
+不再因为初始 progress 为零排除拒绝、政策推理等任务；实际无 advantage 信号的组仍过滤。
+训练内验证也只补采失败 slot，耗尽后保留成功样本并报告
+`val/coverage/{requested_slots,completed_slots,failed_slots,completion_rate}`；
+全部失败时只报告覆盖率，继续训练。Tau2 后台线程保留原始异常，Judge 检查按 ID 匹配，
+接受合法乱序，缺失、重复、额外 ID 和错误证据仍拒绝。
 详见 [公式、重试边界和启动方式](REWARD_TURN_LOCAL_V4.md)。
 
 ### ProCredit v3 contract 修复（2026-09-28）

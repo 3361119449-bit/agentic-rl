@@ -96,10 +96,18 @@ class Tau2GymAdapter:
             all_messages_as_observation=False,
         )
         _, self.info = await asyncio.to_thread(self.env.reset, seed=seed)
+        self._raise_orchestrator_error()
         if getattr(self.env, "_simulation_done", None).is_set():
             raise RuntimeError("Tau2 environment terminated during reset")
         self._initial_db_hash = self.db_hash()
         return self._take_new_observations()
+
+    def _raise_orchestrator_error(self) -> None:
+        """Transport the original exception from the settled background thread."""
+        if self.env._simulation_done.is_set():
+            error = getattr(self.env, "_orchestrator_error", None)
+            if error is not None:
+                raise error
 
     @property
     def policy(self) -> str:
@@ -228,11 +236,13 @@ class Tau2GymAdapter:
         try:
             with lock:
                 if simulation_done.is_set():
+                    self._raise_orchestrator_error()
                     raise RuntimeError("Tau2 simulation already terminated")
                 agent.set_action(action)
                 while not simulation_done.is_set() and not agent.is_agent_turn:
                     simulation_done.wait(timeout=0.01)
                 terminated = simulation_done.is_set()
+                self._raise_orchestrator_error()
                 reward, reward_info = gym_env._get_reward()
                 info = gym_env._get_info()
                 info["reward_info"] = reward_info
@@ -267,6 +277,7 @@ class Tau2GymAdapter:
     async def _step(self, action: str) -> GymStep:
         before_hash = self.db_hash()
         _, reward, terminated, _, info = await asyncio.to_thread(self.env.step, action)
+        self._raise_orchestrator_error()
         self.info = info
         if terminated and not self._simulation_payload(info):
             raise RuntimeError("Tau2 orchestrator terminated without a simulation run")
