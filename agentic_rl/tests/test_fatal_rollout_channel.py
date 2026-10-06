@@ -55,7 +55,7 @@ def test_transient_exhaustion_keeps_good_groups_trainable(scratch_dir):
     buffer.fatal_error_fn = lambda: budget.call("fatal_rollout")
     budget.call("record_rollout_failure", {"kind": "transient_exhausted", "uid": "bad"})
     batch, _ = buffer.sample(1, "train", 4)
-    assert len(batch) == 32 and all(not key.startswith("bad_") for key in batch)
+    assert len(batch) == 63 and sum(key.startswith("bad_") for key in batch) == 7
 
 
 def test_fatal_blocks_actor_update_after_batch_was_selected(scratch_dir):
@@ -98,7 +98,7 @@ def test_runtime_warmup_rejected_before_training_or_checkpointing():
         trainer.fit(None)
 
 
-def worker_class(budget, errors, queue, pending=None):
+def worker_class(budget, errors, queue, pending=None, tags=None):
     path = Path(__file__).parents[1] / "src/tau2_agentic_rl/verl_failure_channel.py"
     parsed = ast.parse(path.read_text(encoding="utf-8"))
     # Replace only the Ray actor and TransferQueue transport, executing the
@@ -138,6 +138,8 @@ def worker_class(budget, errors, queue, pending=None):
 
     async def put(**kwargs):
         queue.append(kwargs["tag"]["status"])
+        if tags is not None:
+            tags.append(kwargs["tag"])
 
     scope = {
         "_TQWorker": Parent,
@@ -187,14 +189,16 @@ def test_worker_reports_fatal_before_pending_siblings_finish(error):
 
 
 def test_worker_transient_exhaustion_drains_siblings_without_fatal_latch():
-    budget, queue = LocalBudget(), []
+    budget, queue, tags = LocalBudget(), [], []
     worker = worker_class(
-        budget, {3: SlotRecoveryExhausted("bounded retries")}, queue
+        budget, {3: SlotRecoveryExhausted("bounded retries")}, queue, tags=tags
     )()
     asyncio.run(worker._run_prompt({"uid": "bad"}, {}, {"validate": False}))
     assert budget.call("fatal_rollout") is None
     assert queue[-1] == "failure"
     assert len([item for item in queue if isinstance(item, tuple)]) == 7
+    assert tags[-1] == {"status": "failure", "rollout_n": 8,
+                        "failed_session_ids": [3], "failure_kind": "transient_exhausted"}
 
 
 def test_worker_prompt_configuration_error_is_fatal():

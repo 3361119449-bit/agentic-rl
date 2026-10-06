@@ -1,9 +1,9 @@
 """Pinned veRL v0.9.0 trainer extensions for bounded dynamic sampling.
 
-veRL's V1 replay buffer intentionally ignores ``max_num_gen_batches``.  The
-experiment plan, however, requires exactly three logical generation batches of
-eight prompts and no optimizer update when fewer than four mixed-reward groups
-remain.  This module supplies that narrowly scoped behavior.  It deliberately
+veRL's V1 replay buffer intentionally ignores ``max_num_gen_batches``. This
+extension bounds sampling to three waves of eight prompts. ProCredit v4 consumes
+all usable groups, including verified partial groups and a sub-target remainder.
+Legacy sampling retains its fixed four-group contract. It deliberately
 uses veRL V1 protected APIs and must only be used with the commit checked by the
 launcher.
 """
@@ -50,6 +50,7 @@ from tau2_agentic_rl.procredit_runtime import (
     _save_group_audit,
     build_credit_tensors,
     queue_group_reports,
+    terminal_group_contract,
 )
 from tau2_agentic_rl.rl_resume import snapshot_resume_identity
 
@@ -85,6 +86,7 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         group_audit_dir: Path | None = None,
         rollout_counts_fn=None,
         fatal_error_fn=None,
+        terminal_metadata_fn=None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -104,6 +106,8 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         self.credit_cache = {}
         self.rollout_counts_fn = rollout_counts_fn
         self.fatal_error_fn = fatal_error_fn
+        self.terminal_metadata_fn = terminal_metadata_fn or tq.kv_list
+        self.terminal_groups = {}
         self.rollout_counts_start = rollout_counts_fn() if rollout_counts_fn else None
 
     def begin_attempt(self):
@@ -122,6 +126,34 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         self._check_fatal_rollout()
         super()._sync_metadata_from_transfer_queue()
         self._check_fatal_rollout()
+        if self._isolates_failed_groups("train"):
+            # The pinned parent keeps status but drops session membership. Read
+            # terminal tags only after the parent observed the settlement barrier.
+            metadata = self.terminal_metadata_fn() or {}
+            terminal = self.finished_keys["train"] | self.failure_keys["train"]
+            groups = {
+                uid: terminal_group_contract(metadata.get("train", {}).get(uid), self.rollout_group_size)
+                for uid in terminal
+            }
+            for uid, tag in groups.items():
+                if (tag["status"] == "failure") != (uid in self.failure_keys["train"]):
+                    raise ValueError("terminal group status changed after settlement")
+            self.terminal_groups = {"train": groups}
+            # Postprocessing can write an output and then raise. Its failed
+            # session must never masquerade as a scored successful sibling.
+            rejected = []
+            for key in self.partitions["train"]:
+                parts = key.split("_")
+                if parts[0] in groups:
+                    if len(parts) != 3 or not all(p.isdigit() for p in parts[1:]):
+                        raise ValueError("invalid terminal session queue key")
+                    if int(parts[1]) in groups[parts[0]]["failed_session_ids"]:
+                        rejected.append(key)
+            if rejected:
+                tq.kv_clear(keys=rejected, partition_id="train")
+                for key in rejected:
+                    del self.partitions["train"][key]
+            self._check_fatal_rollout()
 
     def _isolates_failed_groups(self, partition_id):
         return (
@@ -129,13 +161,14 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
             and getattr(getattr(self, "credit_config", None), "version", None) == "procredit-turn-v4"
         )
 
-    def _audit_quarantined_groups(self, partition_id, uids):
+    def _audit_exhausted_groups(self, partition_id, uids):
         if self.group_audit_dir is None:
             return
-        directory = self.group_audit_dir / "quarantined"
+        directory = self.group_audit_dir / "exhausted"
         for uid in sorted(uids):
             report = {
-                "uid": uid, "status": "quarantined", "reason": "failed_rollout_slot",
+                "uid": uid, "status": "transient_exhausted", "reason": "failed_rollout_slot",
+                "terminal_group": self.terminal_groups[partition_id][uid],
                 "materializable_members": sorted(
                     key for key in self.partitions[partition_id] if key.split("_")[0] == uid
                 ),
@@ -148,7 +181,16 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
             return super()._dapo_filtered_keys(partition_id)
         if partition_id != "train":
             return set(), Counter()
-        finished = self.finished_keys[partition_id]
+        finished = set(self.finished_keys[partition_id])
+        local_only = self.credit_config.version == "procredit-turn-v4"
+        terminal_groups = None
+        if local_only:
+            finished |= self.failure_keys[partition_id]
+            terminal_groups = self.terminal_groups[partition_id]
+            # Empty exhausted groups cannot yield any credit. Missing rows in a
+            # finished/partially successful group are corruption and still fail.
+            finished -= {uid for uid, tag in terminal_groups.items()
+                         if len(tag["failed_session_ids"]) == tag["rollout_n"]}
         self.credit_cache = {
             uid: report for uid, report in self.credit_cache.items() if uid in finished
         }
@@ -166,6 +208,8 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
             self.credit_cache.update(queue_group_reports(
                 keys, list(data["extra_fields"]), self.credit_config,
                 audit_dir=self.group_audit_dir,
+                group_size=getattr(self, "rollout_group_size", 8),
+                terminal_groups=terminal_groups,
             ))
         filtered = {
             uid: report["credit"]["score_mean"]
@@ -186,19 +230,14 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
             return reasons
         stale, constant, failed, counts = reasons
         if self._isolates_failed_groups(partition_id):
-            # Keep failed groups until all in-flight work drains; no group refill.
-            failed = self.failure_keys[partition_id]
-            return stale - failed, constant - failed, set(), counts
+            # A failed slot does not invalidate its scored siblings. The parent
+            # evicts only empty failed groups; local-credit filtering handles
+            # signal-free survivors using their actual membership.
+            return reasons
         # The pinned parent only evicts failed groups with zero materializable
         # trajectories. Our GRPO contract also excludes 7-success + 1-API-error
         # groups, even if their surviving rewards have variance.
         return stale, constant, failed | set(self.failure_keys[partition_id]), counts
-
-    def _sampleable_terminal_keys(self, partition_id, eviction_reasons):
-        sampleable = super()._sampleable_terminal_keys(partition_id, eviction_reasons)
-        if self._isolates_failed_groups(partition_id):
-            sampleable -= self.failure_keys[partition_id]
-        return sampleable
 
     def _add_sampling_metrics(
         self,
@@ -247,15 +286,16 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         generated_batches = 1  # The trainer submits the first logical batch.
         last_debug_time = time.time()
         eviction_metrics: dict = {}
-        quarantined = set()
+        exhausted = set()
+        reuse_members = self._isolates_failed_groups(partition_id)
 
         while True:
             self._sync_metadata_from_transfer_queue()
             if self._isolates_failed_groups(partition_id):
-                new_failures = self.failure_keys[partition_id] - quarantined
-                self._audit_quarantined_groups(partition_id, new_failures)
-                quarantined.update(new_failures)
-                eviction_metrics["training/dynamic_sampling/quarantined_groups"] = len(quarantined)
+                new_failures = self.failure_keys[partition_id] - exhausted
+                self._audit_exhausted_groups(partition_id, new_failures)
+                exhausted.update(new_failures)
+                eviction_metrics["training/dynamic_sampling/exhausted_groups"] = len(exhausted)
             eviction_reasons = self._terminal_eviction_reasons(
                 global_steps, partition_id
             )
@@ -276,10 +316,18 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
 
             # A logical batch is evaluated only after all its prompts terminate.
             # This makes the 8 x 3 accounting exact and avoids policy-version mix.
-            if inflight_count == 0 and len(sampleable_uids) >= batch_size:
+            at_cap = generated_batches >= self.max_num_gen_batches
+            if inflight_count == 0 and (
+                len(sampleable_uids) >= batch_size
+                or (reuse_members and at_cap and sampleable_uids)
+            ):
                 self._check_fatal_rollout()
+                if reuse_members and any(
+                    self.prompt_global_steps[partition_id][uid] != global_steps for uid in sampleable_uids
+                ):
+                    raise ValueError("usable rollout groups span different policy versions")
                 selected_uids, partition_snapshot, _ = self._select_prompt_uids(
-                    partition_id, sampleable_uids, batch_size
+                    partition_id, sampleable_uids, len(sampleable_uids) if reuse_members else batch_size
                 )
                 surplus_uids = sampleable_uids - set(selected_uids)
                 if surplus_uids:
@@ -300,10 +348,27 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
                     raise RuntimeError(
                         "selected groups contain no materializable trajectories"
                     )
-                self._clear_groups(partition_id, quarantined)
-                return self._materialize_batch(
+                batch = self._materialize_batch(
                     partition_id, selected_uids, partition_snapshot
-                ), eviction_metrics
+                )
+                if reuse_members:
+                    context = {uid: self.terminal_groups[partition_id][uid] for uid in selected_uids}
+                    batch.extra_info["procredit_terminal_groups"] = context
+                    prefix = "training/dynamic_sampling/"
+                    eviction_metrics.update({
+                        prefix + "selected_groups": len(selected_uids),
+                        prefix + "selected_real_rollouts": len(batch.keys),
+                        prefix + "salvaged_groups": sum(bool(tag["failed_session_ids"]) for tag in context.values()),
+                        prefix + "salvaged_rollouts": sum(
+                            len(self.credit_cache[uid]["members"]) for uid, tag in context.items()
+                            if tag["failed_session_ids"]
+                        ),
+                        prefix + "cap_remainder_used": int(at_cap and len(selected_uids) < batch_size),
+                        prefix + "rollout_use_rate": len(batch.keys) / (
+                            generated_batches * self.conceptual_gen_batch_size * self.rollout_group_size
+                        ),
+                    })
+                return batch, eviction_metrics
 
             if inflight_count == 0:
                 self._check_fatal_rollout()
@@ -368,12 +433,17 @@ class CappedPPOTrainerSync(PPOTrainerSync):
         fields, credit_metrics = build_credit_tensors(
             batch.keys, list(data["extra_fields"]), data["response_mask"], config,
             audit_dir=audit_dir,
+            terminal_groups=getattr(batch, "extra_info", {}).get("procredit_terminal_groups"),
+            padding=[tag.get("is_padding", False) for tag in batch.tags] if getattr(batch, "tags", None) else None,
         )
         metrics.update(credit_metrics)
-        return tq.kv_batch_put(
+        tq.kv_batch_put(
             keys=batch.keys, partition_id=batch.partition_id,
             fields=TensorDict(fields, batch_size=len(batch.keys)),
         )
+        # Match the pinned parent: field writes must not replace metadata from
+        # balancing (padding flags, temperature and terminal membership).
+        return batch
 
     def _update_actor(self, batch: KVBatchMeta, metrics: dict) -> KVBatchMeta:
         self.replay_buffer._check_fatal_rollout()

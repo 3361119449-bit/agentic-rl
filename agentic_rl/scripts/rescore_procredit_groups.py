@@ -1,4 +1,4 @@
-"""Recompute original complete groups into a fresh directory, with no model calls."""
+"""Recompute original audited membership into a fresh directory, with no model calls."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def rescore_groups(
         report = json.loads(path.read_text(encoding="utf-8"))
         fingerprint = report.pop("audit_fingerprint", None)
         if (
-            report.get("version") != "procredit-group-v1"
+            report.get("version") not in {"procredit-group-v1", "procredit-group-v2"}
             or fingerprint != sha256_json(report)
             or report.get("inputs_fingerprint") != sha256_json(report.get("inputs"))
         ):
@@ -44,12 +44,17 @@ def rescore_groups(
         if uid in uids:
             raise ValueError("duplicate original sampling uid")
         uids.add(uid)
+        terminal_groups = (
+            {uid: report.get("terminal_group")}
+            if report["version"] == "procredit-group-v2" else None
+        )
         original = queue_group_reports(
             report["members"],
             [{"procredit": row} for row in report["inputs"]],
             CreditConfig(**report["credit"]["config"]),
+            terminal_groups=terminal_groups,
         )
-        if set(original) != {uid} or original[uid]["credit"] != report["credit"]:
+        if set(original) != {uid} or original[uid] != {**report, "audit_fingerprint": fingerprint}:
             raise ValueError("original group membership or credit changed")
         rows = deepcopy(report["inputs"])
         if records_dir is not None:
@@ -79,16 +84,18 @@ def rescore_groups(
             report["members"],
             [{"procredit": row} for row in rows],
             CreditConfig.from_project(project),
+            terminal_groups=terminal_groups,
         )
-        prepared.append((report["members"], rows))
+        prepared.append((report["members"], rows, terminal_groups))
     if not prepared:
-        raise ValueError("no complete ProCredit group audits found")
-    for keys, rows in prepared:
+        raise ValueError("no ProCredit group audits found")
+    for keys, rows, terminal_groups in prepared:
         queue_group_reports(
             keys,
             [{"procredit": row} for row in rows],
             CreditConfig.from_project(project),
             audit_dir=output,
+            terminal_groups=terminal_groups,
         )
     return len(prepared)
 

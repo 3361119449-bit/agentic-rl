@@ -119,9 +119,9 @@ optimizer:
 dynamic_sampling:
   enable: true
   metric: train_reward
-  train_batch_size: 4
+  train_batch_size: 4  # Target before the cap; use all viable groups, including a smaller remainder.
   conceptual_gen_batch_size: 8
-  group_size: 8
+  group_size: 8  # Logical slots; exhausted transient slots do not invalidate scored siblings.
   max_num_gen_batches: 3
   max_rollouts_per_optimizer_step: 192
   criterion: final_advantage_nonzero
@@ -162,4 +162,4 @@ precision:
 slot_recovery:
   max_resamples: 2
   max_scoring_retries: 2
-  on_exhaustion: quarantine_group
+  on_exhaustion: salvage_group

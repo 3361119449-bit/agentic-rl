@@ -95,6 +95,7 @@ class FailureAwareAgentLoopWorkerTQ(_TQWorker):
             ]
             results = await asyncio.gather(*tasks, return_exceptions=True)
             errors = [result for result in results if isinstance(result, BaseException)]
+            failed_sessions = [i for i, result in enumerate(results) if isinstance(result, BaseException)]
             # A self-cancelled session is unexpected unless the prompt itself is
             # cancelled. Keep it visible instead of silently dropping a group.
             for error in errors:
@@ -103,7 +104,14 @@ class FailureAwareAgentLoopWorkerTQ(_TQWorker):
             await tq.async_kv_put(
                 key=uid,
                 partition_id=partition,
-                tag={"status": "failure" if errors else "finished"},
+                tag={
+                    "status": "failure" if errors else "finished",
+                    "rollout_n": n,
+                    "failed_session_ids": failed_sessions,
+                    "failure_kind": (
+                        "fatal" if self.failure_budget.call("fatal_rollout") else "transient_exhausted"
+                    ) if errors else None,
+                },
             )
         except asyncio.CancelledError:
             for task in tasks:

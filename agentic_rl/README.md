@@ -31,7 +31,7 @@
 - GRPO 组大小 8、组内标准差归一化、Clip-Higher 0.20/0.28、dual clip 10；
 - PPO epoch=2、old policy 固定为 vLLM rollout log-prob、token-mean、无 KL、无 Critic；
 - RL LoRA `r=32, alpha=64, dropout=0, all-linear`；
-- 自定义有界动态采样：每个候选批 8 个任务组，每组 8 条合规轨迹，最多 3 批（192 个候选槽位，用户模拟器违规重采另计）；若不足 4 个混合奖励组，该候选优化步不更新参数，清空后换一批任务；
+- 自定义有界动态采样：每批 8 个任务组、每组 8 个逻辑槽位，最多 3 批（192 槽位，实际补采另计）；默认 ProCredit v4 使用所有有训练信号的组及异常耗尽组中的成功成员，上限处不足 4 组也继续更新；
 - train/internal-dev/test 物理分离，test 标注与训练配置分开；
 - 每条轨迹原子化保存，可离线重新打分。
 - 每个实验使用独立 run 目录且默认禁用自动续训；
@@ -337,8 +337,8 @@ python scripts/train_airline_grpo.py \
   --extra +trainer.ppo_audit=true
 ```
 
-一次更新可能先收集 64–192 个候选轨迹槽位；用户模拟器违规重采另计，
-默认每槽位最多 3 次完整尝试。收不满组还可能再次尝试，另有训练前验证。
+一次更新先提交 64–192 个逻辑槽位；实际交互补采另计，默认 v4 每槽最多
+1 次初采、2 次交互异常替换及 2 次用户无效替换，另有训练前验证。
 这不是单请求测试。先用默认超参数完成真实更新、checkpoint、导出和 internal-dev
 评估闭环，不要直接运行正式 15 epoch，也不要用 official-test 反复联调：
 
@@ -579,12 +579,15 @@ python scripts/screen_user_simulations.py \
 veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num_gen_batches`。本项目没有依赖该无上限行为，而是通过 `tau2_agentic_rl.verl_entrypoint` 构造 `CappedPPOTrainerSync`：
 
 1. 同一 policy version 先生成 8 个 prompt group；
-2. 每组由 8 条用户模拟器合规的 trajectory 构成；违规整条重采，然后才进入奖励/组过滤；
-3. 仅保留 `train_reward` 组内不全同的 group；
-4. 不足 4 组时再生成一批 8 组；
-5. 最多 3 批，即 24 group / 192 个合规候选槽位；默认每槽最多尝试 3 次，因此含违规重采的物理轨迹上限为 576 条/候选尝试（另有验证）；
-6. 仍不足时清掉该候选批，不执行 backward/optimizer step，重新取任务；
-7. 收满 4 组后用 32 条 trajectory 做两个 PPO epoch，再同步 vLLM 权重。
+2. 默认 v4 每组有 8 个逻辑槽位；无效 user 及明确可恢复异常只替换原槽位，policy 违规直接逐轮惩罚；
+3. 槽位补采耗尽后，根据 worker 的终态成员记录保留成功评分的同组成员，用真实成员计算 advantage；致命错误立即停训；
+4. 按最终 token advantage 是否有信号过滤组；不足目标 4 组时再提交一批 8 组；
+5. 最多 3 批，即 24 group / 192 个逻辑槽位；物理补采单独计数，默认 v4 最多 960 次交互尝试（另有验证）；
+6. 使用本轮所有有效组；到上限后只要仍有有效组，即使不足 4 组也更新，只有完全无信号才跳过；
+7. PPO mini-batch 保持 32 行、两个 epoch。对齐所需的合成 padding 为零 loss mask，不参与组基线、训练奖励、有效轨迹统计或梯度；更新后再同步 vLLM 权重。
+
+旧配置保留固定完整组与固定四组更新的语义。v4 不跨 policy version 缓存
+多余组，也不复制正常轨迹来填满缺失的 group 成员。
 
 候选尝试使用 `attempt_step`，真正更新使用 `optimizer_step`。跳过候选批时
 只增加前者；学习率、epoch、终止条件和 checkpoint 仍绑定
@@ -607,7 +610,8 @@ veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num
 最终 advantage ≤ -1。process 只在本轮按固定值扣分，取消整轨迹扣分与 cap，
 与同轮 policy 相加；task/progress 不受 policy clipping。交互异常只补采原槽位，
 Judge 异常只重评冻结轨迹；
-重试耗尽则停止，不丢弃同组正常成员。显式 BF16 延续 v3。
+临时错误重试耗尽后利用同组已评分成员；致命错误立即停训。多余有效组及
+补采上限处的剩余有效组均用于当前更新。显式 BF16 延续 v3。
 详见 [公式、重试边界和启动方式](REWARD_TURN_LOCAL_V4.md)。
 
 ### ProCredit v3 contract 修复（2026-09-28）

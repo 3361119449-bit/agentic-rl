@@ -32,6 +32,26 @@ def _save_group_audit(root: Path, report: dict) -> None:
             os.unlink(name)
 
 
+def terminal_group_contract(tag: dict, group_size: int) -> dict:
+    """Validate the worker's settled membership; unknown failures fail closed."""
+    if not isinstance(tag, dict):
+        raise ValueError("missing terminal group membership")
+    failed = tag.get("failed_session_ids")
+    status, kind = tag.get("status"), tag.get("failure_kind")
+    if (
+        type(tag.get("rollout_n")) is not int or tag["rollout_n"] != group_size
+        or not isinstance(failed, list)
+        or any(type(i) is not int or not 0 <= i < group_size for i in failed)
+        or len(set(failed)) != len(failed)
+        or status not in {"finished", "failure"}
+        or (status == "finished" and (failed or kind is not None))
+        or (status == "failure" and (not failed or kind != "transient_exhausted"))
+    ):
+        raise ValueError("invalid terminal group membership or fatal failure")
+    return {"status": status, "rollout_n": group_size,
+            "failed_session_ids": sorted(failed), "failure_kind": kind}
+
+
 def queue_group_reports(
     keys: list[str],
     extras: list,
@@ -39,6 +59,7 @@ def queue_group_reports(
     *,
     audit_dir: Path | None = None,
     group_size: int = 8,
+    terminal_groups: dict[str, dict] | None = None,
 ) -> dict[str, dict]:
     """Use the pinned queue key's uid/session, never the task ID as group ID."""
     if len(keys) != len(extras) or len(set(keys)) != len(keys):
@@ -55,13 +76,22 @@ def queue_group_reports(
         metric = extra.get("reward_extra_info", {}).get("train_reward", row["score"])
         if metric != row["score"]:
             raise ValueError("queue scalar score differs from credit score")
+        if int(parts[2]) != 0:
+            raise ValueError("group session slots require exactly one output at index zero")
         groups[parts[0]].append((int(parts[1]), key, row))
     reports = {}
     for uid, members in groups.items():
-        if len(members) != group_size:
+        terminal = None
+        expected_sessions = list(range(group_size))
+        if terminal_groups is not None:
+            if config.version != "procredit-turn-v4":
+                raise ValueError("partial membership is only supported by v4 credit")
+            terminal = terminal_group_contract(terminal_groups.get(uid), group_size)
+            expected_sessions = [i for i in expected_sessions if i not in terminal["failed_session_ids"]]
+        if len(members) != len(expected_sessions):
             raise ValueError(f"incomplete ProCredit group {uid}: expected {group_size}")
         members.sort(key=lambda item: item[0])
-        if [m[0] for m in members] != list(range(group_size)):
+        if [m[0] for m in members] != expected_sessions:
             raise ValueError("group session slots must occur exactly once")
         rows = [member[2] for member in members]
         credit = compute_group_credit(rows, config)
@@ -74,6 +104,8 @@ def queue_group_reports(
             "credit": credit,
             "decision": "has_signal" if credit["has_signal"] else "all_zero_advantage",
         }
+        if terminal is not None:
+            report.update(version="procredit-group-v2", terminal_group=terminal)
         report["audit_fingerprint"] = sha256_json(report)
         if audit_dir is not None:
             _save_group_audit(Path(audit_dir), report)
@@ -219,11 +251,22 @@ def build_credit_tensors(
     config: CreditConfig,
     *,
     audit_dir: Path | None = None,
+    terminal_groups: dict[str, dict] | None = None,
+    padding: list[bool] | None = None,
 ):
     """Create response-shaped float32 advantages without touching old log-probs."""
     import torch
 
-    reports = queue_group_reports(keys, extras, config, audit_dir=audit_dir)
+    padding = [False] * len(keys) if padding is None else padding
+    if (len(keys) != len(extras) or len(padding) != len(keys)
+            or len(set(keys)) != len(keys) or any(type(flag) is not bool for flag in padding)
+            or all(padding)):
+        raise ValueError("invalid padding or queue batch alignment")
+    reports = queue_group_reports(
+        [k for k, pad in zip(keys, padding, strict=True) if not pad],
+        [e for e, pad in zip(extras, padding, strict=True) if not pad],
+        config, audit_dir=audit_dir, terminal_groups=terminal_groups,
+    )
     tokens_by_key, mapping_by_key = {}, {}
     for report in reports.values():
         for key, row, result in zip(
@@ -238,9 +281,14 @@ def build_credit_tensors(
     if len(masks) != len(keys):
         raise ValueError("response mask batch size differs from queue keys")
     tensors, active, nonzero = [], 0, 0
-    for key, mask in zip(keys, masks, strict=True):
-        mapping, values = mapping_by_key[key], tokens_by_key[key]
+    for key, mask, pad in zip(keys, masks, padding, strict=True):
         mask_values = mask.detach().cpu().tolist()
+        if pad:
+            if any(value != 0 for value in mask_values):
+                raise ValueError("synthetic padding must have zero response mask")
+            tensors.append(torch.zeros_like(mask, dtype=torch.float32))
+            continue
+        mapping, values = mapping_by_key[key], tokens_by_key[key]
         expected_mask = [int(turn >= 0) for turn in mapping]
         if response_mask.is_nested:
             aligned = mask_values == expected_mask
@@ -263,6 +311,9 @@ def build_credit_tensors(
         else torch.stack(tensors)
     )
     metrics = {
+        "procredit/real_trajectories": len(keys) - sum(padding),
+        "procredit/padding_rows": sum(padding),
+        "procredit/partial_groups": sum(len(r["members"]) < 8 for r in reports.values()),
         "procredit/nonzero_token_fraction": nonzero / active if active else 0.0,
         "procredit/constant_score_with_turn_signal": sum(
             report["credit"]["score_std"] == 0 and report["credit"]["has_signal"]

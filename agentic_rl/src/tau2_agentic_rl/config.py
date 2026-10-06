@@ -88,8 +88,8 @@ def validate_procredit_config(config: dict) -> None:
         if config["credit"].get("violation_sign") != "strictly_negative":
             raise ValueError("v4 requires negative final advantages on every violation turn")
         recovery = config.get("slot_recovery", {})
-        if recovery.get("on_exhaustion") != "quarantine_group":
-            raise ValueError("slot exhaustion must quarantine its group without stopping good groups")
+        if recovery.get("on_exhaustion") != "salvage_group":
+            raise ValueError("slot exhaustion must salvage scored group members")
         for key in ("max_resamples", "max_scoring_retries"):
             if type(recovery.get(key)) is not int or not 0 <= recovery[key] <= 10:
                 raise ValueError(f"slot_recovery.{key} must be an integer within [0, 10]")

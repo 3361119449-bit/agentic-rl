@@ -19,7 +19,7 @@ def configure(loop):
     loop.shared_budget = SharedBudget({"trajectories": 1, "user_api": 1, "judge_api": 1})
     loop.project["credit"] = {"version": "procredit-turn-v4"}
     loop.project["slot_recovery"] = {
-        "max_resamples": 2, "max_scoring_retries": 2, "on_exhaustion": "quarantine_group",
+        "max_resamples": 2, "max_scoring_retries": 2, "on_exhaustion": "salvage_group",
     }
     loop.project["user_sim_filter"] = {"enabled": False}
 

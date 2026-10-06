@@ -15,7 +15,7 @@ def config():
     cfg["reward"].pop("process_penalty_cap", None)
     cfg["reward"].pop("over_turn_penalty_cap", None)
     cfg["reward"]["penalty_placement"] = "turn_only"
-    cfg["slot_recovery"] = {"max_resamples": 2, "max_scoring_retries": 2, "on_exhaustion": "quarantine_group"}
+    cfg["slot_recovery"] = {"max_resamples": 2, "max_scoring_retries": 2, "on_exhaustion": "salvage_group"}
     return cfg
 
 
@@ -41,6 +41,7 @@ def test_v4_launch_has_explicit_local_policy_and_slot_recovery():
     ("slot_recovery", "max_resamples", -1),
     ("slot_recovery", "max_scoring_retries", True),
     ("slot_recovery", "on_exhaustion", "resample_group"),
+    ("slot_recovery", "on_exhaustion", "quarantine_group"),
     ("slot_recovery", "on_exhaustion", "stop"),
 ])
 def test_v4_rejects_silent_contract_regressions(section, key, value):

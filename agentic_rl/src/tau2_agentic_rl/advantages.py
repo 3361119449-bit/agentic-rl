@@ -104,8 +104,8 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
     This function supports smaller hand-checkable groups for audits.
     """
     config = config or CreditConfig()
-    if len(rows) < 2:
-        raise ValueError("credit requires a complete group with at least two members")
+    if len(rows) < (1 if config.version == "procredit-turn-v4" else 2):
+        raise ValueError("credit requires genuine group members (legacy: at least two)")
     identity_fields = (
         "task_id",
         "policy_version",
