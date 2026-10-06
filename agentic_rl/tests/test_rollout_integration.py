@@ -227,13 +227,19 @@ def minimal_loop(scratch_dir):
     return loop, scope
 
 
-@pytest.mark.parametrize("blocked_batch", [False, True])
-def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir, blocked_batch):
+@pytest.mark.parametrize("invalid_index", [None, 0, 1, 2, 3, "all"])
+def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir, invalid_index):
     from tau2_agentic_rl.agent_policy import extract_airline_policy, prompt_sha256
     from tau2_agentic_rl.policy_rules import policy_checks
 
     loop, scope = minimal_loop(scratch_dir)
-    called = []
+    called, delivered_calls = [], []
+    mixed_batch = invalid_index is not None
+    arguments = [
+        "{}" if invalid_index == index or invalid_index == "all" else
+        '{"reservation_id":"' + reservation + '"}'
+        for index, reservation in enumerate(["B", "C", "D", "E"])
+    ] if mixed_batch else ['{"reservation_id":"A"}']
     schema = {
         "type": "function",
         "function": {
@@ -261,7 +267,8 @@ def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir, blocked_b
             return list(self.messages)
 
         async def step_tools(self, calls):
-            called.extend((call["name"], call["arguments"]) for call in calls)
+            delivered_calls.extend(calls)
+            called.extend((call["name"], call["arguments"]) for call in calls if "validation_error" not in call)
             self.messages.append(
                 {
                     "role": "assistant",
@@ -280,9 +287,9 @@ def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir, blocked_b
                     call_id=call["id"],
                     name=call["name"],
                     arguments=call["arguments"],
-                    success=True,
-                    db_changed=True,
-                    result="cancelled",
+                    success="validation_error" not in call,
+                    db_changed="validation_error" not in call,
+                    result="invalid arguments" if "validation_error" in call else "cancelled",
                 )
                 for call in calls
             ]
@@ -331,10 +338,10 @@ def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir, blocked_b
         )
 
     async def parse(*args):
-        if blocked_batch:
+        if mixed_batch:
             return "", [
-                SimpleNamespace(name="cancel_reservation", arguments=arguments)
-                for arguments in ["{}", '{"reservation_id":"B"}', '{"reservation_id":"C"}', '{"reservation_id":"D"}']
+                SimpleNamespace(name="cancel_reservation", arguments=raw_arguments)
+                for raw_arguments in arguments
             ]
         return "", [
             SimpleNamespace(
@@ -385,11 +392,11 @@ def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir, blocked_b
         ]
     }
     loop.action_dependencies = {}
-    if blocked_batch:
+    if mixed_batch:
         loop.hard_turn_limit = 1
         loop.tokenizer.decode = lambda _: "".join(
             '<tool_call>{"name":"cancel_reservation","arguments":' + a + "}</tool_call>"
-            for a in ["{}", '{"reservation_id":"B"}', '{"reservation_id":"C"}', '{"reservation_id":"D"}']
+            for a in arguments
         ) + "<|im_end|>"
 
         async def bounded(messages, *args):
@@ -399,21 +406,37 @@ def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir, blocked_b
     scope["Tau2GymAdapter"] = Environment
     output = asyncio.run(loop._run_trajectory({}, extra_info={"task_id": "0"}))
     record = next(loop.store.records())
-    if blocked_batch:
+    if mixed_batch:
         from tau2_agentic_rl.reward.process_penalty import (
             ProcessPenaltyConfig,
             build_process_credit,
         )
         from tau2_agentic_rl.schemas import ToolEvent
 
-        assert called == []
-        assert [e.error_kind for e in record.tool_events] == ["schema_invalid", None, None, None]
-        assert all(e.execution_status == "blocked_by_invalid_sibling" for e in record.tool_events[1:])
+        valid = [index for index in range(4) if index != invalid_index and invalid_index != "all"]
+        assert called == [
+            ("cancel_reservation", {"reservation_id": ["B", "C", "D", "E"][index]})
+            for index in valid
+        ]
+        assert [e.success for e in record.tool_events] == [index in valid for index in range(4)]
+        assert [e.error_kind for e in record.tool_events] == [
+            None if index in valid else "schema_invalid" for index in range(4)
+        ]
+        assert all(e.execution_status is None for e in record.tool_events)
+        assert record.token_turns[0].output_token_ids == [4, 9]
+        assert record.token_turns[0].output_old_log_probs == [-1.0, -1.0]
+        if invalid_index == "all":
+            assert delivered_calls == []
+            return
+        assert [call["id"] for call in delivered_calls] == [f"call_0001_{index:02d}" for index in range(4)]
+        assert [call.get("validation_error") is not None for call in delivered_calls] == [
+            index == invalid_index for index in range(4)
+        ]
         trace = build_process_credit(record.tool_events, 1, ProcessPenaltyConfig(
             cap=None, over_turn_cap=None), local_only=True)
         assert trace["turn_costs"] == pytest.approx([.08])
         retry = ToolEvent(event_id="retry", sequence=4, turn_id=2, name="cancel_reservation",
-                          arguments={"reservation_id": "B"}, error_kind="model_caused_execution_error")
+                          arguments={"reservation_id": ["B", "C", "D", "E"][valid[0]]}, error_kind="model_caused_execution_error")
         scope["_mark_repetition"](retry, record.tool_events)
         assert not retry.unchanged_retry
         return

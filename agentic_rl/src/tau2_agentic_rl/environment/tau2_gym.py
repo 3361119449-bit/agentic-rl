@@ -157,7 +157,7 @@ class Tau2GymAdapter:
         )
 
     async def step_tools(self, calls: list[dict[str, Any]]) -> GymStep:
-        """Execute one assistant turn containing one or more Tau2 tool calls."""
+        """Execute valid calls and return rejected calls in the same native turn."""
         if not calls:
             raise ValueError("step_tools requires at least one tool call")
         return await asyncio.to_thread(self._step_tools_sync, calls)
@@ -185,6 +185,33 @@ class Tau2GymAdapter:
             }
             for index, call in enumerate(calls)
         ]
+        if len({call["id"] for call in normalized}) != len(normalized):
+            raise ValueError("duplicate tool call IDs in one assistant turn")
+        rejected = {
+            call["id"]: source["validation_error"]
+            for call, source in zip(normalized, calls, strict=True)
+            if "validation_error" in source
+        }
+        for error in rejected.values():
+            if (
+                not isinstance(error, dict)
+                or error.get("kind") not in {"schema_invalid", "unknown_tool"}
+                or not isinstance(error.get("detail"), str) or not error["detail"]
+            ):
+                raise ValueError("invalid tool validation error contract")
+        raw_data = {"action": "multi_tool_batch"}
+        if rejected:
+            # Tau2 requires object arguments; retain any rejected raw JSON in
+            # the native transcript instead of silently replacing the evidence.
+            raw_data["rejected_tool_calls"] = [
+                {
+                    **call,
+                    "raw_arguments": source.get("raw_arguments", source["arguments"]),
+                    "validation_error": rejected[call["id"]],
+                }
+                for call, source in zip(normalized, calls, strict=True)
+                if call["id"] in rejected
+            ]
         action = AssistantMessage(
             role="assistant",
             content=None,
@@ -197,7 +224,7 @@ class Tau2GymAdapter:
                 )
                 for call in normalized
             ],
-            raw_data={"action": "multi_tool_batch"},
+            raw_data=raw_data,
         )
 
         audits: list[ToolStepResult] = []
@@ -205,8 +232,23 @@ class Tau2GymAdapter:
 
         def audited_get_response(tool_call: ToolCall):
             before = backend.get_db_hash()
-            state_before = snapshot_baggage_state(backend, tool_call.name, tool_call.arguments)
-            tool_message = original_get_response(tool_call)
+            validation_error = rejected.get(str(tool_call.id))
+            state_before = None
+            if validation_error is None:
+                state_before = snapshot_baggage_state(backend, tool_call.name, tool_call.arguments)
+                tool_message = original_get_response(tool_call)
+            else:
+                from tau2.data_model.message import ToolMessage
+
+                from tau2_agentic_rl.tooling import synthetic_tool_error
+
+                observation = synthetic_tool_error(
+                    tool_call.name, validation_error["kind"], validation_error["detail"],
+                )
+                tool_message = ToolMessage(
+                    id=tool_call.id, role="tool", requestor="assistant",
+                    content=observation["content"], error=True,
+                )
             after = backend.get_db_hash()
             before_hash = str(before) if before is not None else None
             after_hash = str(after) if after is not None else None
@@ -217,6 +259,7 @@ class Tau2GymAdapter:
                     arguments=dict(tool_call.arguments),
                     success=not bool(tool_message.error),
                     db_changed=(
+                        False if validation_error is not None else
                         before_hash != after_hash
                         if before_hash is not None and after_hash is not None
                         else None

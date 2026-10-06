@@ -673,21 +673,17 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     )
                     for call in calls
                 ]
-                if any(not checked.valid for checked in checked_calls):
+                if not any(checked.valid for checked in checked_calls):
+                    # Entirely invalid turns need only local error observations.
+                    # Mixed turns go through Tau2 with one result per original
+                    # call; invalid calls are intercepted before backend execution.
                     local_messages = []
                     for call_id, call, checked in zip(
                         call_ids, calls, checked_calls, strict=True
                     ):
-                        if checked.valid:
-                            error_kind = None
-                            detail = (
-                                "not executed because another tool call in the "
-                                "same assistant turn was invalid"
-                            )
-                        else:
-                            error_kind = str(checked.error_kind)
-                            detail = str(checked.detail)
-                        message = synthetic_tool_error(call.name, error_kind or "blocked_by_invalid_sibling", detail)
+                        error_kind = str(checked.error_kind)
+                        detail = str(checked.detail)
+                        message = synthetic_tool_error(call.name, error_kind, detail)
                         message["tool_call_id"] = call_id
                         local_messages.append(message)
                         event = ToolEvent(
@@ -697,7 +693,6 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             name=call.name,
                             arguments=checked.arguments,
                             error_kind=error_kind,
-                            execution_status="blocked_by_invalid_sibling" if checked.valid else None,
                             result=detail,
                         )
                         _mark_repetition(event, tool_events)
@@ -717,9 +712,16 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             "id": call_id,
                             "name": checked.name,
                             "arguments": checked.arguments,
+                            **({
+                                "validation_error": {
+                                    "kind": checked.error_kind,
+                                    "detail": checked.detail,
+                                },
+                                "raw_arguments": call.arguments,
+                            } if not checked.valid else {}),
                         }
-                        for call_id, checked in zip(
-                            call_ids, checked_calls, strict=True
+                        for call_id, call, checked in zip(
+                            call_ids, calls, checked_calls, strict=True
                         )
                     ]
                     before_tool_hash = environment.safe_db_hash()
@@ -743,22 +745,31 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                                     name=checked.name,
                                     arguments=checked.arguments,
                                     success=False,
-                                    db_effect=changed,
+                                    db_effect=changed if checked.valid else False,
+                                    error_kind=checked.error_kind,
                                     result=(
                                         "environment exception: "
                                         f"{type(exc).__name__}: {exc}"
-                                    ),
+                                    ) if checked.valid else checked.detail,
                                 )
                             )
                         infrastructure_error = ("tau2_tool_step", exc)
                         termination_reason = "infrastructure_error"
                         break
                     batch_results = step.tool_results or []
-                    if len(batch_results) != len(checked_calls):
+                    if len(batch_results) != len(checked_calls) or any(
+                        result.call_id != call_id
+                        or result.name != checked.name
+                        or result.arguments != checked.arguments
+                        or (not checked.valid and (result.success or result.db_changed is not False))
+                        for call_id, checked, result in zip(
+                            call_ids, checked_calls, batch_results, strict=True
+                        )
+                    ):
                         infrastructure_error = (
                             "tool_result_alignment",
                             RuntimeError(
-                                "Tau2 multi-tool result count does not match call count"
+                                "Tau2 multi-tool results do not match original calls"
                             ),
                         )
                         termination_reason = "infrastructure_error"
@@ -775,9 +786,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             success=result.success,
                             db_effect=result.db_changed,
                             error_kind=(
-                                None
-                                if result.success
-                                else "model_caused_execution_error"
+                                checked.error_kind if not checked.valid else
+                                None if result.success else "model_caused_execution_error"
                             ),
                             result=result.result,
                             state_before=result.state_before,

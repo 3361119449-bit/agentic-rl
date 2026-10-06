@@ -124,6 +124,23 @@ def build_cached_agent_gym_env(**kwargs: Any) -> Any:
         pass
 
     class CachedAgentGymEnv(AgentGymEnv):
+        def _get_reward(self):
+            from tau2_agentic_rl.environment.replay import (
+                evaluate_simulation_with_rejections,
+                has_rejected_calls,
+            )
+
+            if self._simulation_run is None or not has_rejected_calls(self._simulation_run.messages):
+                return super()._get_reward()
+            from tau2.evaluator.evaluator import EvaluationType
+
+            result = evaluate_simulation_with_rejections(
+                simulation=self._simulation_run, task=self._get_task(),
+                evaluation_type=EvaluationType.ALL,
+                solo_mode=self.solo_mode, domain=self.domain,
+            )
+            return result.reward, result.model_dump_json(indent=2)
+
         def _run_orchestrator(self) -> None:
             """Keep the pinned thread's settlement barrier and original error."""
             self._orchestrator_error = None

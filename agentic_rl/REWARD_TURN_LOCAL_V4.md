@@ -167,20 +167,40 @@ v3 算法静默重放。旧 scorer 的精确复现应使用对应旧 commit。
 
 ## 验证边界
 
-v9 修复：合法但被无效同轮调用阻断的工具使用
-`execution_status=blocked_by_invalid_sibling`，不标记 schema 错误，
-不累计 process 或 unchanged-retry 成本。整批不执行的策略保持。
+多工具执行已取消 schema 层的整批阻断。一个调用参数无效或名称未知时，
+只生成该调用的错误结果，合法 sibling 按原顺序继续执行；原 call ID、
+assistant turn 和 token/log-prob 保持不变。混合批次的错误结果通过原生
+Tau2 工具消息进入完整轨迹；进度和必需动作只计算实际成功调用。
+全部调用都无效时仍只返回本地错误，不推进环境。输出截断、无法完整解析
+的整轮或文本混合工具调用仍拒绝执行，不能把不完整生成当作真实动作。
+旧记录中的 `execution_status=blocked_by_invalid_sibling` 继续按未执行读取，
+不标记 schema 错误，也不累计 process 或 unchanged-retry 成本；新混合批次
+不再生成这个状态。
+
+[固定版本 Tau2 严格回放](https://github.com/sierra-research/tau2-bench/blob/a2c024725189473d2d7cea3a5cfdbcc67478e41f/src/tau2/environment/environment.py#L340)
+会重新调用已知写工具并比较结果。适配器因此在原始 assistant 消息的
+`raw_data.rejected_tool_calls` 中记录被 schema 拒绝的调用及原参数。
+进度和最终评分为每个独立回放环境安装临时响应处理：只有调用 ID、名称、
+参数和合成错误结果全部匹配的拒绝调用才返回原错误而不执行。
+合法调用继续使用原工具和严格结果比对，拒绝证据不一致仍报错。
+最终评分沿用固定版本 evaluator 的原算法，通过单次调用的私有 registry
+视图传入这些回放环境；不修改全局 registry、原始轨迹、Judge/沟通证据或
+官方奖励组合方式。此次执行行为变化须启动新 run，不能精确续训旧源码 checkpoint。
 只对 environment_reset/model_generation/tau2_tool_step/tau2_text_step
 服务阶段有限补采；这些阶段若由配置/类型/键/断言错误引起也立即停止，
 包括多层异常包装中的错误。
 使用新 run 目录，旧 v8 记录不能当作新实验的有效评分直接续训。
 
 2026-10-06 本地完整 `tests` 套件（真实 Torch/TensorDict）：
-725 passed、25 skipped；Ruff 和 `git diff --check` 通过。
+745 passed、25 skipped；Ruff 和 `git diff --check` 通过。
 独立审查发现的 required-transfer 缓存边界和 transfer 残留门控均已修复，
 并通过先复现失败、再修复的回归测试；轨迹利用与本次四项修复的独立审查未发现实质问题。
 新增回归覆盖 Tau2 后台异常在 reset/文本步/工具步传递、验证单槽有界恢复、
 验证全部失败与部分覆盖、Judge 合法乱序及严格 ID 成员校验、v4 零进度任务选择。
+多工具回归覆盖坏调用在首/中/末位置、未知工具、非对象参数、合法调用的顺序和
+逐调用 DB 变化、工具执行错误后的继续执行、原 token 保留、进度与最终评分回放、
+拒绝证据不一致及合法结果篡改的拒绝。独立审查使用固定版本实际回放方法，
+确认被拒绝的写调用没有重执行，严格校验仍有效，原轨迹及全局 registry 不变。
 新增覆盖部分组、单成员组、耗尽槽位已写出输出的排除、剩余有效组利用、
 跨补采批保留全部 80 条有效轨迹、dense/nested padding 零梯度、batch 元数据
 保留及部分组审计精确重放。

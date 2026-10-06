@@ -618,6 +618,10 @@ v4 的训练任务选择使用 `task_or_local_credit`，保留已授权训练集
 `val/coverage/{requested_slots,completed_slots,failed_slots,completion_rate}`；
 全部失败时只报告覆盖率，继续训练。Tau2 后台线程保留原始异常，Judge 检查按 ID 匹配，
 接受合法乱序，缺失、重复、额外 ID 和错误证据仍拒绝。
+同轮多工具调用逐个校验：schema 无效或未知工具只返回对应调用的错误，
+合法调用按原顺序执行，每个 call ID 都保留工具结果；不再整批阻断。
+进度和最终评分的严格回放识别适配器记录的拒绝调用，按未执行处理；
+其余调用继续严格核对，原始轨迹、Judge 证据和 token/log-prob 保留。
 详见 [公式、重试边界和启动方式](REWARD_TURN_LOCAL_V4.md)。
 
 ### ProCredit v3 contract 修复（2026-09-28）

@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Callable
 
 from tau2_agentic_rl.advantages import validate_phi
+from tau2_agentic_rl.environment.replay import rejection_aware_constructor
 from tau2_agentic_rl.reward.required_actions import (
     MATCHER_VERSION,
     evaluate_required_actions,
@@ -44,7 +45,7 @@ def evaluate_tau2_prefix(task: dict, messages: list[dict]) -> dict:
     db = None
     if "DB" in basis:
         result = EnvironmentEvaluator.calculate_reward(
-            environment_constructor=registry.get_env_constructor("airline"),
+            environment_constructor=rejection_aware_constructor(registry.get_env_constructor("airline")),
             task=parsed_task,
             full_trajectory=parsed_messages,
             solo_mode=False,
