@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -13,7 +14,7 @@ from pathlib import Path
 
 import convert_tau2_results_to_sft
 import report_pass1_pass4
-
+import run_tau2_deepseek
 
 HERE = Path(__file__).resolve().parent
 
@@ -52,6 +53,30 @@ def simulation(task_id: str, trial: int, reward: float) -> dict:
 
 
 class PipelineTests(unittest.TestCase):
+    def test_official_cli_wrapper_does_not_enable_optional_protocol_enforcement(
+        self,
+    ) -> None:
+        args = argparse.Namespace(
+            split="test",
+            num_trials=4,
+            agent_model="openai/qwen3-4b-sft",
+            agent_llm_args={"temperature": 0.0},
+            user_model="deepseek/deepseek-v4-pro",
+            user_llm_args={"temperature": 0.0},
+            max_concurrency=4,
+            max_steps=200,
+            seed=300,
+            save_name="official-eval",
+            num_tasks=None,
+            task_ids=None,
+            auto_resume=False,
+            verbose_logs=False,
+        )
+
+        command = run_tau2_deepseek.build_command(args)
+
+        self.assertNotIn("--enforce-communication-protocol", command)
+
     def test_areal_sampling_matches_tau2_row_count(self) -> None:
         paths = []
         for suffix in (".areal.jsonl", ".tau2.jsonl", ".sampled.jsonl"):

@@ -6,7 +6,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from tau2_agentic_rl.agent_policy import load_agent_system_prompt
 from tau2_agentic_rl.budget import ContextBudget
 from tau2_agentic_rl.concurrency import QueueWaitError, SharedBudget
@@ -58,6 +57,8 @@ def test_truncated_output_not_delivered_or_judged_and_full_observation_preserved
         policy, task, tool_schemas, tool_names = "policy", {}, [], set()
 
         def __init__(self, **kwargs):
+            assert kwargs["max_steps"] == 200
+            assert kwargs["max_errors"] == 10
             self.messages = [{"role": "user", "content": "Explain refunds"}]
 
         async def reset(self, **kwargs):
@@ -149,7 +150,8 @@ def test_truncated_output_not_delivered_or_judged_and_full_observation_preserved
             "verl_commit": "fixture",
         },
     }
-    loop.root, loop.hard_turn_limit = scratch_dir, 24
+    loop.root, loop.hard_turn_limit = scratch_dir, None
+    loop.tau2_max_steps = 200
     loop.tokenizer = SimpleNamespace(
         eos_token_id=9,
         decode=lambda ids: {
