@@ -1,10 +1,7 @@
 import pytest
 
 from tau2_agentic_rl.schemas import TokenTurn
-from tau2_agentic_rl.token_alignment import (
-    validate_aligned_response,
-    validate_pre_update_ratio,
-)
+from tau2_agentic_rl.token_alignment import validate_aligned_response
 
 
 def test_policy_tokens_and_old_log_probs_stay_aligned() -> None:
@@ -33,9 +30,3 @@ def test_policy_tokens_and_old_log_probs_stay_aligned() -> None:
 def test_non_policy_log_prob_must_be_zero() -> None:
     with pytest.raises(ValueError, match="non-policy"):
         validate_aligned_response([1], [0], [-1.0], [])
-
-
-def test_pre_update_ratio_guard() -> None:
-    validate_pre_update_ratio([-0.101], [-0.1], [1], tolerance=0.01)
-    with pytest.raises(ValueError, match="misaligned"):
-        validate_pre_update_ratio([-0.2], [-0.1], [1], tolerance=0.01)

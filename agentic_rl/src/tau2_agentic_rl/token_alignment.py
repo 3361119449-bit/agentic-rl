@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable
 
 from tau2_agentic_rl.schemas import TokenTurn
@@ -36,28 +35,3 @@ def validate_aligned_response(
     for mask, log_prob in zip(response_mask, aligned_old_log_probs, strict=True):
         if mask == 0 and log_prob != 0.0:
             raise ValueError("non-policy tokens must have zero aligned old log-prob")
-
-
-def validate_pre_update_ratio(
-    current_log_probs: list[float],
-    old_log_probs: list[float],
-    response_mask: list[int],
-    tolerance: float = 5e-3,
-) -> None:
-    """Reject systematic actor/vLLM mismatch before the first optimizer update."""
-    if not (len(current_log_probs) == len(old_log_probs) == len(response_mask)):
-        raise ValueError("ratio inputs have different lengths")
-    selected = [
-        abs(current - old)
-        for current, old, mask in zip(
-            current_log_probs,
-            old_log_probs,
-            response_mask,
-            strict=True,
-        )
-        if mask
-    ]
-    if not selected or any(not math.isfinite(value) for value in selected):
-        raise ValueError("no policy tokens or non-finite log probabilities")
-    if sum(selected) / len(selected) > tolerance:
-        raise ValueError("pre-update current and rollout log-probs are misaligned")

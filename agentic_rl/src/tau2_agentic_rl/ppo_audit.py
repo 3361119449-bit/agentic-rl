@@ -10,11 +10,11 @@ import json
 import math
 from pathlib import Path
 
-from tau2_agentic_rl.token_alignment import validate_pre_update_ratio
 from tau2_agentic_rl.versions import sha256_json
 
 
 def ratio_statistics(current, old, mask):
+    """Measure pi_actor / pi_rollout; backend differences need not be zero."""
     if not (len(current) == len(old) == len(mask)):
         raise ValueError("ratio inputs have different lengths")
     selected = [(a, b) for a, b, m in zip(current, old, mask, strict=True) if m]
@@ -39,6 +39,7 @@ def ratio_statistics(current, old, mask):
 
     return {
         "policy_tokens": len(ratios),
+        "log_prob_abs_diff_mean": sum(abs(a - b) for a, b in selected) / len(selected),
         "ratio_mean": mean,
         "ratio_std": math.sqrt(sum((r - mean) ** 2 for r in ratios) / len(ratios)),
         "ratio_p01": percentile(0.01),
@@ -51,7 +52,12 @@ def ratio_statistics(current, old, mask):
 def audit_update(
     *, read_old, compute_current, update, path: Path, tolerance: float = 0.005
 ):
-    """Read real worker outputs without replacing the rollout old log-probs."""
+    """Audit fixed behavior-policy probabilities without requiring backend parity.
+
+    ``tolerance`` is diagnostic only, including for existing launch overrides.
+    vLLM sampled the actions, so its log-probs remain the PPO denominator even
+    when the FSDP actor assigns different probabilities before the update.
+    """
     old_rows, mask_rows = read_old()
     old = [x for row in old_rows for x in row]
     mask = [x for row in mask_rows for x in row]
@@ -59,6 +65,11 @@ def audit_update(
     report = ratio_statistics(current, old, mask)
     report.update(
         {
+            "behavior_policy_source": "vllm_rollout",
+            "log_prob_abs_diff_tolerance": tolerance,
+            "log_prob_abs_diff_exceeds_tolerance": (
+                report["log_prob_abs_diff_mean"] > tolerance
+            ),
             "old_log_probs_sha256_before_update": sha256_json(old_rows),
             "epoch_boundaries_instrumented": False,
             "status": "pre_update",
@@ -68,7 +79,6 @@ def audit_update(
     path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     if any(m == 0 and p != 0 for p, m in zip(old, mask, strict=True)):
         raise ValueError("non-policy old log probabilities must be zero")
-    validate_pre_update_ratio(current, old, mask, tolerance=tolerance)
     output = update()
     after_rows, after_mask = read_old()
     report["old_log_probs_sha256_after_update"] = sha256_json(after_rows)

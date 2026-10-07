@@ -149,7 +149,9 @@ python scripts/train_airline_grpo.py --stage smoke --run-name smoke_ratio_v2 \
   --extra +trainer.ppo_audit=true
 ```
 
-开启后，真实 trainer 在更新前额外调用当前 actor 的 log-prob 推理，和 vLLM rollout old log-prob 比较，不覆盖 old 值。报告保存在 run 的 `ppo_audit/step_N.json`，包含 policy-token ratio mean/std/p01/p50/p99/max deviation，以及整个更新前后的 old-log-prob SHA-256。非有限值、非 policy token 的非零 old 值和超过默认平均绝对 log-prob 差阈值 0.005 都会阻止更新。该开关会增加计算与传输开销，适合 smoke。
+开启后，真实 trainer 在更新前额外调用当前 FSDP actor 的 log-prob 推理，和 vLLM rollout 实际产生的 log-prob 比较，不覆盖 rollout 值。vLLM rollout 定义行为策略 `pi_rollout`，PPO 分母始终使用保存的行为策略概率；允许训练和推理后端存在差异，更新前 `pi_actor / pi_rollout` 不必接近 1。
+
+报告保存在 run 的 `ppo_audit/step_N.json`，包含 policy-token ratio mean/std/p01/p50/p99/max deviation、平均绝对 log-prob 差，以及整个更新前后的 old-log-prob SHA-256。原 `trainer.ppo_audit_logprob_tolerance`（默认 0.005）仅用于记录 `log_prob_abs_diff_exceeds_tolerance`，不再因超过阈值阻止更新、丢弃轨迹或触发补采。非有限概率/ratio、非法 mask、长度不匹配、非 policy token 的非零 old 值仍会阻止更新；更新边界仍检查 rollout old log-prob 和 mask 未被改变。该开关会增加计算与传输开销，适合 smoke。
 
 **重要限制：目前哈希检查发生在整个 actor update 前后，不在 worker 内部每个 PPO epoch 边界。** 报告明确标注 `epoch_boundaries_instrumented=false`。不得把两个端点相同宣称为“已实测 epoch 1 与 epoch 2 输入完全一致”。仍需在固定版 worker 上完成逐 epoch GPU 验收。并未为了获得漂亮的审计结果而将正式 PPO 的多个 epoch 拆成多次 actor RPC。
 

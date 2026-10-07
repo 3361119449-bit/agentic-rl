@@ -735,6 +735,7 @@ class CappedPPOTrainerSync(PPOTrainerSync):
             path=Path(self.config.trainer.default_local_dir).parent
             / "ppo_audit"
             / f"step_{self.global_steps}.json",
+            # Preserve existing overrides as a diagnostic threshold, not a gate.
             tolerance=float(
                 self.config.trainer.get("ppo_audit_logprob_tolerance", 0.005)
             ),
@@ -743,7 +744,7 @@ class CappedPPOTrainerSync(PPOTrainerSync):
             {
                 f"audit/{key}": value
                 for key, value in report.items()
-                if key.startswith("ratio_")
+                if key.startswith(("ratio_", "log_prob_abs_diff_"))
             }
         )
         return result

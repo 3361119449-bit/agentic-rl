@@ -792,7 +792,7 @@ response mask 保留原始 EOS，下一轮仍接续原始 token 流。不会全�
 - 在 A800 上完成一次端到端 Stage 0，核对 Qwen3 工具标签与 tokenizer/chat template；
 - 用真实 Airline 工具结果统计重新确认 1,024 token observation 预留量；
 - 人工审计至少 50–100 条代表性轨迹及 Judge 结论；
-- smoke 中确认更新前 ratio 接近 1、两个 PPO epoch 的 old log-prob 不变、checkpoint 可恢复且无 OOM；
+- smoke 中记录训练侧 actor 与 vLLM rollout 的 ratio 分布（允许训推差异，不要求接近 1），核对 PPO 始终使用保存的 rollout 行为策略 log-prob，验证两个 PPO epoch 的 old log-prob 不变、checkpoint 可恢复且无 OOM；
 - 在看任何 test reward 前冻结 reward、标注、prompt、训练步数和评估参数。
 
 本地 CPU 测试不能替代上述 API、GPU 和人工验收。
