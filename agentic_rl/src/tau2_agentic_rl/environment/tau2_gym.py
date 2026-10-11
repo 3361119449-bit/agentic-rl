@@ -6,7 +6,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from tau2_agentic_rl.environment.cached_user import build_cached_agent_gym_env
 from tau2_agentic_rl.versions import sha256_json
@@ -38,6 +38,7 @@ class ToolStepResult:
     db_changed: bool | None
     result: str | None
     state_before: dict | None = None
+    execution_status: Literal["termination_control"] | None = None
 
 
 @dataclass
@@ -187,6 +188,10 @@ class Tau2GymAdapter:
         ]
         if len({call["id"] for call in normalized}) != len(normalized):
             raise ValueError("duplicate tool call IDs in one assistant turn")
+        if len(normalized) > 1 and any(call["name"] == "done" for call in normalized):
+            # GymAgent turns ANY batch containing done into STOP, dropping all
+            # sibling actions. The actor loop must reject this combination.
+            raise ValueError("done() must be called alone; no tool calls were delivered")
         rejected = {
             call["id"]: source["validation_error"]
             for call, source in zip(normalized, calls, strict=True)
@@ -295,6 +300,24 @@ class Tau2GymAdapter:
         self.info = info
         if terminated and not self._simulation_payload(info):
             raise RuntimeError("Tau2 orchestrator terminated without a simulation run")
+        termination_control = (
+            len(normalized) == 1
+            and normalized[0]["name"] == "done"
+            and normalized[0]["arguments"] == {}
+            and not rejected
+            and not audits
+            and terminated
+            and self.tau2_termination_reason() == "agent_stop"
+        )
+        if termination_control:
+            # GymAgent converts done() to STOP without executing an environment
+            # tool. Align internal call records only: never synthesize a native
+            # ToolMessage or evidence of a successful action/database write.
+            audits.append(ToolStepResult(
+                call_id=normalized[0]["id"], name="done", arguments={},
+                success=False, db_changed=False, result=None,
+                execution_status="termination_control",
+            ))
         if len(audits) != len(normalized):
             raise RuntimeError(
                 f"Tau2 returned {len(audits)} results for {len(normalized)} tool calls"
@@ -312,7 +335,7 @@ class Tau2GymAdapter:
                 and after_hash is not None
                 and before_hash != after_hash
             ),
-            tool_success=all(item.success for item in audits),
+            tool_success=None if termination_control else all(item.success for item in audits),
             tool_result=audits[-1].result if audits else None,
             tool_results=audits,
         )

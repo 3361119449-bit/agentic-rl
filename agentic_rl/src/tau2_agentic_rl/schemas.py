@@ -67,7 +67,7 @@ class ToolEvent(BaseModel):
     confirmation_consumed: bool = False
     observation_truncated: bool = False
     error_kind: ToolErrorKind | None = None
-    execution_status: Literal["blocked_by_invalid_sibling"] | None = None
+    execution_status: Literal["blocked_by_invalid_sibling", "termination_control"] | None = None
     unchanged_retry: bool = False
     no_progress: bool = False
     result: str | None = None

@@ -1,5 +1,21 @@
 # ProCredit v4：逐轮政策惩罚与单槽位恢复
 
+## Tau2 `done()` 终止控制修复（2026-10-11）
+
+Tau2 GymAgent 将 `done()` 转为 `###STOP###`，不会执行环境工具，也不会返回
+ToolMessage。适配器仅在单独、合法的 `done()` 得到实际 `agent_stop` 终止且没有
+工具执行结果时，生成内部 `execution_status=termination_control` 对齐记录。
+记录的 `success=false`、`db_effect=false`、`result=null`，不伪造真实工具消息，
+不作为必要动作成功证据，也不记为工具执行错误或重复失败。
+
+`done` 与任何其他调用（包括另一个 `done`）混用时，整轮在进入 Tau2 前拒绝，
+向模型返回明确错误，允许下一轮纠正；同轮其他工具不会执行。普通多工具批次
+继续执行合法调用，普通工具缺少返回结果仍报错。PPO、奖励公式及补采上限不变。
+
+失败 run 和诊断轨迹应保留。该次未完成 PPO 更新的运行不作为有效 checkpoint
+恢复；修复验收后使用新代码快照、新 run name，从原始 M2 SFT 启动新的 12 步
+训练，不覆盖失败 run。修复和测试本身不会自动启动训练或改写已有轨迹。
+
 使用 `configs/rl/airline_procredit_v4.yaml` 启动新实验。v4 的训练语义取代
 v3 的整轨迹 policy/safety 门控；旧配置仍保留旧算法。不同版本的 optimizer、
 dataloader 和 rollout 队列不能混作一次精确续训。

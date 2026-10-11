@@ -95,10 +95,10 @@ def _split(kwargs: dict[str, Any]) -> tuple[str, str, int]:
 
 def _mark_repetition(event: ToolEvent, earlier: list[ToolEvent]) -> None:
     """Mark unchanged failed retries and successful no-progress duplicates."""
-    if event.execution_status == "blocked_by_invalid_sibling":
+    if event.execution_status in {"blocked_by_invalid_sibling", "termination_control"}:
         return
     for previous in reversed(earlier):
-        if previous.execution_status == "blocked_by_invalid_sibling":
+        if previous.execution_status in {"blocked_by_invalid_sibling", "termination_control"}:
             continue
         if previous.name != event.name or not arguments_equal(
             previous.arguments,
@@ -640,6 +640,9 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             messages.append(assistant_message)
 
             turn_error = validate_tool_turn(decoded, len(calls))
+            mixed_done = len(calls) > 1 and any(call.name == "done" for call in calls)
+            if mixed_done:
+                turn_error = turn_error or "multiple_tool_calls"
             if not calls and not content.strip():
                 # EOS-only/blank replies are model output errors, not Tau2/API
                 # failures. Do not send an empty action to the user simulator.
@@ -659,6 +662,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     synthetic_tool_error(
                         "invalid_tool_turn",
                         turn_error,
+                        "done() must be called alone. No calls in this turn were executed."
+                        if mixed_done else
                         "No action was delivered. Emit a nonempty text reply or "
                         "one or more complete JSON tool calls, never both.",
                     ),
@@ -787,8 +792,10 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             db_effect=result.db_changed,
                             error_kind=(
                                 checked.error_kind if not checked.valid else
-                                None if result.success else "model_caused_execution_error"
+                                None if result.success or result.execution_status == "termination_control"
+                                else "model_caused_execution_error"
                             ),
+                            execution_status=result.execution_status,
                             result=result.result,
                             state_before=result.state_before,
                         )
