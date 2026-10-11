@@ -685,6 +685,24 @@ python scripts/rescore_procredit_groups.py \
 本次本地验证覆盖 CPU 算法、生产循环和真实 PyTorch/TensorDict 张量，
 完整固定依赖栈、真实 API 和 GPU optimizer 更新仍需在训练环境验收。
 
+AgentLoop 会累计各轮服务端返回的 `min_global_steps` / `max_global_steps`，
+并将整数范围传给 veRL 队列及 off-policy 指标。缺少范围时，仅使用服务端返回的
+实际权重版本 `global_steps`；不能使用 prompt 的调度步号或默认 `policy_version=0`
+替代。完全缺失版本时沿用 `policy_version_alignment` 致命错误通道，保留诊断，
+不触发补采，也不在 PPO 更新之后才由指标统计报错。
+
+可在无 GPU 环境用固定 veRL checkout 运行版本传递回归：
+
+```bash
+PYTHONPATH=src:tests:. VERL_VERSION_CONTRACT_SOURCE=/path/to/verl \
+  python -m pytest tests/test_rollout_versions.py tests/test_verl_version_metrics.py -v
+```
+
+该回归校验固定源码哈希，并执行上游完整的队列后处理与 `_compute_metrics()` 方法，
+覆盖权重版本 0、1 和服务端单版本字段的兼容路径；传输、张量运算和无关指标使用
+CPU 替身。因此它不代表完整训练器/GPU smoke 已通过。正式训练前仍需在训练环境
+完成短程 smoke，确认更新、指标、rollout 保存和日志全部完成。
+
 ### ProCredit v2：保留违规轨迹中的局部信号（2026-09-28）
 
 `configs/rl/airline_procredit_v2.yaml` 保留终局 hard gate，新增对已定位违规 turn 的

@@ -120,7 +120,7 @@ def test_rollout_recovers_from_mixed_stop_and_preserves_control_semantics(
     cursor = iter(range(len(batches)))
 
     async def generate(**kwargs):
-        return SimpleNamespace(token_ids=[4 + next(cursor), 9], log_probs=[-0.2, -0.1], extra_fields={})
+        return SimpleNamespace(token_ids=[4 + next(cursor), 9], log_probs=[-0.2, -0.1], extra_fields={"global_steps": 0})
 
     async def parse(ids, *args):
         return "", [SimpleNamespace(name=name, arguments="{}") for name in batches[ids[0] - 4]]

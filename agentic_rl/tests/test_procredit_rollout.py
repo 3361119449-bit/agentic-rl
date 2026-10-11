@@ -13,7 +13,7 @@ from tau2_agentic_rl.scoring_retry import retry_scoring
 
 
 def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=False,
-                    credit_version=None, judge_failures=0):
+                    credit_version=None, judge_failures=0, version_fields=None):
     loop, scope = minimal_loop(scratch_dir)
     cleaned, judge_calls = [], []
     loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
@@ -80,11 +80,13 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
             return []
 
     generated = iter([[4, 9], [5, 9], [6]])
+    versions = iter(version_fields if version_fields is not None else
+                    [{"min_global_steps": 0, "max_global_steps": 0}] * 3)
 
     async def generate(**kwargs):
         ids = next(generated)
         return SimpleNamespace(
-            token_ids=ids, log_probs=[-1.0] * len(ids), extra_fields={}
+            token_ids=ids, log_probs=[-1.0] * len(ids), extra_fields=next(versions)
         )
 
     async def parse(ids, *args):

@@ -293,7 +293,7 @@ def test_text_eos_never_reaches_tau2_or_judge_but_training_stream_is_intact(
             assert "seed" not in kwargs["sampling_params"]
         captured["prompts"].append(list(kwargs["prompt_ids"]))
         return SimpleNamespace(
-            token_ids=generated[index], log_probs=old_logprobs[index], extra_fields={}
+            token_ids=generated[index], log_probs=old_logprobs[index], extra_fields={"global_steps": 0}
         )
 
     loop.server_manager = SimpleNamespace(generate=generate)
@@ -342,7 +342,7 @@ def test_blank_completed_reply_is_local_model_error_not_user_api_failure(
 
     async def generate(**kwargs):
         return SimpleNamespace(
-            token_ids=tokens, log_probs=[-1.0] * len(tokens), extra_fields={}
+            token_ids=tokens, log_probs=[-1.0] * len(tokens), extra_fields={"global_steps": 0}
         )
 
     loop.server_manager = SimpleNamespace(generate=generate)
@@ -381,7 +381,7 @@ def test_only_actual_terminal_eos_is_removed_not_literal_marker_text(
 
     async def generate(**kwargs):
         return SimpleNamespace(
-            token_ids=tokens, log_probs=[-1.0] * len(tokens), extra_fields={}
+            token_ids=tokens, log_probs=[-1.0] * len(tokens), extra_fields={"global_steps": 0}
         )
 
     loop.server_manager = SimpleNamespace(generate=generate)
@@ -448,7 +448,7 @@ def test_complete_actor_screens_user_before_reward_and_never_returns_invalid_tok
 
     async def generate(**kwargs):
         return SimpleNamespace(
-            token_ids=tokens, log_probs=[-1.0] * len(tokens), extra_fields={}
+            token_ids=tokens, log_probs=[-1.0] * len(tokens), extra_fields={"global_steps": 0}
         )
 
     loop.server_manager = SimpleNamespace(generate=generate)

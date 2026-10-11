@@ -117,7 +117,7 @@ def test_truncated_output_not_delivered_or_judged_and_full_observation_preserved
     async def generate(**kwargs):
         tokens = next(generated)
         return SimpleNamespace(
-            token_ids=tokens, log_probs=[-1.0] * len(tokens), extra_fields={}
+            token_ids=tokens, log_probs=[-1.0] * len(tokens), extra_fields={"global_steps": 0}
         )
 
     async def snapshot(*args):
@@ -334,7 +334,7 @@ def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir, invalid_i
 
     async def generate(**kwargs):
         return SimpleNamespace(
-            token_ids=[4, 9], log_probs=[-1.0, -1.0], extra_fields={}
+            token_ids=[4, 9], log_probs=[-1.0, -1.0], extra_fields={"global_steps": 0}
         )
 
     async def parse(*args):

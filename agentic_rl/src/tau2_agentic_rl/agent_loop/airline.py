@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 from copy import deepcopy
+from numbers import Integral
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -91,6 +92,28 @@ def _split(kwargs: dict[str, Any]) -> tuple[str, str, int]:
     if not task_id:
         raise ValueError("Tau2 Airline rollout requires extra_info.task_id")
     return task_id, split, policy_version
+
+
+def _rollout_version_bounds(extra_fields: dict[str, Any]) -> tuple[int, int]:
+    """Read actual server weight versions, never the prompt scheduling step.
+
+    Pinned veRL LLMServerClient derives these bounds from the server's
+    global_steps for synchronous generation. Retain that compatibility path
+    when bounds are absent/None, without guessing from extra_info's default 0.
+    """
+    server_version = extra_fields.get("global_steps")
+    low = extra_fields.get("min_global_steps")
+    high = extra_fields.get("max_global_steps")
+    low = server_version if low is None else low
+    high = server_version if high is None else high
+    if any(
+        isinstance(v, bool) or not isinstance(v, Integral) or v < 0
+        for v in (low, high)
+    ):
+        raise ValueError("rollout server did not provide a valid weight version range")
+    if low > high:
+        raise ValueError("rollout server returned a reversed weight version range")
+    return int(low), int(high)
 
 
 def _mark_repetition(event: ToolEvent, earlier: list[ToolEvent]) -> None:
@@ -522,6 +545,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         terminated = False
         infrastructure_error: tuple[str, Exception] | None = None
         observed_policy_versions: set[int] = {policy_version}
+        min_global_steps: int | None = None
+        max_global_steps: int | None = None
 
         while not terminated:
             decision = self.budget.decide(len(prompt_ids))
@@ -547,10 +572,20 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 infrastructure_error = ("model_generation", exc)
                 termination_reason = "infrastructure_error"
                 break
-            rollout_step = (output.extra_fields or {}).get("max_global_steps")
-            if rollout_step is not None:
-                observed_policy_versions.add(int(rollout_step))
-                policy_version = int(rollout_step)
+            try:
+                turn_min, turn_max = _rollout_version_bounds(output.extra_fields or {})
+            except ValueError as exc:
+                infrastructure_error = ("policy_version_alignment", exc)
+                termination_reason = "infrastructure_error"
+                break
+            min_global_steps = (
+                turn_min if min_global_steps is None else min(min_global_steps, turn_min)
+            )
+            max_global_steps = (
+                turn_max if max_global_steps is None else max(max_global_steps, turn_max)
+            )
+            observed_policy_versions.add(turn_max)
+            policy_version = turn_max
             if len(observed_policy_versions - {0}) > 1:
                 infrastructure_error = (
                     "policy_version_alignment",
@@ -845,6 +880,12 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 ):
                     termination_reason = "human_transfer"
 
+        if infrastructure_error is None and min_global_steps is None:
+            infrastructure_error = (
+                "policy_version_alignment",
+                ValueError("trajectory has no generated weight version"),
+            )
+            termination_reason = "infrastructure_error"
         trajectory_for_judge = snapshot_transcript(environment)
         if progress_inputs is not None:
             progress_inputs["messages"] = deepcopy(environment.full_trajectory())
@@ -1186,6 +1227,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "task_id": task_id,
                 "policy_version": policy_version,
                 "tau2_official_reward": official.reward,
+                "min_global_steps": min_global_steps,
+                "max_global_steps": max_global_steps,
                 **(
                     {"custom_strict_success": custom_reward.strict_success}
                     if custom_reward
