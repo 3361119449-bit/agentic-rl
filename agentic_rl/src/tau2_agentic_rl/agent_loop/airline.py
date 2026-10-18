@@ -52,6 +52,7 @@ from tau2_agentic_rl.reward.db_subgoals import (
     subgoal_trace_from_scoring,
 )
 from tau2_agentic_rl.reward.policy_credit import annotate_policy_turns
+from tau2_agentic_rl.reward.post_completion import completion_trace_from_scoring
 from tau2_agentic_rl.reward.progress import build_progress_trace
 from tau2_agentic_rl.reward.required_actions import (
     arguments_equal,
@@ -536,6 +537,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         )
         progress_trace = None
         subgoal_trace = None
+        completion_trace = None
         db_subgoal_inputs = None
         if self.project.get("credit", {}).get("db_subgoal_credit") is not None:
             goals = select_db_subgoals(
@@ -1102,6 +1104,9 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 subgoal_trace = subgoal_trace_from_scoring(
                     scoring_inputs, tool_events, assistant_turns, custom_reward,
                 )
+                completion_trace = completion_trace_from_scoring(
+                    scoring_inputs, tool_events, assistant_turns, custom_reward, subgoal_trace,
+                )
             except Exception as exc:
                 infrastructure_error = ("reward_scoring", exc)
 
@@ -1141,6 +1146,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             token_turns=token_turns,
             progress_trace=progress_trace,
             subgoal_trace=subgoal_trace,
+            completion_trace=completion_trace,
             response_turn_ids=response_turn_ids if procredit else None,
             initial_db_hash=environment.initial_db_hash(),
             final_db_hash=final_db_hash,

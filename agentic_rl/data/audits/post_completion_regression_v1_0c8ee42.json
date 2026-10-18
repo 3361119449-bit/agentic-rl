@@ -1,0 +1,362 @@
+{
+  "trajectories": 738,
+  "regression_turns": 56,
+  "regression_trajectories": 56,
+  "initially_complete_regression_trajectories": 52,
+  "completion_bonus_trajectories": 3,
+  "completion_floor_trajectories": 3,
+  "recovered_final_success_trajectories": 0,
+  "independently_replayed_prefixes": 689,
+  "regressions_already_policy_limited": 56,
+  "groups": 96,
+  "positive_final_completion_trajectories": 3,
+  "skipped_tasks": {},
+  "baseline_token_max_abs_error": 0.0,
+  "double_reward_trajectories": [],
+  "mispenalized_turns": [],
+  "task12_regression": {
+    "trajectory_id": "5e8df95f6e75493cbe92a20afb65c714",
+    "task_id": "12",
+    "official_reward": 0.0,
+    "train_reward": 0.0,
+    "completion_trace": {
+      "version": "post_completion_regression_v1",
+      "turn_index_base": 1,
+      "definition": {
+        "version": "post_completion_regression_v1",
+        "completion_advantage_mode": "positive_floor_v1",
+        "task": "a7835db340db554b31a7ed026a6d355199776984cac61353f9fd22a084a81ddd",
+        "progress_trace": "7b426cc5b4adf4110c4a51776caa440c99a53975ec1c4c98013cdd8d350fbbf6",
+        "events": "c8f9663bf0b536a586600d1ed1ad323b368c9a8c736bb81640b2a9716aba4d7b",
+        "required_actions": "3ddb46bc182952fe1e349ae5256f8346b93e3d0bc3b1236b2ac089262522ec85",
+        "transfer_rule": "a96cfb4ad5b2de8b381245fb0bb1b8d2556a9a75b4275d9ed74634b771a8096a",
+        "termination_reason": "user_stop",
+        "violating_turn_indices": [
+          4,
+          8,
+          9,
+          10
+        ],
+        "subgoal_trace": null
+      },
+      "applicable": true,
+      "skip_reason": null,
+      "official_check_ids": [
+        "db"
+      ],
+      "official_success": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false
+      ],
+      "db_success": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false
+      ],
+      "initial_success": false,
+      "first_success_turn": 6,
+      "first_success_safe": true,
+      "positive_floor_turn": 6,
+      "positive_margin": 0.5,
+      "min_positive_advantage": 1e-06,
+      "regression_turns": [
+        10
+      ],
+      "unattributed_db_drop_turns": [],
+      "causal_event_ids": {
+        "10": [
+          "5e8df95f6e75493cbe92a20afb65c714:7"
+        ]
+      },
+      "turn_bonus": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "penalty_threshold": 1.0,
+      "db_positive_credit": 0.0,
+      "completion_positive_credit": 0.5,
+      "trace_fingerprint": "5aa72657681e9db39de8462a7bfc5300b44483c996ea474d7eece080e3cc970e"
+    },
+    "combined_completion_trace": {
+      "version": "post_completion_regression_v1",
+      "turn_index_base": 1,
+      "definition": {
+        "version": "post_completion_regression_v1",
+        "completion_advantage_mode": "positive_floor_v1",
+        "task": "a7835db340db554b31a7ed026a6d355199776984cac61353f9fd22a084a81ddd",
+        "progress_trace": "7b426cc5b4adf4110c4a51776caa440c99a53975ec1c4c98013cdd8d350fbbf6",
+        "events": "c8f9663bf0b536a586600d1ed1ad323b368c9a8c736bb81640b2a9716aba4d7b",
+        "required_actions": "3ddb46bc182952fe1e349ae5256f8346b93e3d0bc3b1236b2ac089262522ec85",
+        "transfer_rule": "a96cfb4ad5b2de8b381245fb0bb1b8d2556a9a75b4275d9ed74634b771a8096a",
+        "termination_reason": "user_stop",
+        "violating_turn_indices": [
+          4,
+          8,
+          9,
+          10
+        ],
+        "subgoal_trace": "1e1cd25fd6fa8dc38fa756f753d5b119f2b35401cfa9dca19762672541b2503a"
+      },
+      "applicable": true,
+      "skip_reason": null,
+      "official_check_ids": [
+        "db"
+      ],
+      "official_success": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false
+      ],
+      "db_success": [
+        false,
+        false,
+        false,
+        false,
+        false,
+        false,
+        true,
+        true,
+        true,
+        true,
+        false,
+        false
+      ],
+      "initial_success": false,
+      "first_success_turn": 6,
+      "first_success_safe": true,
+      "positive_floor_turn": 6,
+      "positive_margin": 0.5,
+      "min_positive_advantage": 1e-06,
+      "regression_turns": [
+        10
+      ],
+      "unattributed_db_drop_turns": [],
+      "causal_event_ids": {
+        "10": [
+          "5e8df95f6e75493cbe92a20afb65c714:7"
+        ]
+      },
+      "turn_bonus": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.5,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "penalty_threshold": 1.0,
+      "db_positive_credit": 0,
+      "completion_positive_credit": 0.5,
+      "trace_fingerprint": "6a80bf1557082d35b297187f26b834af0727e7891e69d6eb3085814addb8ce79"
+    },
+    "token_advantage_hashes": {
+      "baseline": "e6d676dfa71b71bd97f9b1d64da44cf062afc9f41130fd3383fa7903215643e7",
+      "db_only": "e6d676dfa71b71bd97f9b1d64da44cf062afc9f41130fd3383fa7903215643e7",
+      "post_only": "7df3b55221c458af14bcc0e68d6a894e10e479b37c8518f8e595f7f49e86d606",
+      "combined": "7df3b55221c458af14bcc0e68d6a894e10e479b37c8518f8e595f7f49e86d606"
+    },
+    "turn_advantages": {
+      "1": {
+        "baseline": -1.708789875459653,
+        "db_only": -1.708789875459653,
+        "post_only": -1.708789875459653,
+        "combined": -1.708789875459653
+      },
+      "2": {
+        "baseline": -1.708789875459653,
+        "db_only": -1.708789875459653,
+        "post_only": -1.708789875459653,
+        "combined": -1.708789875459653
+      },
+      "3": {
+        "baseline": -1.708789875459653,
+        "db_only": -1.708789875459653,
+        "post_only": -1.708789875459653,
+        "combined": -1.708789875459653
+      },
+      "4": {
+        "baseline": -1.708789875459653,
+        "db_only": -1.708789875459653,
+        "post_only": -1.708789875459653,
+        "combined": -1.708789875459653
+      },
+      "5": {
+        "baseline": -2.7087898754596536,
+        "db_only": -2.7087898754596536,
+        "post_only": -2.7087898754596536,
+        "combined": -2.7087898754596536
+      },
+      "6": {
+        "baseline": -1.708789875459653,
+        "db_only": -1.708789875459653,
+        "post_only": 0.5,
+        "combined": 0.5
+      },
+      "7": {
+        "baseline": -2.2087898754596536,
+        "db_only": -2.2087898754596536,
+        "post_only": -2.2087898754596536,
+        "combined": -2.2087898754596536
+      },
+      "8": {
+        "baseline": -2.2087898754596536,
+        "db_only": -2.2087898754596536,
+        "post_only": -2.2087898754596536,
+        "combined": -2.2087898754596536
+      },
+      "9": {
+        "baseline": -3.2087898754596536,
+        "db_only": -3.2087898754596536,
+        "post_only": -3.2087898754596536,
+        "combined": -3.2087898754596536
+      },
+      "10": {
+        "baseline": -3.2087898754596536,
+        "db_only": -3.2087898754596536,
+        "post_only": -3.2087898754596536,
+        "combined": -3.2087898754596536
+      },
+      "11": {
+        "baseline": -2.7087898754596536,
+        "db_only": -2.7087898754596536,
+        "post_only": -2.7087898754596536,
+        "combined": -2.7087898754596536
+      }
+    },
+    "completion_floor_adjustments": {
+      "post_only": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.708789875459653,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "combined": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.708789875459653,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "fixed_tau2_commit": "a2c024725189473d2d7cea3a5cfdbcc67478e41f",
+  "acceptance_passed": true,
+  "implementation_base_commit": "0c8ee42",
+  "source_rollout_commit": "967e3b5",
+  "source_archive_sha256": "a656ca8be508f201435bb3e16e8c4ff624e36b8fc160f44b910992e081270cb3",
+  "completion_advantage_mode": "positive_floor_v1",
+  "offline_group_details": "outputs\\post_completion_positive_floor_v1\\groups",
+  "rewarded_completion_turns": [
+    {
+      "trajectory_id": "86a30bee99764b649b36a038e0ee2a3c",
+      "task_id": "15",
+      "turn": 13,
+      "advantages": {
+        "baseline": -0.5764293308693851,
+        "db_only": -0.5764293308693851,
+        "post_only": 0.5,
+        "combined": 0.5
+      },
+      "local_completion_bonus": 0.5,
+      "floor_adjustments": {
+        "post_only": 0.5764293308693851,
+        "combined": 0.5764293308693851
+      }
+    },
+    {
+      "trajectory_id": "5e8df95f6e75493cbe92a20afb65c714",
+      "task_id": "12",
+      "turn": 6,
+      "advantages": {
+        "baseline": -1.708789875459653,
+        "db_only": -1.708789875459653,
+        "post_only": 0.5,
+        "combined": 0.5
+      },
+      "local_completion_bonus": 0.5,
+      "floor_adjustments": {
+        "post_only": 1.708789875459653,
+        "combined": 1.708789875459653
+      }
+    },
+    {
+      "trajectory_id": "f9b0c3e825354fe490bbbb620ce825df",
+      "task_id": "15",
+      "turn": 11,
+      "advantages": {
+        "baseline": -0.8658109187636438,
+        "db_only": -0.8658109187636438,
+        "post_only": 0.5,
+        "combined": 0.5
+      },
+      "local_completion_bonus": 0.5,
+      "floor_adjustments": {
+        "post_only": 0.8658109187636438,
+        "combined": 0.8658109187636438
+      }
+    }
+  ],
+  "rewarded_completion_turns_with_positive_final_advantage": 3,
+  "verification": {
+    "tests_passed": 886,
+    "tests_skipped": 30,
+    "ruff": "passed",
+    "independent_review": "no remaining findings; 38 targeted tests passed independently",
+    "gpu_smoke": "not run; user will run separately"
+  }
+}

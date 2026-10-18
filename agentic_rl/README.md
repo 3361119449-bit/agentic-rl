@@ -603,6 +603,20 @@ veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num
 
 ## 离线重新打分
 
+### 可选官方完成后回退信用（2026-10-18）
+
+`credit.post_completion_credit` 默认 `null`，设为 `post_completion_regression_v1`
+后，依据原官方 DB/COMMUNICATE 前缀检查保留首次完成的正向信用，并将确认
+破坏官方 DB 目标的轮次限制为最终 Token Advantage ≤ −1（叠加独立 process cost）。
+同一错误已有 policy 惩罚时不再重复叠扣；与 DB 子目标局部正奖共享每条轨迹 0.5 上限。
+不改变标量奖励、最终官方成功、GRPO 均值或采样设置。
+
+对存在确认回退的轨迹，安全的首次完成轮在所有项合并后保底为
+`max(1e-6, 0.5 − 当轮 process cost)`，确保最终 Advantage 为正。保底取最大值，
+修正量单独审计，可超过局部奖励上限。policy 违规仍必须为负。
+指定的 Task 12 T6 为 −1.7088 → +0.5，T10 的原惩罚不变。详见
+[完成后回退规则与 738 条轨迹审计](POST_COMPLETION_REGRESSION_V1.md)。
+
 ### 可选 DB 子目标局部信用（2026-10-18）
 
 v4 配置新增 `credit.db_subgoal_credit`，默认 `null`。设为

@@ -57,8 +57,8 @@ def validate_procredit_config(config: dict) -> None:
     from tau2_agentic_rl.reward.score import build_reward_config
 
     if not is_procredit(config):
-        if config.get("credit", {}).get("db_subgoal_credit") is not None:
-            raise ValueError("DB subgoal credit requires ProCredit v4")
+        if any(config.get("credit", {}).get(k) is not None for k in ("db_subgoal_credit", "post_completion_credit")):
+            raise ValueError("local goal credit requires ProCredit v4")
         return
     build_reward_config(config)
     credit = CreditConfig.from_project(config)

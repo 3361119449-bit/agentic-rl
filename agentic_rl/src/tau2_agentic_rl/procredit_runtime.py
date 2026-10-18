@@ -253,6 +253,18 @@ def credit_from_record(record) -> dict:
         if expected_subgoals != record.subgoal_trace:
             raise ValueError("record DB subgoal trace differs from frozen scoring evidence")
         row["subgoal_trace"] = expected_subgoals
+    if frozen.get("reward_project_config", {}).get("credit", {}).get("post_completion_credit") is not None:
+        from tau2_agentic_rl.reward.post_completion import completion_trace_from_scoring
+
+        if (sha256_json(frozen) != record.metadata.get("scoring_inputs_sha256")
+            or frozen.get("progress_trace") != record.progress_trace):
+            raise ValueError("frozen post-completion scoring inputs changed")
+        expected_completion = completion_trace_from_scoring(
+            frozen, record.tool_events, record.assistant_turns, reward, row.get("subgoal_trace"),
+        )
+        if expected_completion != record.completion_trace:
+            raise ValueError("record post-completion trace differs from frozen scoring evidence")
+        row["completion_trace"] = expected_completion
     return row
 
 

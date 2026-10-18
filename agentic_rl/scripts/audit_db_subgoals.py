@@ -118,6 +118,7 @@ def replay_initial(record, tools_type, base_db):
             "unknown_tool",
             "schema_invalid",
             "mixed_content_and_tool_call",
+            "multiple_tool_calls",
         }:
             continue
         before = tools.db.model_dump(mode="json")

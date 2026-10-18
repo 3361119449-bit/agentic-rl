@@ -16,8 +16,13 @@ class CreditConfig:
     version: str = "procredit-turn-v1"
     violation_penalty: float = 1.0
     db_subgoal_credit: str | None = None
+    post_completion_credit: str | None = None
 
     def __post_init__(self):
+        if self.post_completion_credit is not None and (
+            self.post_completion_credit != "post_completion_regression_v1" or self.version != "procredit-turn-v4"
+        ):
+            raise ValueError("post_completion_regression_v1 requires ProCredit v4")
         if self.db_subgoal_credit is not None and (
             self.db_subgoal_credit != "db_subgoal_local_v1" or self.version != "procredit-turn-v4"
         ):
@@ -37,6 +42,7 @@ class CreditConfig:
     def from_project(cls, project: dict) -> CreditConfig:
         credit = project.get("credit", {})
         return cls(
+            post_completion_credit=credit.get("post_completion_credit"),
             db_subgoal_credit=credit.get("db_subgoal_credit"),
             version=credit.get("version", "procredit-turn-v1"),
             violation_penalty=credit.get("violation_penalty", 1.0),
@@ -50,6 +56,8 @@ class CreditConfig:
 
     def audit_config(self) -> dict:
         values = asdict(self)
+        if self.post_completion_credit is None:
+            values.pop("post_completion_credit")
         if self.db_subgoal_credit is None:
             values.pop("db_subgoal_credit")
         if self.version == "procredit-turn-v1":
@@ -217,6 +225,8 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             value - turn_mean if complete and t in present else 0.0
             for t, value in enumerate(returns)
         ]
+        regression_turns = set()
+        completion_floor_turn = None
         if config.db_subgoal_credit is not None:
             from tau2_agentic_rl.reward.db_subgoals import validate_db_subgoal_trace
 
@@ -225,6 +235,24 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             )
             for t in present:
                 turn_advantages[t] += local[t]
+        if config.post_completion_credit is not None:
+            from tau2_agentic_rl.reward.post_completion import (
+                validate_post_completion_trace,
+            )
+
+            completion_bonus, regression_turns = validate_post_completion_trace(
+                row.get("completion_trace"), turns=len(returns), violating_turns=sorted(bad),
+                subgoal_trace=row.get("subgoal_trace") if config.db_subgoal_credit is not None else None,
+            )
+            if regression_turns - present:
+                raise ValueError("completion regression turn has no trainable tokens")
+            trace = row["completion_trace"]
+            if trace["positive_floor_turn"] is not None:
+                completion_floor_turn = trace["positive_floor_turn"] - 1
+                if completion_floor_turn not in present:
+                    raise ValueError("first completion turn has no trainable tokens")
+            for t in present:
+                turn_advantages[t] += completion_bonus[t]
         for t in present:
             if config.version == "procredit-turn-v4":
                 # Costs do not affect any task return or group baseline. Count
@@ -242,11 +270,38 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             else 0.0
             for t in mapping
         ]
+        if config.post_completion_credit is not None:
+            completion_floors = [0.0] * len(returns)
+            completion_floor_adjustments = [0.0] * len(returns)
+            if completion_floor_turn is not None:
+                t = completion_floor_turn
+                floor = max(
+                    trace["min_positive_advantage"], trace["positive_margin"] - costs[t]
+                )
+                completion_floors[t] = floor
+                # A final sign restriction, not a second additive goal reward.
+                # Its correction can exceed the shared 0.5 reward budget when
+                # compensating a negative trajectory/group advantage.
+                prior = next(
+                    value for turn, value in zip(mapping, tokens, strict=True) if turn == t
+                )
+                completion_floor_adjustments[t] = max(0.0, floor - prior)
+                tokens = [
+                    max(value, floor) if turn == t else value
+                    for turn, value in zip(mapping, tokens, strict=True)
+                ]
         if config.version == "procredit-turn-v4":
             # Enforce the sign AFTER the trajectory and local terms combine.
             # A high task score must never reward the violating generation.
             tokens = [
                 min(value, -config.violation_penalty - costs[turn]) if turn in bad else value
+                for turn, value in zip(mapping, tokens, strict=True)
+            ]
+        if regression_turns:
+            # A sign ceiling, not another additive policy-sized punishment.
+            # Existing policy and process penalties retain their exact values.
+            tokens = [
+                min(value, -1.0 - costs[turn]) if turn in regression_turns else value
                 for turn, value in zip(mapping, tokens, strict=True)
             ]
         results.append(
@@ -264,6 +319,11 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             ]
         if config.db_subgoal_credit is not None:
             results[-1]["db_subgoal_turn_rewards"] = list(local)
+        if config.post_completion_credit is not None:
+            results[-1]["completion_turn_bonus"] = list(completion_bonus)
+            results[-1]["completion_turn_floor"] = completion_floors
+            results[-1]["completion_turn_floor_adjustments"] = completion_floor_adjustments
+            results[-1]["completion_regression_turns"] = sorted(regression_turns)
     result = {
         "version": config.version,
         "config": config.audit_config(),
