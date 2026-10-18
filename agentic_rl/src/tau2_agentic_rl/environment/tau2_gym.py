@@ -417,6 +417,16 @@ class Tau2GymAdapter:
             "user_db": backend.get_user_db_hash(),
         })
 
+    def reservation_snapshots(self, reservation_ids: list[str]) -> dict:
+        """Freeze initial state without actor calls, DB writes or token changes."""
+        backend = self.env._orchestrator.environment
+        db = getattr(getattr(backend, "tools", None), "db", None)
+        reservations = getattr(db, "reservations", {})
+        return {
+            rid: reservations[rid].model_dump(mode="json")
+            for rid in reservation_ids if rid in reservations
+        }
+
     async def force_cleanup_stop(self) -> None:
         """Release Tau2's waiting daemon after an external budget/turn stop."""
         if self.env is None:

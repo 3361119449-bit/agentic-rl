@@ -603,6 +603,21 @@ veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num
 
 ## 离线重新打分
 
+### 可选 DB 子目标局部信用（2026-10-18）
+
+v4 配置新增 `credit.db_subgoal_credit`，默认 `null`。设为
+`db_subgoal_local_v1` 后，为同一订单中独立、已验证的航班、乘客或行李目标
+增加当轮信用；`train_reward`、官方成功判定、policy/process、采样预算均保持原语义。
+同轮包含错误、目标外或无法验证的写入时不给新增正奖；状态回退在破坏该目标的
+轮次扣分，重复恢复不能刷分。不能确认独立性的取消/重订及 user-tool 任务不启用。
+
+在修改后的 v4 YAML 中启用，再通过现有 `--config` 参数选择该文件。
+切换信用条件需新 run，不绕过 optimizer resume 的配置/代码身份检查。
+实测 738 条 PPO 轨迹、96 个原组：关闭开关完全复现旧 Token Advantage；
+启用后 12 个正确轮次由非正变正，新增误奖励错误写入为 0。
+完整规则、离线命令、真实轨迹对比及验证边界见
+[DB 子目标局部信用与验收报告](DB_SUBGOAL_LOCAL_V1.md)。
+
 ### ProCredit v4 逐轮政策惩罚（2026-09-29）
 
 新增 `configs/rl/airline_procredit_v4.yaml`：训练奖励取消 policy/safety 整轨迹门控，

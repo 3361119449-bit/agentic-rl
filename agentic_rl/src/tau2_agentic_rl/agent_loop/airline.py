@@ -47,6 +47,10 @@ from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
 from tau2_agentic_rl.policy_rules import validate_policy_rows
 from tau2_agentic_rl.procredit_runtime import credit_from_record
+from tau2_agentic_rl.reward.db_subgoals import (
+    select_db_subgoals,
+    subgoal_trace_from_scoring,
+)
 from tau2_agentic_rl.reward.policy_credit import annotate_policy_turns
 from tau2_agentic_rl.reward.progress import build_progress_trace
 from tau2_agentic_rl.reward.required_actions import (
@@ -531,6 +535,19 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             if procredit else None
         )
         progress_trace = None
+        subgoal_trace = None
+        db_subgoal_inputs = None
+        if self.project.get("credit", {}).get("db_subgoal_credit") is not None:
+            goals = select_db_subgoals(
+                environment.task, self.required_actions[task_id],
+                self.action_dependencies.get(task_id, []), self.transfer[task_id],
+            )
+            db_subgoal_inputs = {
+                "initial_reservations": environment.reservation_snapshots(
+                    sorted({a["arguments"]["reservation_id"] for a in goals})
+                ),
+                "initial_state_fingerprint": progress_inputs["initial_state_fingerprint"],
+            }
         if progress_inputs is not None and self.project.get("credit", {}).get("version") in {"procredit-turn-v3", "procredit-turn-v4"}:
             progress_inputs["version"] = "progress-v2"
         response_turn_ids: list[int] = []
@@ -954,6 +971,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         }
         if progress_inputs is not None:
             scoring_inputs["progress_inputs"] = progress_inputs
+        if db_subgoal_inputs is not None:
+            scoring_inputs["db_subgoal_inputs"] = db_subgoal_inputs
         if self.project.get("credit", {}).get("version") == "procredit-turn-v4":
             scoring_inputs["judge"]["require_policy_attribution"] = True
         quality_record = None
@@ -1080,6 +1099,9 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     config=self.reward_config,
                     progress_trace=progress_trace,
                 )
+                subgoal_trace = subgoal_trace_from_scoring(
+                    scoring_inputs, tool_events, assistant_turns, custom_reward,
+                )
             except Exception as exc:
                 infrastructure_error = ("reward_scoring", exc)
 
@@ -1118,6 +1140,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             tool_events=tool_events,
             token_turns=token_turns,
             progress_trace=progress_trace,
+            subgoal_trace=subgoal_trace,
             response_turn_ids=response_turn_ids if procredit else None,
             initial_db_hash=environment.initial_db_hash(),
             final_db_hash=final_db_hash,

@@ -15,8 +15,13 @@ class CreditConfig:
     signal_tolerance: float = 1e-8
     version: str = "procredit-turn-v1"
     violation_penalty: float = 1.0
+    db_subgoal_credit: str | None = None
 
     def __post_init__(self):
+        if self.db_subgoal_credit is not None and (
+            self.db_subgoal_credit != "db_subgoal_local_v1" or self.version != "procredit-turn-v4"
+        ):
+            raise ValueError("db_subgoal_local_v1 requires ProCredit v4")
         if self.version not in {"procredit-turn-v1", "procredit-turn-v2", "procredit-turn-v3", "procredit-turn-v4"}:
             raise ValueError("unknown ProCredit version")
         if self.version == "procredit-turn-v4" and self.turn_coefficient != 1.0:
@@ -32,6 +37,7 @@ class CreditConfig:
     def from_project(cls, project: dict) -> CreditConfig:
         credit = project.get("credit", {})
         return cls(
+            db_subgoal_credit=credit.get("db_subgoal_credit"),
             version=credit.get("version", "procredit-turn-v1"),
             violation_penalty=credit.get("violation_penalty", 1.0),
             progress_scale=project.get("reward", {}).get("progress_scale", 0.5),
@@ -44,6 +50,8 @@ class CreditConfig:
 
     def audit_config(self) -> dict:
         values = asdict(self)
+        if self.db_subgoal_credit is None:
+            values.pop("db_subgoal_credit")
         if self.version == "procredit-turn-v1":
             # Preserve existing audit fingerprints and exact offline replay.
             values.pop("version")
@@ -209,6 +217,14 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             value - turn_mean if complete and t in present else 0.0
             for t, value in enumerate(returns)
         ]
+        if config.db_subgoal_credit is not None:
+            from tau2_agentic_rl.reward.db_subgoals import validate_db_subgoal_trace
+
+            local = validate_db_subgoal_trace(
+                row.get("subgoal_trace"), turns=len(returns), violating_turns=sorted(bad),
+            )
+            for t in present:
+                turn_advantages[t] += local[t]
         for t in present:
             if config.version == "procredit-turn-v4":
                 # Costs do not affect any task return or group baseline. Count
@@ -246,6 +262,8 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             results[-1]["policy_turn_rewards"] = [
                 -config.violation_penalty if t in bad else 0.0 for t in range(len(returns))
             ]
+        if config.db_subgoal_credit is not None:
+            results[-1]["db_subgoal_turn_rewards"] = list(local)
     result = {
         "version": config.version,
         "config": config.audit_config(),

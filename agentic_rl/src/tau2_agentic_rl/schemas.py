@@ -230,6 +230,7 @@ class TrajectoryRecord(BaseModel):
     final_db_hash: str | None = None
     target_db_hash: str | None = None
     progress_trace: dict[str, Any] | None = None
+    subgoal_trace: dict[str, Any] | None = None
     response_turn_ids: list[int] | None = None
     official_scores: OfficialScores | None = None
     judge_result: JudgeResult | None = None

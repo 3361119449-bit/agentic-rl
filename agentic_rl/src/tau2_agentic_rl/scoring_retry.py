@@ -3,6 +3,7 @@
 import asyncio
 
 from tau2_agentic_rl.failures import scoring_retryable
+from tau2_agentic_rl.reward.db_subgoals import subgoal_trace_from_scoring
 from tau2_agentic_rl.reward.progress import build_progress_trace
 from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
 from tau2_agentic_rl.versions import sha256_json
@@ -105,6 +106,9 @@ async def retry_scoring(record, judge, store):
             termination_reason=trajectory["termination_reason"],
             config=build_reward_config(inputs["reward_project_config"]),
             progress_trace=inputs.get("progress_trace"),
+        )
+        record.subgoal_trace = subgoal_trace_from_scoring(
+            inputs, record.tool_events, record.assistant_turns, reward,
         )
         record.judge_result = result
         record.custom_reward = reward

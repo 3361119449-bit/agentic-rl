@@ -13,7 +13,8 @@ from tau2_agentic_rl.scoring_retry import retry_scoring
 
 
 def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=False,
-                    credit_version=None, judge_failures=0, version_fields=None):
+                    credit_version=None, judge_failures=0, version_fields=None,
+                    db_subgoal_credit=False):
     loop, scope = minimal_loop(scratch_dir)
     cleaned, judge_calls = [], []
     loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
@@ -30,6 +31,8 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
         loop.project["slot_recovery"] = {
             "max_resamples": 2, "max_scoring_retries": 2, "on_exhaustion": "salvage_group",
         }
+    if db_subgoal_credit:
+        loop.project["credit"]["db_subgoal_credit"] = "db_subgoal_local_v1"
     loop.reward_config = build_reward_config(loop.project)
     loop.semantic, loop.transfer, loop.policy_rules = {"0": {}}, {"0": {}}, {"0": {}}
     loop.required_actions, loop.action_dependencies = {"0": []}, {}
@@ -60,6 +63,10 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
 
         def progress_initial_state(self):
             return "initial"
+
+        def reservation_snapshots(self, reservation_ids):
+            assert not reservation_ids  # This fixture is communication-only.
+            return {}
 
         async def force_cleanup_stop(self):
             cleaned.append(True)

@@ -241,6 +241,18 @@ def credit_from_record(record) -> dict:
         ):
             raise ValueError("record process attribution differs from frozen scoring evidence")
         row["process_credit"] = expected_process
+    frozen = record.scoring_inputs or {}
+    if frozen.get("reward_project_config", {}).get("credit", {}).get("db_subgoal_credit") is not None:
+        from tau2_agentic_rl.reward.db_subgoals import subgoal_trace_from_scoring
+
+        if sha256_json(frozen) != record.metadata.get("scoring_inputs_sha256"):
+            raise ValueError("frozen DB subgoal scoring inputs changed")
+        expected_subgoals = subgoal_trace_from_scoring(
+            frozen, record.tool_events, record.assistant_turns, reward,
+        )
+        if expected_subgoals != record.subgoal_trace:
+            raise ValueError("record DB subgoal trace differs from frozen scoring evidence")
+        row["subgoal_trace"] = expected_subgoals
     return row
 
 

@@ -139,6 +139,7 @@ outputs:
 credit:
   mode: procredit_turn
   version: procredit-turn-v4
+  db_subgoal_credit: null  # Opt in with db_subgoal_local_v1; scalar reward stays unchanged.
   gamma: 1.0
   turn_coefficient: 1.0
   turn_centering: policy_attributed_turn_mean
