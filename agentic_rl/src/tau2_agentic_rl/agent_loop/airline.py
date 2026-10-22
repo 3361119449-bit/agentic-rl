@@ -277,6 +277,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             turn_separator=self.turn_separator,
             allowed_tokens=allowed,
             content_limit=self.budget.reserved_observation_tokens,
+            tool_result_max_tokens=self.project["rollout"].get("tool_result_max_tokens"),
         )
 
     async def run(

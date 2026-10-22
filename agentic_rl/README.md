@@ -293,6 +293,27 @@ python scripts/check_initial_prompts.py \
 旧轨迹缺少初始测量时标记 `not_measured`，不会用整条轨迹长度冒充初始 prompt。
 报告输出不覆盖已有文件；任一测量失败、超限或请求的任务缺失时返回非零退出码。
 
+## 工具结果的可选 token 限制
+
+RL 训练、训练内验证及独立 RL 测评共用 `src/tau2_agentic_rl/tool_result_limits.py`。
+默认 `rollout.tool_result_max_tokens: null`，不再用预留的 1024 个观察 token
+截断工具返回内容；设为正整数时，分别限制每条工具结果的正文 token 数。
+工具调用 ID、原始环境记录和奖励评判使用的完整结果保留。
+
+训练与测评启动脚本都支持同一参数，在原有命令后追加即可：
+
+```bash
+# 显式关闭工具结果上限（也是所有随附 RL/测评配置的默认值）
+--tool-result-max-tokens none
+# 可选：每条工具结果正文最多 2048 token
+--tool-result-max-tokens 2048
+```
+
+命令行覆盖 YAML，最终值保存到运行配置和训练/测评身份记录中。
+`reserved_observation_tokens` 继续用于生成前预留空间及用户消息限额，
+不再作为工具结果上限。模型总上下文和 rollout response 容量仍是硬上限：
+放不下时保留原有的截断及审计标记，预算耗尽后按原有流程结束轨迹。
+
 ## 分阶段运行
 
 Stage -1，SFT 基线画像（每个官方 train task 8 条）：

@@ -48,6 +48,10 @@ from tau2_agentic_rl.pass_metrics import validate_official_test_ids
 from tau2_agentic_rl.schemas import TrajectoryRecord
 from tau2_agentic_rl.scoring_retry import retry_scoring_batch
 from tau2_agentic_rl.storage import TrajectoryStore
+from tau2_agentic_rl.tool_result_limits import (
+    add_tool_result_limit_argument,
+    configure_tool_result_limit,
+)
 from tau2_agentic_rl.user_simulation import (
     build_user_sim_judge,
     check_user_simulation,
@@ -138,6 +142,7 @@ def build_evaluation_command(
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser()
+    add_tool_result_limit_argument(parser)
     parser.add_argument("--tau2-root", type=Path, default=os.environ.get("TAU2_ROOT"))
     parser.add_argument("--verl-root", type=Path, default=os.environ.get("VERL_ROOT"))
     parser.add_argument("--model-path", default=os.environ.get("MERGED_SFT_MODEL"))
@@ -236,6 +241,7 @@ def main() -> None:
     os.environ["AGENTIC_RL_PROJECT_ROOT"] = str(project_root)
     os.environ["MERGED_SFT_MODEL"] = args.model_path
     project = load_yaml(config_path)
+    configure_tool_result_limit(project, args)
     if args.reward_judge:
         project["judge"]["enabled"] = True
     else:

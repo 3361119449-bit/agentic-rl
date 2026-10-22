@@ -21,8 +21,9 @@ def test_agent_reward_judge_cli_switch(flags, expected):
 
 @pytest.mark.parametrize("scoring_only", [False, True])
 @pytest.mark.parametrize("reward_judge", [False, True])
+@pytest.mark.parametrize("tool_limit", [None, 2048])
 def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
-    monkeypatch, scratch_dir, scoring_only, reward_judge
+    monkeypatch, scratch_dir, scoring_only, reward_judge, tool_limit
 ):
     source = Path(__file__).parents[1]
     for directory in ("configs", "data/annotations", "data/splits"):
@@ -73,6 +74,8 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
     else:
         argv.append("--no-reward-judge")
         monkeypatch.delenv("DEEPSEEK_JUDGE_MODEL", raising=False)
+    if tool_limit is not None:
+        argv.extend(["--tool-result-max-tokens", str(tool_limit)])
     monkeypatch.setattr(sys, "argv", argv)
     root = scratch_dir / "outputs/evaluations/test-run"
     batches = []
@@ -87,6 +90,7 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
         assert "actor_rollout_ref.rollout.val_kwargs.n=1" in command
         assert "trainer.resume_mode=disable" in command
         assert (root / "runtime_config.yaml").exists()
+        assert evaluate_airline.load_yaml(root / "runtime_config.yaml")["rollout"]["tool_result_max_tokens"] == tool_limit
         manifest = json.loads(
             (root / "evaluation_manifest.json").read_text(encoding="utf-8")
         )

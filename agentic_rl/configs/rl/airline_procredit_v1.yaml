@@ -28,6 +28,7 @@ rollout:
   max_soft_turns: 15
   max_hard_turns: 24
   reserved_observation_tokens: 1024
+  tool_result_max_tokens: null  # No per-tool cap; model context limits still apply.
   reserved_template_tokens: 128
   min_final_response_tokens: 64
   per_turn_max_new_tokens: 1024

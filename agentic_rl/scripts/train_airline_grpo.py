@@ -26,6 +26,10 @@ from tau2_agentic_rl.rl_resume import (
     require_same_identity,
     save_resume_identity,
 )
+from tau2_agentic_rl.tool_result_limits import (
+    add_tool_result_limit_argument,
+    configure_tool_result_limit,
+)
 from tau2_agentic_rl.training_config import effective_project_config, training_overrides
 from tau2_agentic_rl.user_simulation import reward_judge_enabled
 
@@ -207,8 +211,9 @@ def prepare_run_directory(
     return runtime_path
 
 
-def main() -> None:
+def parse_args(argv=None):
     parser = argparse.ArgumentParser()
+    add_tool_result_limit_argument(parser)
     parser.add_argument("--tau2-root", type=Path, default=os.environ.get("TAU2_ROOT"))
     parser.add_argument("--verl-root", type=Path, default=os.environ.get("VERL_ROOT"))
     parser.add_argument(
@@ -229,7 +234,11 @@ def main() -> None:
         default=None,
         help="Override judge.enabled (RL default: enabled). Disabled uses official reward only; user compliance screening is independent.",
     )
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def main() -> None:
+    args = parse_args()
 
     if args.tau2_root is None or args.verl_root is None:
         raise RuntimeError("set TAU2_ROOT and VERL_ROOT, or pass both root arguments")
@@ -256,6 +265,7 @@ def main() -> None:
     config_path = project_root / DEFAULT_CONFIG
     config_path = (args.config or config_path).resolve()
     project = effective_project_config(load_yaml(config_path), args.extra)
+    configure_tool_result_limit(project, args)
     if args.reward_judge is not None:
         project["judge"]["enabled"] = args.reward_judge
     validate_procredit_config(project)

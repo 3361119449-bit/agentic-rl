@@ -9,6 +9,8 @@ from typing import Any
 
 import yaml
 
+from tau2_agentic_rl.tool_result_limits import validate_tool_result_limit
+
 ENV_VALUE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}$")
 
 
@@ -45,6 +47,7 @@ def expand_env(value: Any) -> Any:
 def load_runtime_config(path: str | Path) -> dict[str, Any]:
     """Load YAML and resolve required environment variables."""
     config = load_yaml(path)
+    validate_tool_result_limit(config.get("rollout", {}).get("tool_result_max_tokens"))
     validate_procredit_config(config)
     if config.get("judge", {}).get("enabled") is False:
         config["judge"] = {"enabled": False}
