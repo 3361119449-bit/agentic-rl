@@ -55,7 +55,7 @@ def test_transient_exhaustion_keeps_good_groups_trainable(scratch_dir):
     buffer.fatal_error_fn = lambda: budget.call("fatal_rollout")
     budget.call("record_rollout_failure", {"kind": "transient_exhausted", "uid": "bad"})
     batch, _ = buffer.sample(1, "train", 4)
-    assert len(batch) == 63 and sum(key.startswith("bad_") for key in batch) == 7
+    assert len(batch) == 31 and sum(key.startswith("bad_") for key in batch) == 7
 
 
 def test_fatal_blocks_actor_update_after_batch_was_selected(scratch_dir):

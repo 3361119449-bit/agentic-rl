@@ -100,14 +100,14 @@ def buffer_class():
     return cls
 
 
-def make_buffer(scratch_dir):
+def make_buffer(scratch_dir, good_groups=3):
     cls = buffer_class()
-    buffer = cls(conceptual_gen_batch_size=8, max_num_gen_batches=3, rollout_group_size=8,
+    buffer = cls(conceptual_gen_batch_size=4, max_num_gen_batches=3, rollout_group_size=8,
                  credit_config=CreditConfig(version="procredit-turn-v4"), group_audit_dir=scratch_dir)
-    buffer.finished_keys = {"train": {f"good{i}" for i in range(7)}}
+    buffer.finished_keys = {"train": {f"good{i}" for i in range(good_groups)}}
     buffer.failure_keys = {"train": {"bad"}}
     buffer.pending_keys, buffer.running_keys = {"train": set()}, {"train": set()}
-    buffer.partitions = {"train": {f"good{g}_{s}_0": {"status": "finished"} for g in range(7) for s in range(8)}}
+    buffer.partitions = {"train": {f"good{g}_{s}_0": {"status": "finished"} for g in range(good_groups) for s in range(8)}}
     buffer.partitions["train"].update({f"bad_{s}_0": {"status": "finished"} for s in range(7)})
     buffer.prompt_global_steps = {"train": dict.fromkeys(buffer.finished_keys["train"] | {"bad"}, 1)}
     buffer.cleared = []
@@ -126,38 +126,47 @@ def make_buffer(scratch_dir):
     return buffer
 
 
-def test_one_failed_slot_keeps_seven_siblings_and_all_seven_good_groups(scratch_dir):
+def test_one_failed_slot_keeps_seven_siblings_and_three_good_groups(scratch_dir):
     buffer = make_buffer(scratch_dir)
     batch, metrics = buffer.sample(1, "train", 4)
-    assert len(batch) == 63
-    assert {k.split("_")[0] for k in batch} == {"bad", *(f"good{i}" for i in range(7))}
-    assert metrics["training/dynamic_sampling/selected_real_rollouts"] == 63
+    assert len(batch) == 31
+    assert {k.split("_")[0] for k in batch} == {"bad", "good0", "good1", "good2"}
+    assert metrics["training/dynamic_sampling/selected_real_rollouts"] == 31
     assert metrics["training/dynamic_sampling/salvaged_rollouts"] == 7
-    assert metrics["training/dynamic_sampling/selected_groups"] == 8
+    assert metrics["training/dynamic_sampling/selected_groups"] == 4
     assert batch.extra_info["procredit_terminal_groups"]["bad"]["failed_session_ids"] == [7]
     audit = json.loads(next(p for p in scratch_dir.glob("*.json") if json.loads(p.read_text())["uid"] == "bad").read_text())
     assert audit["members"] == [f"bad_{s}_0" for s in range(7)]
     assert not any(buffer.cleared)  # No good surplus or partial group is discarded.
 
 
+def test_surplus_groups_cannot_expand_the_optimizer_batch(scratch_dir):
+    buffer = make_buffer(scratch_dir, good_groups=7)
+    batch, metrics = buffer.sample(1, "train", 4)
+    assert len({key.split("_")[0] for key in batch}) == 4
+    assert len(batch) <= 32
+    assert metrics["training/dynamic_sampling/selected_groups"] == 4
+    assert metrics["training/filter_groups/discarded_surplus_samples"] == 4
+
+
 def test_failed_siblings_survive_until_other_groups_finish(scratch_dir):
     buffer = make_buffer(scratch_dir)
-    buffer.running_keys["train"] = {"good6"}
-    buffer.finished_keys["train"].remove("good6")
+    buffer.running_keys["train"] = {"good2"}
+    buffer.finished_keys["train"].remove("good2")
     def poll(partition, stamp):
         assert all(f"bad_{s}_0" in buffer.partitions[partition] for s in range(7))
         buffer.running_keys[partition].clear()
-        buffer.finished_keys[partition].add("good6")
+        buffer.finished_keys[partition].add("good2")
         return stamp
     buffer._wait_for_next_poll = poll
     batch, metrics = buffer.sample(1, "train", 4)
-    assert len(batch) == 63 and metrics["training/dynamic_sampling/salvaged_rollouts"] == 7
+    assert len(batch) == 31 and metrics["training/dynamic_sampling/salvaged_rollouts"] == 7
 
 
 def test_failed_groups_do_not_bypass_the_logical_generation_cap(scratch_dir):
     buffer = make_buffer(scratch_dir)
     buffer.finished_keys["train"] = {"good0", "good1"}
-    buffer.failure_keys["train"] = {"bad", *(f"good{i}" for i in range(2, 7))}
+    buffer.failure_keys["train"] = {"bad", "good2"}
     for uid in buffer.failure_keys["train"]:
         buffer.terminal_groups["train"][uid].update(status="failure", failed_session_ids=list(range(8)), failure_kind="transient_exhausted")
     buffer.partitions["train"] = {k: v for k, v in buffer.partitions["train"].items() if k.split("_")[0] in buffer.finished_keys["train"]}
@@ -165,10 +174,10 @@ def test_failed_groups_do_not_bypass_the_logical_generation_cap(scratch_dir):
     buffer.refill_fn = refills.append
     batch, metrics = buffer.sample(1, "train", 4)
     assert len(batch) == 16
-    assert metrics["training/dynamic_sampling/generated_logical_rollouts"] == 192
+    assert metrics["training/dynamic_sampling/generated_logical_rollouts"] == 64
     assert metrics["training/dynamic_sampling/cap_remainder_used"] == 1
     assert metrics["training/dynamic_sampling/selected_groups"] == 2
-    assert refills == [8, 8]
+    assert refills == [2, 2]
     assert all(k.split("_")[0] in {"good0", "good1"} for k in batch)
 
 
@@ -181,8 +190,8 @@ def test_cap_skips_only_when_no_group_has_real_signal(scratch_dir):
     buffer.refill_fn = refills.append
     with pytest.raises(RuntimeError) as error:
         buffer.sample(1, "train", 4)
-    assert error.value.generated_trajectories == 192
-    assert refills == [8, 8]
+    assert error.value.generated_trajectories == 96
+    assert refills == [4, 4]
     assert not buffer.partitions["train"]
 
 
@@ -190,7 +199,7 @@ def test_failed_slot_output_written_before_error_is_never_used(scratch_dir):
     buffer = make_buffer(scratch_dir)
     buffer.partitions["train"]["bad_7_0"] = {"status": "finished"}
     batch, _ = buffer.sample(1, "train", 4)
-    assert len(batch) == 63
+    assert len(batch) == 31
     assert "bad_7_0" not in batch
 
 
@@ -208,13 +217,15 @@ def test_even_a_full_group_with_stale_policy_is_not_used(scratch_dir):
         buffer.sample(1, "train", 4)
 
 
-def test_refill_consumes_prior_good_groups_and_all_new_good_groups(scratch_dir):
+@pytest.mark.parametrize("kept, deficit, logical_rollouts", [(1, 3, 56), (2, 2, 48), (3, 1, 40)])
+def test_refill_keeps_good_groups_and_only_generates_missing_groups(scratch_dir, kept, deficit, logical_rollouts):
     from test_turn_local_v4 import rows
 
     buffer = make_buffer(scratch_dir)
-    # The first wave leaves two viable groups; all other final advantages are zero.
+    # Keep the original viable groups; only replace groups with zero advantages.
+    retained = {f"good{i}" for i in range(kept)}
     for key, extra in buffer.transport.extras.items():
-        if key.split("_")[0] not in {"good0", "good1"}:
+        if key.split("_")[0] not in retained:
             extra["procredit"]["valid"] = True
             extra["procredit"]["policy_credit"]["violating_turns"] = []
     refills = []
@@ -236,13 +247,52 @@ def test_refill_consumes_prior_good_groups_and_all_new_good_groups(scratch_dir):
 
     buffer.refill_fn = submit
     batch, metrics = buffer.sample(1, "train", 4)
-    assert refills == [8]
-    assert len(batch) == 80
-    assert {k.split("_")[0] for k in batch} == {"good0", "good1", *(f"next{i}" for i in range(8))}
-    assert metrics["training/dynamic_sampling/selected_groups"] == 10
-    assert metrics["training/dynamic_sampling/generated_logical_rollouts"] == 128
-    assert metrics["training/dynamic_sampling/selected_real_rollouts"] == 80
-    assert metrics["training/dynamic_sampling/rollout_use_rate"] == .625
+    assert refills == [deficit]
+    assert len(batch) == 32
+    assert {k.split("_")[0] for k in batch} == retained | {f"next{i}" for i in range(deficit)}
+    assert metrics["training/dynamic_sampling/selected_groups"] == 4
+    assert metrics["training/dynamic_sampling/generated_logical_rollouts"] == logical_rollouts
+    assert metrics["training/dynamic_sampling/selected_real_rollouts"] == 32
+    assert metrics["training/dynamic_sampling/rollout_use_rate"] == pytest.approx(32 / logical_rollouts)
+
+
+def test_second_refill_recalculates_the_smaller_remaining_deficit(scratch_dir):
+    from test_turn_local_v4 import rows
+
+    buffer = make_buffer(scratch_dir)
+    for key, extra in buffer.transport.extras.items():
+        if not key.startswith("good0_"):
+            extra["procredit"]["valid"] = True
+            extra["procredit"]["policy_credit"]["violating_turns"] = []
+    refills = []
+
+    def submit(count):
+        refills.append(count)
+        wave = len(refills)
+        for group in range(count):
+            uid = f"wave{wave}group{group}"
+            buffer.finished_keys["train"].add(uid)
+            buffer.prompt_global_steps["train"][uid] = 1
+            buffer.terminal_metadata_fn()["train"][uid] = {
+                "status": "finished", "rollout_n": 8,
+                "failed_session_ids": [], "failure_kind": None,
+            }
+            for session, row in enumerate(rows()):
+                if wave == 1 and group == 0:
+                    row["valid"] = True
+                    row["policy_credit"]["violating_turns"] = []
+                key = f"{uid}_{session}_0"
+                buffer.transport.extras[key] = {"procredit": row}
+                buffer.partitions["train"][key] = {"status": "finished"}
+
+    buffer.refill_fn = submit
+    batch, metrics = buffer.sample(1, "train", 4)
+    assert refills == [3, 1]
+    assert len(batch) == 32
+    assert {key.split("_")[0] for key in batch} == {
+        "good0", "wave1group1", "wave1group2", "wave2group0",
+    }
+    assert metrics["training/dynamic_sampling/generated_logical_rollouts"] == 64
 
 
 def test_exhaustion_audit_is_idempotent_if_sampling_is_reentered(scratch_dir):
@@ -263,18 +313,18 @@ def test_trainer_snapshots_counts_before_first_batch_is_submitted(scratch_dir):
     trainer = cls()
     from types import SimpleNamespace
     trainer.config = SimpleNamespace(trainer=SimpleNamespace(critic_warmup=0))
-    trainer.parameter_sync_step, trainer.conceptual_gen_batch_size = 1, 8
+    trainer.parameter_sync_step, trainer.conceptual_gen_batch_size = 1, 4
     trainer.replay_buffer = buffer
     def submit(n):
         for _ in range(n * 8):
             state.record_rollout_attempt("train", "initial")
     def once(metrics, timing, **kwargs):
-        buffer._add_sampling_metrics(metrics, 1, 7)
+        buffer._add_sampling_metrics(metrics, 4, 4)
         return "batch"
     trainer._add_prompts_to_generate, trainer._step_once = submit, once
     metrics = {}
     assert trainer.step(metrics, {}) == "batch"
-    assert metrics["training/dynamic_sampling/physical_rollout_attempts"] == 64
+    assert metrics["training/dynamic_sampling/physical_rollout_attempts"] == 32
 
 
 def test_exception_cycles_do_not_count_as_transient_evidence():
@@ -360,7 +410,7 @@ def test_physical_counts_include_failed_and_rejected_attempts_before_filtering(s
     for _ in range(5):  # Costs from a prior optimizer attempt.
         state.record_rollout_attempt("train", "initial")
     initial = state.rollout_counts("train")
-    for _ in range(63):  # Other slots, including filtered groups.
+    for _ in range(31):  # Other slots, including filtered groups.
         state.record_rollout_attempt("train", "initial")
     calls = []
     from tau2_agentic_rl.user_simulation import UserSimulationRejected
@@ -376,14 +426,14 @@ def test_physical_counts_include_failed_and_rejected_attempts_before_filtering(s
             "slot_recovery": {"max_resamples": 2},
             "user_sim_filter": {"enabled": True, "max_resamples": 1},
         }, kwargs={}, on_attempt=observer))
-    assert state.rollout_counts("train") == {"initial": 69, "infrastructure": 1, "user": 1}
+    assert state.rollout_counts("train") == {"initial": 37, "infrastructure": 1, "user": 1}
     buffer = make_buffer(scratch_dir)
     buffer.rollout_counts_fn = lambda: state.rollout_counts("train")
     buffer.rollout_counts_start = initial
     metrics = {}
-    buffer._add_sampling_metrics(metrics, 1, 7)
-    assert metrics["training/dynamic_sampling/generated_logical_rollouts"] == 64
-    assert metrics["training/dynamic_sampling/physical_rollout_attempts"] == 66
+    buffer._add_sampling_metrics(metrics, 4, 3)
+    assert metrics["training/dynamic_sampling/generated_logical_rollouts"] == 32
+    assert metrics["training/dynamic_sampling/physical_rollout_attempts"] == 34
     assert metrics["training/dynamic_sampling/infrastructure_replacements"] == 1
     assert metrics["training/dynamic_sampling/user_replacements"] == 1
     assert state.rollout_counts("validation") == {"initial": 0, "infrastructure": 0, "user": 0}

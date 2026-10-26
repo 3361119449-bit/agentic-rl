@@ -121,10 +121,10 @@ dynamic_sampling:
   enable: true
   metric: train_reward
   train_batch_size: 4
-  conceptual_gen_batch_size: 8
+  conceptual_gen_batch_size: 4
   group_size: 8
   max_num_gen_batches: 3
-  max_rollouts_per_optimizer_step: 192
+  max_rollouts_per_optimizer_step: 96
   criterion: final_advantage_nonzero
   signal_tolerance: 1.0e-08
 vllm:

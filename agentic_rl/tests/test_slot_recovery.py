@@ -65,6 +65,40 @@ def test_eight_slot_group_only_resamples_the_failed_slot(scratch_dir, monkeypatc
     assert calls[4] == 1  # A policy violation is training data, never an infra retry.
 
 
+@pytest.mark.parametrize("filter_enabled, attempts", [(False, 32), (True, 34)])
+def test_32_slots_keep_valid_results_and_only_replace_rejected_users(filter_enabled, attempts):
+    from tau2_agentic_rl.slot_recovery import run_training_slot
+    from tau2_agentic_rl.user_simulation import UserSimulationRejected
+
+    calls = Counter()
+    outputs = {}
+
+    async def generate(params, **kwargs):
+        slot = kwargs["extra_info"]["slot"]
+        calls[slot] += 1
+        if filter_enabled and slot in {3, 19} and calls[slot] == 1:
+            raise UserSimulationRejected("invalid user")
+        result = SimpleNamespace(extra_fields={})
+        outputs[slot] = result
+        return result
+
+    async def scenario():
+        return await asyncio.gather(*[
+            run_training_slot(generate, {}, project={
+                "slot_recovery": {"max_resamples": 2},
+                "user_sim_filter": {"enabled": filter_enabled, "max_resamples": 2},
+            }, kwargs={"trajectory_id": f"{slot:032x}", "extra_info": {
+                "slot": slot, "environment_seed": 42,
+            }}) for slot in range(32)
+        ])
+
+    results = asyncio.run(scenario())
+    assert len(results) == 32 and sum(calls.values()) == attempts
+    assert all(result is outputs[slot] for slot, result in enumerate(results))
+    assert all(calls[slot] == (2 if filter_enabled and slot in {3, 19} else 1)
+               for slot in range(32))
+
+
 def test_exhausted_slot_stops_without_infinite_reroll(scratch_dir, monkeypatch):
     monkeypatch.delenv("EVALUATION_MANIFEST_ID", raising=False)
     loop, _ = minimal_loop(scratch_dir)

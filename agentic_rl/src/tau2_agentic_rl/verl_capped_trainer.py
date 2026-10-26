@@ -10,9 +10,9 @@
 """Pinned veRL v0.9.0 trainer extensions for bounded dynamic sampling.
 
 veRL's V1 replay buffer intentionally ignores ``max_num_gen_batches``. This
-extension bounds sampling to three waves of eight prompts. ProCredit v4 consumes
-all usable groups, including verified partial groups and a sub-target remainder.
-Legacy sampling retains its fixed four-group contract. It deliberately
+extension starts with four prompts and refills only missing groups, for at most
+three waves. ProCredit v4 preserves verified partial groups and a sub-target
+remainder without exceeding four groups per update. It deliberately
 uses veRL V1 protected APIs and must only be used with the commit checked by the
 launcher.
 """
@@ -258,10 +258,9 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
     def _add_sampling_metrics(
         self,
         metrics: dict,
-        generated_batches: int,
+        generated_groups: int,
         valid_groups: int,
     ) -> None:
-        generated_groups = generated_batches * self.conceptual_gen_batch_size
         filtered = metrics.get(DAPO_FILTERED_REWARD_COUNTS_KEY, {})
         metrics.update(
             {
@@ -353,6 +352,7 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
             return super().sample(global_steps, partition_id, batch_size)
 
         generated_batches = 1  # The trainer submits the first logical batch.
+        generated_groups = self.conceptual_gen_batch_size
         last_debug_time = time.time()
         eviction_metrics: dict = {}
         exhausted = set()
@@ -384,7 +384,8 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
             )
 
             # A logical batch is evaluated only after all its prompts terminate.
-            # This makes the 8 x 3 accounting exact and avoids policy-version mix.
+            # Retain good groups while a smaller deficit refill settles, and
+            # never mix policy versions across an optimizer update.
             at_cap = generated_batches >= self.max_num_gen_batches
             if inflight_count == 0 and (
                 len(sampleable_uids) >= batch_size
@@ -396,7 +397,7 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
                 ):
                     raise ValueError("usable rollout groups span different policy versions")
                 selected_uids, partition_snapshot, _ = self._select_prompt_uids(
-                    partition_id, sampleable_uids, len(sampleable_uids) if reuse_members else batch_size
+                    partition_id, sampleable_uids, min(len(sampleable_uids), batch_size)
                 )
                 surplus_uids = sampleable_uids - set(selected_uids)
                 if surplus_uids:
@@ -407,7 +408,7 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
                     )
                 self._add_sampling_metrics(
                     eviction_metrics,
-                    generated_batches,
+                    generated_groups,
                     len(sampleable_uids),
                 )
                 selected_set = set(selected_uids)
@@ -434,7 +435,7 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
                         ),
                         prefix + "cap_remainder_used": int(at_cap and len(selected_uids) < batch_size),
                         prefix + "rollout_use_rate": len(batch.keys) / (
-                            generated_batches * self.conceptual_gen_batch_size * self.rollout_group_size
+                            generated_groups * self.rollout_group_size
                         ),
                     })
                 return batch, eviction_metrics
@@ -442,24 +443,25 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
             if inflight_count == 0:
                 self._check_fatal_rollout()
                 if generated_batches >= self.max_num_gen_batches:
-                    generated_prompts = (
-                        generated_batches * self.conceptual_gen_batch_size
-                    )
                     eviction_metrics["training/dynamic_sampling/cap_reached"] = 1
                     self._add_sampling_metrics(
                         eviction_metrics,
-                        generated_batches,
+                        generated_groups,
                         len(sampleable_uids),
                     )
                     self._clear_attempt(partition_id)
                     raise DynamicSamplingCapReached(
-                        generated_prompt_groups=generated_prompts,
-                        generated_trajectories=generated_prompts
+                        generated_prompt_groups=generated_groups,
+                        generated_trajectories=generated_groups
                         * self.rollout_group_size,
                         metrics=eviction_metrics,
                     )
                 assert self.refill_fn is not None
-                self.refill_fn(self.conceptual_gen_batch_size)
+                missing_groups = min(
+                    self.conceptual_gen_batch_size, batch_size - len(sampleable_uids)
+                )
+                self.refill_fn(missing_groups)
+                generated_groups += missing_groups
                 generated_batches += 1
                 continue
 
@@ -469,7 +471,7 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
 class CappedPPOTrainerSync(PPOTrainerSync):
     """V1 synchronous trainer that retries after a capped, skipped update."""
 
-    conceptual_gen_batch_size = 8
+    conceptual_gen_batch_size = 4
     max_num_gen_batches = 3
     rollout_group_size = 8
 
@@ -831,7 +833,7 @@ class CappedPPOTrainerSync(PPOTrainerSync):
             filter_groups_metric="train_reward",
             train_batch_size=4,
             # The parent validates this bookkeeping field when failed-group
-            # refilling is enabled. Logical refills below are still eight.
+            # refilling is enabled. Our sampler submits only the group deficit.
             gen_batch_size=1,
             max_inflight_gen_batches=1,
             sync_refill_failed_groups=True,

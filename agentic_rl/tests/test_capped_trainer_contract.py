@@ -1,15 +1,30 @@
 import ast
 from pathlib import Path
+from types import SimpleNamespace
 
 
-def test_capped_trainer_keeps_the_8_by_3_by_8_contract() -> None:
-    source = (
+def test_trainer_starts_with_32_slots_and_requests_four_groups() -> None:
+    path = (
         Path(__file__).parents[1] / "src" / "tau2_agentic_rl" / "verl_capped_trainer.py"
-    ).read_text(encoding="utf-8")
-    assert "conceptual_gen_batch_size = 8" in source
-    assert "max_num_gen_batches = 3" in source
-    assert "rollout_group_size = 8" in source
-    assert "skipped_optimizer_steps" in source
+    )
+    parsed = ast.parse(path.read_text(encoding="utf-8"))
+    original = next(node for node in parsed.body
+                    if isinstance(node, ast.ClassDef) and node.name == "CappedPPOTrainerSync")
+    wrapper = ast.parse("class UnderTest:\n    pass\n")
+    wrapper.body[0].body = [node for node in original.body if isinstance(node, ast.Assign)
+                           or isinstance(node, ast.FunctionDef) and node.name == "step"]
+    ast.fix_missing_locations(wrapper)
+    scope = {"KVBatchMeta": object}
+    exec(compile(wrapper, str(path), "exec"), scope)
+    trainer = scope["UnderTest"]()
+    trainer.config = SimpleNamespace(trainer=SimpleNamespace(critic_warmup=0))
+    trainer.parameter_sync_step = 1
+    events = []
+    trainer.replay_buffer = SimpleNamespace(begin_attempt=lambda: events.append("begin"))
+    trainer._add_prompts_to_generate = lambda count: events.append(("generate", count * trainer.rollout_group_size))
+    trainer._step_once = lambda metrics, timing, **kw: events.append(("sample", kw["sample_batch_size"]))
+    trainer.step({}, {})
+    assert events == ["begin", ("generate", 32), ("sample", 4)]
 
 
 def test_live_eviction_override_excludes_partially_failed_training_groups():

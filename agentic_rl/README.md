@@ -31,7 +31,7 @@
 - GRPO 组大小 8、组内标准差归一化、Clip-Higher 0.20/0.28、dual clip 10；
 - PPO epoch=2、old policy 固定为 vLLM rollout log-prob、token-mean、无 KL、无 Critic；
 - RL LoRA `r=32, alpha=64, dropout=0, all-linear`；
-- 自定义有界动态采样：每批 8 个任务组、每组 8 个逻辑槽位，最多 3 批（192 槽位，实际补采另计）；默认 ProCredit v4 使用所有有训练信号的组及异常耗尽组中的成功成员，上限处不足 4 组也继续更新；
+- 自定义有界动态采样：首轮 4 个任务组、每组 8 个逻辑槽位（32 条），过滤后只补缺少的组，最多 3 轮（最坏 96 槽位，槽内实际补采另计）；每次更新最多使用 4 组，默认 ProCredit v4 保留异常耗尽组中的成功成员，上限处不足 4 组也继续更新；
 - train/internal-dev/test 物理分离，test 标注与训练配置分开；
 - 每条轨迹原子化保存，可离线重新打分。
 - 每个实验使用独立 run 目录且默认禁用自动续训；
@@ -337,7 +337,8 @@ python scripts/train_airline_grpo.py \
   --extra +trainer.ppo_audit=true
 ```
 
-一次更新先提交 64–192 个逻辑槽位；实际交互补采另计，默认 v4 每槽最多
+一次更新先提交 32 个逻辑槽位；若 GRPO 过滤后不足 4 组，只补缺少的组，
+最多 3 轮、最坏 96 个逻辑槽位。已有有效组不重采，实际交互补采另计，默认 v4 每槽最多
 1 次初采、2 次交互异常替换及 2 次用户无效替换，另有训练前验证。
 这不是单请求测试。先用默认超参数完成真实更新、checkpoint、导出和 internal-dev
 评估闭环，不要直接运行正式 15 epoch，也不要用 official-test 反复联调：
@@ -578,12 +579,12 @@ python scripts/screen_user_simulations.py \
 
 veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num_gen_batches`。本项目没有依赖该无上限行为，而是通过 `tau2_agentic_rl.verl_entrypoint` 构造 `CappedPPOTrainerSync`：
 
-1. 同一 policy version 先生成 8 个 prompt group；
+1. 同一 policy version 先生成 4 个 prompt group，共 32 个逻辑槽位；
 2. 默认 v4 每组有 8 个逻辑槽位；无效 user 及明确可恢复异常只替换原槽位，policy 违规直接逐轮惩罚；
 3. 槽位补采耗尽后，根据 worker 的终态成员记录保留成功评分的同组成员，用真实成员计算 advantage；致命错误立即停训；
-4. 按最终 token advantage 是否有信号过滤组；不足目标 4 组时再提交一批 8 组；
-5. 最多 3 批，即 24 group / 192 个逻辑槽位；物理补采单独计数，默认 v4 最多 960 次交互尝试（另有验证）；
-6. 使用本轮所有有效组；到上限后只要仍有有效组，即使不足 4 组也更新，只有完全无信号才跳过；
+4. 按最终 token advantage 是否有信号过滤组，不足目标 4 组时只补缺组，例如保留 3 组就只补 1 组；
+5. 最多 3 轮，最坏 12 group / 96 个逻辑槽位；按实际提交的组数统计，不再用轮数乘固定批量。物理补采单独计数，默认 v4 最多 480 次交互尝试（另有验证）；
+6. 每次更新最多使用 4 个有效组；到上限后只要仍有有效组，即使不足 4 组也更新，只有完全无信号才跳过；
 7. PPO mini-batch 保持 32 行、两个 epoch。对齐所需的合成 padding 为零 loss mask，不参与组基线、训练奖励、有效轨迹统计或梯度；更新后再同步 vLLM 权重。
 
 旧配置保留固定完整组与固定四组更新的语义。v4 不跨 policy version 缓存

@@ -15,6 +15,15 @@ def project():
     return load_yaml(Path(__file__).parents[1] / "configs/rl/airline_grpo_v1.yaml")
 
 
+@pytest.mark.parametrize("name", ["airline_grpo_v1", "airline_procredit_v1",
+                                 "airline_procredit_v2", "airline_procredit_v3", "airline_procredit_v4"])
+def test_training_configs_start_with_one_32_trajectory_batch(name):
+    config = load_yaml(Path(__file__).parents[1] / f"configs/rl/{name}.yaml")
+    config = effective_project_config(config, [])
+    assert config["dynamic_sampling"]["conceptual_gen_batch_size"] * config["rollout"]["group_size"] == 32
+    assert config["dynamic_sampling"]["max_rollouts_per_optimizer_step"] == 96
+
+
 def checkpoint(root):
     path = root / "outputs/runs/smoke/checkpoints/global_step_10"
     (path / "actor").mkdir(parents=True)

@@ -186,12 +186,12 @@ def effective_project_config(
         dynamic["max_num_gen_batches"],
         dynamic["group_size"],
         rollout["group_size"],
-    ) != (4, 8, 3, 8, 8):
+    ) != (4, 4, 3, 8, 8):
         raise ValueError(
-            "the pinned capped trainer requires 4 groups, 8 trajectories, 3 batches of 8"
+            "the pinned capped trainer requires 4 initial/target groups, 8 trajectories, up to 3 batches"
         )
-    if dynamic["max_rollouts_per_optimizer_step"] != 192:
-        raise ValueError("max_rollouts_per_optimizer_step must equal 3 * 8 * 8")
+    if dynamic["max_rollouts_per_optimizer_step"] != 96:
+        raise ValueError("max_rollouts_per_optimizer_step must equal 3 * 4 * 8")
     if (
         ppo["effective_trajectory_mini_batch_size"]
         != ppo["verl_ppo_mini_batch_size_prompts"] * rollout["group_size"]

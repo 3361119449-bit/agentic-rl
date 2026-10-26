@@ -119,11 +119,11 @@ optimizer:
 dynamic_sampling:
   enable: true
   metric: train_reward
-  train_batch_size: 4  # Target before the cap; use all viable groups, including a smaller remainder.
-  conceptual_gen_batch_size: 8
+  train_batch_size: 4  # At most four groups per update; preserve smaller remainders at the cap.
+  conceptual_gen_batch_size: 4  # Start with 32 slots; subsequent waves fill only missing groups.
   group_size: 8  # Logical slots; exhausted transient slots do not invalidate scored siblings.
   max_num_gen_batches: 3
-  max_rollouts_per_optimizer_step: 192
+  max_rollouts_per_optimizer_step: 96  # Worst-case logical slots across all three waves; replacements counted separately.
   criterion: final_advantage_nonzero
   signal_tolerance: 1.0e-08
 vllm:
