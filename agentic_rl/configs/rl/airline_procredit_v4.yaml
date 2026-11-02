@@ -35,11 +35,11 @@ rollout:
   top_p: 1.0
   top_k: -1
   group_size: 8
-  agent_worker_count: 2
-  max_active_trajectories: 2
-  user_api_max_inflight: 2
-  judge_api_max_inflight: 2
-  vllm_max_num_seqs: 2
+  agent_worker_count: 8
+  max_active_trajectories: 8
+  user_api_max_inflight: 8
+  judge_api_max_inflight: 8
+  vllm_max_num_seqs: 8
   queue_timeout_seconds: null
   queue_stall_timeout_seconds: 1800
 user_simulator:

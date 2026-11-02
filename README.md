@@ -23,7 +23,7 @@
 - **固定数据边界**：官方 train 共 30 个任务，分为 24 个 RL train 和 6 个独立 internal dev；official test 为 20 个任务。默认 ProCredit 禁止 `--stage full_train`，避免把验证任务并入训练。
 - **奖励 Judge 默认开启**：RL 训练与独立评估默认开启 Agent 奖励 Judge。评估可传 `--no-reward-judge` 仅计算官方指标；独立的 User Simulator 合规检查仍然开启并产生 API 调用。
 - **采样规模**：每组 8 个逻辑槽位，每次更新最多使用 4 组；最多 3 批、每批最多 4 组，最坏 96 个逻辑槽位，异常与无效用户轨迹的替换另计。
-- **并发默认值为 2**：worker、活跃轨迹、用户 API、Judge API 和 vLLM 序列额度分别配置。实际并发以运行时配置、启动参数和轨迹审计为准。
+- **并发默认值为 8**：当前训练与评估配置中的 worker、活跃轨迹、用户 API、Judge API 和 vLLM 序列额度均设为 8。实际并发以运行时配置、启动参数和轨迹审计为准；历史 ProCredit 配置保留原值。
 - **提示词按内容绑定**：RL 与评估使用 [当前冻结提示词](agentic_rl/configs/prompts/areal_airline_sft.v1.json)，并检查哈希。该版本来源为用户提供的 8 条多工具样本，不能据此声称与全部历史或新采 SFT 数据一致。
 
 ### 默认逐轮奖励

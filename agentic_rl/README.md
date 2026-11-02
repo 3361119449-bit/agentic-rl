@@ -236,12 +236,25 @@ python -m pytest contract_tests -v
 两个真实 Ray worker 的共享并发额度。GitHub Actions 单独运行此层；CPU 单元测试
 不能替代它，也不能替代 GPU/API smoke。
 
-两份 YAML 的 `rollout` 均区分 `agent_worker_count`、`max_active_trajectories`、
-`user_api_max_inflight`、`judge_api_max_inflight` 和 `vllm_max_num_seqs`，默认均为 2。
-前者只是 worker 数；轨迹在创建环境前领取同一个 Ray job 的共享额度，评分结束后释放。
-API 缓存命中不占请求额度。轨迹 metadata 的 `concurrency` 保存实际峰值。
-默认值不代表服务器实际实验设置；复现并发 8 等覆盖条件时，应核对各资源限额、
-run 的 `runtime_config.yaml`、`launches/` 与轨迹峰值，不能只记录 worker 数。
+当前默认训练配置 `configs/rl/airline_procredit_v4.yaml`、internal-dev/官方训练集
+评估使用的 `configs/rl/airline_grpo_v1.yaml`，以及 official-test 配置
+`configs/evaluation/airline_eval_v1.yaml`，其 `rollout` 中以下五项默认均为 **8**：
+
+```yaml
+agent_worker_count: 8
+max_active_trajectories: 8
+user_api_max_inflight: 8
+judge_api_max_inflight: 8
+vllm_max_num_seqs: 8
+```
+
+这五项分别控制 worker 数、活跃轨迹、用户 API、Judge API 与 vLLM 序列上限。
+轨迹在创建环境前领取同一个 Ray job 的共享额度，评分结束后释放；API 缓存命中
+不占请求额度。轨迹 metadata 的 `concurrency` 保存实际峰值。
+8 是并发上限，实际峰值仍以 run 的 `runtime_config.yaml`、`launches/` 与轨迹
+审计为准。历史 `airline_procredit_v1/v2/v3.yaml` 和 `airline_procredit_v4_legacy.yaml`
+保留原有并发值，用于复现旧条件。并发变化也属于实验配置变化：已有 run 的
+`runtime_config.yaml` 不会被仓库新默认值改写，新设置请使用新的 run/tag。
 组大小、每批组数和补采上限另有训练契约校验，不能假定只改 YAML 就支持任意采样规模。
 排队与执行分开：`queue_timeout_seconds: null` 默认不限制总排队时间；
 `queue_stall_timeout_seconds: 1800` 只在同一资源连续 1,800 秒没有领取、释放或

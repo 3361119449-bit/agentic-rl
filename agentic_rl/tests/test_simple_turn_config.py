@@ -17,6 +17,11 @@ def test_default_enables_final_rule_and_legacy_keeps_original_config():
     validate_procredit_config(cfg)
     cfg['credit'].pop('final_turn_rule')
     cfg['project']['reward_version'] = legacy['project']['reward_version']
+    # New runs use eight-way rollout; the frozen legacy config stays at two.
+    for key in ('agent_worker_count', 'max_active_trajectories',
+                'user_api_max_inflight', 'judge_api_max_inflight', 'vllm_max_num_seqs'):
+        assert cfg['rollout'].pop(key) == 8
+        assert legacy['rollout'].pop(key) == 2
     assert cfg == legacy
 
 
