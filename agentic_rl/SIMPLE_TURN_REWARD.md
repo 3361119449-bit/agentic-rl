@@ -79,7 +79,10 @@ python scripts/train_airline_grpo.py \
 其他旧版本配置不受默认切换影响。旧轨迹没有新语义标签时，纯离线重评分脚本
 会拒绝直接套用新模式；它不会调用模型或自行补造标签。
 
-官方测评入口和 pass^1/pass^4 的定义不变，默认测评不启用这些训练奖励。
+官方测评入口和 pass^1/pass^4 的定义不变。独立评估默认开启整轨迹 Agent 奖励
+Judge，同时报告官方和附加 strict 指标；`--no-reward-judge` 仅保留官方指标，
+独立 User Simulator 合规检查仍开启。评估 YAML 未启用 `simple-turn-v1`，
+不会把上述训练 token advantage 规则当作官方评分。
 
 ## 审计与验证范围
 
