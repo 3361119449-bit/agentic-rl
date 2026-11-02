@@ -155,7 +155,7 @@ def test_partial_group_replays_with_exact_membership_and_audit(scratch_dir):
     keys, extras, context = partial_group()
     source, output = scratch_dir / "source", scratch_dir / "output"
     queue_group_reports(keys, extras, CFG, terminal_groups=context, audit_dir=source)
-    config = load_yaml(ROOT / "configs/rl/airline_procredit_v4.yaml")
+    config = load_yaml(ROOT / "configs/rl/airline_procredit_v4_legacy.yaml")
     assert rescore_groups(source, output, config) == 1
     assert (
         next(source.glob("*.json")).read_bytes()

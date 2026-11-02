@@ -45,6 +45,7 @@ from tau2_agentic_rl.initial_prompt import (
 )
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
+from tau2_agentic_rl.judge.simple_turn import score_simple_turns
 from tau2_agentic_rl.policy_rules import validate_policy_rows
 from tau2_agentic_rl.procredit_runtime import credit_from_record
 from tau2_agentic_rl.reward.db_subgoals import (
@@ -60,6 +61,8 @@ from tau2_agentic_rl.reward.required_actions import (
     load_required_actions,
 )
 from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
+from tau2_agentic_rl.reward.simple_turn import build_turn_inputs
+from tau2_agentic_rl.reward.simple_turn import enabled as simple_turn_enabled
 from tau2_agentic_rl.rollout_audit import audited_official_scores, snapshot_transcript
 from tau2_agentic_rl.schemas import TokenTurn, ToolEvent, TrajectoryRecord
 from tau2_agentic_rl.scoring_retry import SCORING_FAILURES, retry_scoring
@@ -948,6 +951,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         judge_raw = None
         judge_prompt_hash = None
         judge_cache_key = None
+        simple_turn_labels = None
         scoring_inputs = {
             "reward_judge_enabled": reward_judge_enabled(self.project),
             "judge": {
@@ -973,6 +977,10 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         }
         if progress_inputs is not None:
             scoring_inputs["progress_inputs"] = progress_inputs
+        if simple_turn_enabled(self.project) and infrastructure_error is None:
+            scoring_inputs["simple_turn_inputs"] = build_turn_inputs(
+                messages, scoring_inputs["judge"]["policy"], assistant_turns,
+            )
         if db_subgoal_inputs is not None:
             scoring_inputs["db_subgoal_inputs"] = db_subgoal_inputs
         if self.project.get("credit", {}).get("version") == "procredit-turn-v4":
@@ -1110,6 +1118,16 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             except Exception as exc:
                 infrastructure_error = ("reward_scoring", exc)
 
+        if infrastructure_error is None and simple_turn_enabled(self.project):
+            try:
+                simple_turn_labels = await score_simple_turns(
+                    scoring_inputs["simple_turn_inputs"], tool_events,
+                    custom_reward.details["policy_credit"], self.judge, progress=progress,
+                )
+            except Exception as exc:
+                infrastructure_error = ("turn_labels", exc)
+                custom_reward = None
+
         response_ids = prompt_ids[len(initial_prompt_ids) :]
         try:
             validate_aligned_response(
@@ -1122,6 +1140,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             if infrastructure_error is None or infrastructure_error[0] in {
                 "judge",
                 "reward_scoring",
+                "turn_labels",
             }:
                 infrastructure_error = ("token_alignment", exc)
                 termination_reason = "infrastructure_error"
@@ -1169,6 +1188,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     "evaluation_sample_index"
                 ),
                 "judge_raw": judge_raw,
+                **({"simple_turn_labels": simple_turn_labels} if simple_turn_enabled(self.project) else {}),
                 "judge_prompt_hash": judge_prompt_hash,
                 "judge_cache_key": judge_cache_key,
                 "judge_rubric_sha256": rubric_fingerprint(

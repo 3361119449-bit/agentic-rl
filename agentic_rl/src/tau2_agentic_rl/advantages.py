@@ -17,8 +17,13 @@ class CreditConfig:
     violation_penalty: float = 1.0
     db_subgoal_credit: str | None = None
     post_completion_credit: str | None = None
+    final_turn_rule: str | None = None
 
     def __post_init__(self):
+        if self.final_turn_rule is not None and (
+            self.final_turn_rule != "simple-turn-v1" or self.version != "procredit-turn-v4"
+        ):
+            raise ValueError("simple-turn-v1 requires ProCredit v4")
         if self.post_completion_credit is not None and (
             self.post_completion_credit != "post_completion_regression_v1" or self.version != "procredit-turn-v4"
         ):
@@ -42,6 +47,7 @@ class CreditConfig:
     def from_project(cls, project: dict) -> CreditConfig:
         credit = project.get("credit", {})
         return cls(
+            final_turn_rule=credit.get("final_turn_rule"),
             post_completion_credit=credit.get("post_completion_credit"),
             db_subgoal_credit=credit.get("db_subgoal_credit"),
             version=credit.get("version", "procredit-turn-v1"),
@@ -56,6 +62,8 @@ class CreditConfig:
 
     def audit_config(self) -> dict:
         values = asdict(self)
+        if self.final_turn_rule is None:
+            values.pop("final_turn_rule")
         if self.post_completion_credit is None:
             values.pop("post_completion_credit")
         if self.db_subgoal_credit is None:
@@ -304,6 +312,27 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
                 min(value, -1.0 - costs[turn]) if turn in regression_turns else value
                 for turn, value in zip(mapping, tokens, strict=True)
             ]
+        if config.final_turn_rule is not None:
+            from tau2_agentic_rl.reward.simple_turn import (
+                transform_advantage,
+                validate_labels,
+            )
+
+            labels = validate_labels(row.get("simple_turn_labels"), len(returns))
+            if any(not labels[t]["bad_turn"] for t in bad):
+                raise ValueError("simple labels must retain every old policy violation")
+            a0_by_turn = dict(zip(mapping, tokens, strict=True))
+            simple_audit = [
+                {**labels[t], "a0": a0_by_turn[t],
+                 "anew": transform_advantage(a0_by_turn[t], labels[t]["bad_turn"],
+                                             labels[t]["eligible_correct_refusal"])}
+                for t in sorted(present)
+            ]
+            tokens = [
+                transform_advantage(value, labels[t]["bad_turn"], labels[t]["eligible_correct_refusal"])
+                if t >= 0 else 0.0
+                for t, value in zip(mapping, tokens, strict=True)
+            ]
         results.append(
             {
                 "trajectory_id": row["trajectory_id"],
@@ -313,6 +342,8 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
                 "token_advantages": tokens,
             }
         )
+        if config.final_turn_rule is not None:
+            results[-1]["simple_turn_audit"] = simple_audit
         if config.version == "procredit-turn-v4":
             results[-1]["policy_turn_rewards"] = [
                 -config.violation_penalty if t in bad else 0.0 for t in range(len(returns))

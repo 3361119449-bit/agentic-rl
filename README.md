@@ -2,6 +2,11 @@
 
 This repository contains the cleaned AReaL Tau2 airline SFT dataset and its reproducibility artifacts.
 
+RL reward update (2026-11-02): the default ProCredit v4 config now applies the
+simple binary turn rule after the original final advantage, with cached causal
+semantic labels. The original v4 config remains available. See
+[rules, commands and audit fields](agentic_rl/SIMPLE_TURN_REWARD.md).
+
 Local offline verification on 2026-09-08: 230 tests passed and one legacy opt-in
 test skipped on each of Transformers 4.57.1 and 5.10.4, including the new real
 Qwen tokenizer regressions. Static checks passed. This validates the mixed-tool

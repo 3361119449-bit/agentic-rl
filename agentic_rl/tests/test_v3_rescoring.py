@@ -15,17 +15,19 @@ from tau2_agentic_rl.scoring_retry import retry_scoring
 from tau2_agentic_rl.storage import TrajectoryStore
 
 
-@pytest.mark.parametrize("version", ["v3", "v4"])
+@pytest.mark.parametrize("version", ["v3", "v4", "v4_simple"])
 def test_offline_changed_cost_remains_replayable_with_new_frozen_config(scratch_dir, monkeypatch, version):
     root = Path(__file__).parents[1]
-    loop, _, record = rollout_fixture(scratch_dir, credit_version=f"procredit-turn-{version}")
-    cfg = load_yaml(root / f"configs/rl/airline_procredit_{version}.yaml")
+    original_version = version.split("_")[0]
+    loop, _, record = rollout_fixture(scratch_dir, credit_version=f"procredit-turn-{original_version}")
+    config_name = {"v3": "v3", "v4": "v4_legacy", "v4_simple": "v4"}[version]
+    cfg = load_yaml(root / f"configs/rl/airline_procredit_{config_name}.yaml")
     cfg["reward"]["process_penalties"]["mixed_content_and_tool_call"] = .05
     config_path = scratch_dir / "changed.yaml"
     config_path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
     record.metadata["agent_system_prompt_sha256"] = prompt_sha256(load_agent_system_prompt(cfg, root))
     record.metadata["judge_rubric_sha256"] = rubric_fingerprint(
-        [], [], {}, require_policy_attribution=version == "v4",
+        [], [], {}, require_policy_attribution=original_version == "v4",
     )
     monkeypatch.setattr(script, "load_required_actions", lambda path: {"0": []})
     monkeypatch.setattr(script, "load_action_dependencies", lambda path: {})
@@ -37,6 +39,11 @@ def test_offline_changed_cost_remains_replayable_with_new_frozen_config(scratch_
         "rescore", str(source), str(output), "--config", str(config_path),
         "--project-root", str(root), "--reward-version", "v3-rescored",
     ])
+    if version == "v4_simple":
+        with pytest.raises(ValueError, match="turn"):
+            script.main()
+        assert not list(output.glob("*.json"))
+        return
     script.main()
     store = TrajectoryStore(output, attach_evaluation_identity=False)
     rescored = next(store.records())

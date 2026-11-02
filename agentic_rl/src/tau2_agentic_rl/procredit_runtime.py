@@ -265,6 +265,10 @@ def credit_from_record(record) -> dict:
         if expected_completion != record.completion_trace:
             raise ValueError("record post-completion trace differs from frozen scoring evidence")
         row["completion_trace"] = expected_completion
+    from tau2_agentic_rl.reward.simple_turn import enabled, validate_record_labels
+
+    if enabled(frozen.get("reward_project_config", {})):
+        row["simple_turn_labels"] = validate_record_labels(record)
     return row
 
 

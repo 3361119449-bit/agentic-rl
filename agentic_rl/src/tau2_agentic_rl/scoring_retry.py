@@ -3,13 +3,15 @@
 import asyncio
 
 from tau2_agentic_rl.failures import scoring_retryable
+from tau2_agentic_rl.judge.simple_turn import score_simple_turns
 from tau2_agentic_rl.reward.db_subgoals import subgoal_trace_from_scoring
 from tau2_agentic_rl.reward.post_completion import completion_trace_from_scoring
 from tau2_agentic_rl.reward.progress import build_progress_trace
 from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
+from tau2_agentic_rl.reward.simple_turn import build_turn_inputs, enabled
 from tau2_agentic_rl.versions import sha256_json
 
-SCORING_FAILURES = {"judge", "reward_scoring", "progress_scoring"}
+SCORING_FAILURES = {"judge", "reward_scoring", "progress_scoring", "turn_labels"}
 MAX_CONCURRENT_SCORING_TASKS = 4
 
 
@@ -77,6 +79,10 @@ async def retry_scoring(record, judge, store):
     ):
         raise ValueError("interaction differs from frozen scoring inputs")
     attempts = record.metadata.setdefault("scoring_retries", [])
+    if enabled(inputs.get("reward_project_config", {})):
+        expected = build_turn_inputs(record.messages, inputs["judge"]["policy"], record.assistant_turns)
+        if inputs.get("simple_turn_inputs") != expected:
+            raise ValueError("bounded messages differ from frozen turn scoring inputs")
     attempt = {"attempt": len(attempts) + 1, "phase": "judge", "success": False}
     try:
         if inputs.get("progress_inputs") is not None:
@@ -114,6 +120,11 @@ async def retry_scoring(record, judge, store):
         record.completion_trace = completion_trace_from_scoring(
             inputs, record.tool_events, record.assistant_turns, reward, record.subgoal_trace,
         )
+        if enabled(inputs.get("reward_project_config", {})):
+            attempt["phase"] = "turn_labels"
+            record.metadata["simple_turn_labels"] = await score_simple_turns(
+                inputs["simple_turn_inputs"], record.tool_events, reward.details["policy_credit"], judge,
+            )
         record.judge_result = result
         record.custom_reward = reward
         record.metadata.update(

@@ -2,6 +2,10 @@
 
 这是《Tau2 Airline Agentic RL 训练计划（完善版）》的可执行实现。项目使用固定版 Tau2 Airline 环境、Qwen3-4B SFT 合并模型和新的 RL LoRA，在 veRL v0.9.0 上进行 GRPO / DAPO-style 训练。
 
+默认奖励已启用简单逐轮规则：坏轮 `min(A0, -1)`，合格正确拒绝
+`max(A0 + 1, 1)`，其余保留原始 A0。旧 v4 配置、运行命令、额外 Judge 成本与
+证据审计见 [SIMPLE_TURN_REWARD.md](SIMPLE_TURN_REWARD.md)。
+
 三套数值始终分开保存：
 
 - `official_scores.reward`：Tau2 官方奖励；
@@ -26,7 +30,7 @@
 - 多轮 observation 包含 Qwen `turn_separator`，完整计入上下文预算；
 - 16,384 token 生成前预算检查，15 轮软阈值、24 轮硬终止；
 - DeepSeek 用户模拟器与 Judge 使用独立 prompt、缓存和重试；
-- Judge 每条完整轨迹执行一次评分流程（失败有界重试），输出二值条目，核对 criterion ID 及 evidence_turn_ids 是否存在；
+- 原 Judge 每条完整轨迹执行一次评分流程；默认新模式额外逐轮检查实际可见前缀，二者均缓存结果并有界重试；
 - 官方 DB/COMMUNICATE、必须动作、语义、强制 Policy gate 和过程扣分的双分支奖励；
 - GRPO 组大小 8、组内标准差归一化、Clip-Higher 0.20/0.28、dual clip 10；
 - PPO epoch=2、old policy 固定为 vLLM rollout log-prob、token-mean、无 KL、无 Critic；

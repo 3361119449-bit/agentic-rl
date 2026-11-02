@@ -15,6 +15,11 @@ from tau2_agentic_rl.reward.required_actions import (
     load_required_actions,
 )
 from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
+from tau2_agentic_rl.reward.simple_turn import (
+    build_label_trace,
+    enabled,
+    validate_record_labels,
+)
 from tau2_agentic_rl.schemas import TrajectoryRecord
 from tau2_agentic_rl.storage import TrajectoryStore
 from tau2_agentic_rl.versions import sha256_json
@@ -70,6 +75,10 @@ def main() -> None:
             raise ValueError(
                 f"record lacks the delivered environment transcript: {path}"
             )
+        if enabled(config):
+            # This command has no model transport: never invent missing labels
+            # when an old trajectory is rescored under the new default config.
+            validate_record_labels(record)
         reward = score_trajectory(
             events=record.tool_events,
             messages=record.environment_transcript,
@@ -107,6 +116,14 @@ def main() -> None:
                 "scoring_inputs": scoring_inputs,
             }
         )
+        if enabled(config):
+            previous = record.metadata["simple_turn_labels"]
+            updated.metadata["simple_turn_labels"] = {
+                **previous,
+                **build_label_trace(scoring_inputs["simple_turn_inputs"], previous["decisions"],
+                                    record.tool_events, reward.details["policy_credit"]),
+            }
+            validate_record_labels(updated)
         store.save(updated)
         count += 1
     print(f"rescored {count} trajectories into {args.output_dir}")

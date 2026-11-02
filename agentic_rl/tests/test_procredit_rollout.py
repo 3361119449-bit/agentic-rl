@@ -14,7 +14,8 @@ from tau2_agentic_rl.scoring_retry import retry_scoring
 
 def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=False,
                     credit_version=None, judge_failures=0, version_fields=None,
-                    db_subgoal_credit=False, post_completion_credit=False):
+                    db_subgoal_credit=False, post_completion_credit=False,
+                    final_turn_rule=None, turn_scorer=None):
     loop, scope = minimal_loop(scratch_dir)
     cleaned, judge_calls = [], []
     loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
@@ -35,6 +36,10 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
         loop.project["credit"]["db_subgoal_credit"] = "db_subgoal_local_v1"
     if post_completion_credit:
         loop.project["credit"]["post_completion_credit"] = "post_completion_regression_v1"
+    if final_turn_rule is not None:
+        loop.project["credit"]["final_turn_rule"] = final_turn_rule
+    if turn_scorer is not None:
+        scope["score_simple_turns"] = turn_scorer
     loop.reward_config = build_reward_config(loop.project)
     loop.semantic, loop.transfer, loop.policy_rules = {"0": {}}, {"0": {}}, {"0": {}}
     loop.required_actions, loop.action_dependencies = {"0": []}, {}

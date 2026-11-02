@@ -1,10 +1,10 @@
-# ProCredit v4: turn-only policy punishment and recovery of individual slots.
+# ProCredit v4 + final binary simple-turn-v1 advantage rule.
 project:
   domain: airline
   tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
   verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
   annotation_version: v4-policy-applicability
-  reward_version: v9-procredit-task-target
+  reward_version: v10-procredit-simple-turn
 agent_policy:
   path: configs/prompts/areal_airline_sft.v1.json
   system_prompt_sha256: e490e0859e1357ed6dd777fdbddab15b11d6de96ff7161328a6babcab77348ab
@@ -59,7 +59,7 @@ judge:
   provider: DeepSeek
   model: ${DEEPSEEK_JUDGE_MODEL}
   base_url: ${DEEPSEEK_BASE_URL}
-  calls_per_trajectory: 1
+  calls_per_trajectory: 1  # Original trajectory Judge; simple-turn-v1 adds one cached call per actor turn.
   output_schema_version: '1.0'
   max_retries: 2
 user_sim_filter:
@@ -139,6 +139,7 @@ outputs:
 credit:
   mode: procredit_turn
   version: procredit-turn-v4
+  final_turn_rule: simple-turn-v1
   db_subgoal_credit: null  # Opt in with db_subgoal_local_v1; scalar reward stays unchanged.
   post_completion_credit: null  # Opt in with post_completion_regression_v1.
   gamma: 1.0

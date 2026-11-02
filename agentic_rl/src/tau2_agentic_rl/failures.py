@@ -39,7 +39,7 @@ def scoring_retryable(phase, error):
         error, (PolicyAttributionPending, JudgeEvidenceError)
     ):
         return True
-    if phase not in {"judge", "user_sim_judge"}:
+    if phase not in {"judge", "user_sim_judge", "turn_labels"}:
         return False
     if isinstance(error, JudgeServiceFailure):
         return error.retryable
