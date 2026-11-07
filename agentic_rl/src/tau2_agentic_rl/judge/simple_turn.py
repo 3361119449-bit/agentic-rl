@@ -99,8 +99,14 @@ def build_messages(**request):
                 message["content"] = content.replace(
                     policy, "[See request.policy for the bound policy.]"
                 )
+    # Keep nested objects canonical while placing reusable context before
+    # the changing target. Only JSON key order changes, never values.
+    canonical = json.loads(json.dumps(view, ensure_ascii=False, sort_keys=True))
+    leading = ("request_version", "policy", "history")
+    ordered = {key: canonical[key] for key in leading if key in canonical}
+    ordered.update((key, value) for key, value in canonical.items() if key not in ordered)
     return [{"role": "system", "content": PROMPT},
-            {"role": "user", "content": json.dumps(view, ensure_ascii=False, sort_keys=True)}]
+            {"role": "user", "content": json.dumps(ordered, ensure_ascii=False)}]
 
 
 class SimpleTurnJudge(DeepSeekJudge):
