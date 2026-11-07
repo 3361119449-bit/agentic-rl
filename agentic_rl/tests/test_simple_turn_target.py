@@ -162,3 +162,14 @@ def test_tool_generation_retains_all_raw_arguments_and_hides_future_result():
     )
     assert "future hidden tool result" not in str(req)
     assert inputs == before
+
+
+def test_long_literal_current_quote_is_not_a_target_mismatch():
+    inputs = frozen()
+    current = "The current generation explicitly discusses this reservation. " * 5
+    inputs["messages"][4]["content"] = current
+    inputs["messages"][4]["raw_generated_text"] = current
+    request = rule.turn_request(inputs, 1, [])
+    result = valid(request)
+    assert len(result["target_quote"]) > 160
+    assert rule.validate_decision(result, request) == result

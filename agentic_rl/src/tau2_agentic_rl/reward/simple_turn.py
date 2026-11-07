@@ -149,7 +149,7 @@ def validate_decision(decision, request):
     if (d["target_message_index"] != target
         or d["target_generation_sha256"] != request["target_generation_sha256"]
         or not quote.strip() or quote not in text
-        or len(quote.strip()) < min(16, len(text.strip())) or len(quote) > 160):
+        or len(quote.strip()) < min(16, len(text.strip()))):
         raise ValueError("decision target identity/quote must match the current generation")
     evidence = d["evidence_message_indices"]
     if (len(set(evidence)) != len(evidence)

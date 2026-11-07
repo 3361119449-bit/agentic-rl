@@ -114,8 +114,8 @@ are preserved. Future messages, hidden task answers and undelivered full tool
 returns are still excluded.
 
 Every response, including a neutral decision, must echo the target position and
-supplied SHA256, quote a literal 16-160 character substring of the current raw
-text (the whole text when shorter), and cite the current message in its evidence.
+supplied SHA256, quote a literal substring of the current raw text with at least 16
+characters (the whole text when shorter), and cite the current message in its evidence.
 Wrong identity, old-generation quote, missing current evidence, future evidence,
 and incomplete schema fail validation and use the existing bounded frozen-score
 retry path. A hash/quote check binds the selected object; it does not certify the
@@ -128,3 +128,10 @@ training silently. Regrade all turns from their unchanged frozen actor-visible
 inputs and recompute group advantages; do not shift or relabel old decisions.
 Use the real Judge when regrading; no neutral labels or quotes may be fabricated
 from a legacy response just to satisfy this schema.
+
+A requested quote length of 16-160 characters is a brevity preference, not a
+condition of target identity. A longer verbatim current-generation sentence is
+valid; do not reject or truncate correct target evidence solely for its length.
+The target position, hash, exact substring match, minimum specificity, and
+current-message citation remain mandatory. This presentation-only correction
+does not change the Judge request or allow a quote from an earlier generation.
