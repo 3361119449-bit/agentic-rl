@@ -135,3 +135,18 @@ valid; do not reject or truncate correct target evidence solely for its length.
 The target position, hash, exact substring match, minimum specificity, and
 current-message citation remain mandatory. This presentation-only correction
 does not change the Judge request or allow a quote from an earlier generation.
+
+
+## 2026-11-07: send the bound policy once
+
+Only the simple-turn Judge transport view is deduplicated: the complete bound
+policy remains in `request.policy`, while exact copies inside historical system
+message content are replaced by a reference to that field. Surrounding system
+instructions, message positions, nonmatching system text, user/tool/assistant
+content, raw generations, target hashes, and original frozen inputs are retained.
+Quoted policy text in user/tool/assistant messages is evidence and is not removed.
+
+The per-turn call count, causal boundary, prompt instructions, result schema,
+reward/advantage rules, and request field ordering are unchanged. Changed wire
+messages naturally produce different existing prompt/cache hashes; no previous
+scores or cache files are rewritten, and this change does not trigger rescoring.

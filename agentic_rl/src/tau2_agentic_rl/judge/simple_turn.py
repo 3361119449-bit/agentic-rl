@@ -1,6 +1,7 @@
 """Causal semantic labels using the existing cached, bounded Judge transport."""
 
 import json
+from copy import deepcopy
 from dataclasses import replace
 
 from tau2_agentic_rl.judge.client import DeepSeekJudge
@@ -84,8 +85,22 @@ Boolean values must be JSON booleans. Do not return a numeric quality score.
 
 def build_messages(**request):
     validate_target_request(request)
+    view = deepcopy(request)
+    policy = view.get("policy")
+    if isinstance(policy, str) and policy:
+        for item in view["history"]:
+            message = item["message"]
+            content = message.get("content")
+            if message.get("role") == "system" and isinstance(content, str):
+                # The authoritative policy remains intact in view["policy"].
+                # Only exact duplicates in historical system text are elided;
+                # preserve surrounding instructions, evidence positions, and
+                # every user/tool/assistant generation (including raw text).
+                message["content"] = content.replace(
+                    policy, "[See request.policy for the bound policy.]"
+                )
     return [{"role": "system", "content": PROMPT},
-            {"role": "user", "content": json.dumps(request, ensure_ascii=False, sort_keys=True)}]
+            {"role": "user", "content": json.dumps(view, ensure_ascii=False, sort_keys=True)}]
 
 
 class SimpleTurnJudge(DeepSeekJudge):
