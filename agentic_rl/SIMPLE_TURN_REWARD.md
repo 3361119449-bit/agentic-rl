@@ -150,3 +150,19 @@ The per-turn call count, causal boundary, prompt instructions, result schema,
 reward/advantage rules, and request field ordering are unchanged. Changed wire
 messages naturally produce different existing prompt/cache hashes; no previous
 scores or cache files are rewritten, and this change does not trigger rescoring.
+
+
+## 2026-11-07: stable context before dynamic target fields
+
+The simple-turn transport serializes top-level fields as `request_version`,
+`policy`, `history`, then the remaining target/refusal fields in canonical order.
+Nested object keys remain canonical. The JSON data, policy-once representation,
+Judge instructions, causal prefix, explicit target identity and validation,
+call count, schema version, and reward formulas are unchanged. No future
+messages, summaries or prior Judge reasoning are added to improve caching.
+
+This extends the shared prefix of consecutive requests; provider cache hits
+remain best effort and must be measured from usage. Changed wire order produces
+distinct existing prompt/cache hashes without rewriting old scores or forcing
+rescoring. Formatting alone does not guarantee identical semantic outputs;
+regression checks must retain the target and label checks.
