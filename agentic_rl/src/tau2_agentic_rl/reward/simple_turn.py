@@ -1,7 +1,7 @@
 """Versioned binary turn labels and the final, uncentered advantage rule."""
 
-from copy import deepcopy
 import json
+from copy import deepcopy
 
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt
 

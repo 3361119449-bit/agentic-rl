@@ -107,8 +107,10 @@ jobs:
           git clone --filter=blob:none https://github.com/verl-project/verl.git "$SFT_VERL_ROOT"
           git -C "$SFT_VERL_ROOT" checkout bec9ef74768dd201881cd4e54cd0385e87caae27
           python -m pip install 'torch==2.9.1' --index-url https://download.pytorch.org/whl/cpu
-          python -m pip install -e '.[test]' -e "$SFT_VERL_ROOT" 'transformers==4.57.1' 'peft==0.17.1' 'torchdata==0.11.0' 'tensordict==0.10.0'
+          python -m pip install -e '.[test]' -e "$SFT_VERL_ROOT" 'transformers==4.57.1' 'peft==0.17.1' 'torchdata==0.11.0' 'tensordict==0.10.0' 'numpy==1.26.4' 'pyarrow==25.0.1'
           python -m pip check
+      - name: Verify the pinned NumPy and Arrow import together
+        run: python -c "import numpy, pyarrow; assert numpy.__version__ == '1.26.4'; assert pyarrow.__version__ == '25.0.1'"
       - name: Fetch tokenizer only, no model weights
         run: >-
           python -c "import os; from huggingface_hub import snapshot_download;
