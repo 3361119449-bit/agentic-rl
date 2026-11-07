@@ -11,14 +11,17 @@ from tau2_agentic_rl.advantages import CreditConfig
 from tau2_agentic_rl.failures import JudgeServiceFailure
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
 from tau2_agentic_rl.procredit_runtime import build_credit_tensors, credit_from_record
-from tau2_agentic_rl.reward.simple_turn import build_label_trace
+from tau2_agentic_rl.reward.simple_turn import build_label_trace, turn_request
 from tau2_agentic_rl.scoring_retry import retry_scoring
 
 
 async def fake_score(inputs, events, policy_credit, judge, **kwargs):
     turns = len(inputs['turn_message_indices'])
-    decisions = [decision(t) for t in range(turns)]
-    decisions[0] = decision(0, refusal=True, target='booking A', operation='remove_passenger')
+    decisions = []
+    for t in range(turns):
+        request = turn_request(inputs, t, decisions)
+        decisions.append(decision(t, request=request, refusal=t == 0,
+                                  target='booking A', operation='remove_passenger'))
     return build_label_trace(inputs, decisions, events, policy_credit)
 
 
@@ -68,7 +71,7 @@ def test_cached_transport_retries_bad_evidence_and_never_sends_hidden_or_future_
         data = json.loads(payload['messages'][1]['content'])
         calls.append(data)
         t = data['turn_index']
-        d = decision(t)
+        d = decision(t, request=data)
         if len(calls) == 1:
             d['evidence_message_indices'] = [999]
         if t == 0:
@@ -84,9 +87,20 @@ def test_cached_transport_retries_bad_evidence_and_never_sends_hidden_or_future_
     assert len(calls) == 3
     assert first['turns'][0]['bad_turn'] is False
     assert len(first['judge_calls']) == 2
+    fresh_cache = list((scratch_dir / 'simple_turn_target_v2').glob('*.json'))
+    assert len(fresh_cache) == 2
+    # Even matching accepted responses in the old namespace cannot satisfy a
+    # cold v2 scorer. Existing scores remain on disk, separate from new calls.
+    legacy = scratch_dir / 'simple_turn_v1'
+    legacy.mkdir()
+    for file in fresh_cache:
+        (legacy / file.name).write_bytes(file.read_bytes())
+        file.unlink()
     assert asyncio.run(score_simple_turns(*args)) == first
-    assert len(calls) == 3
-    assert len(list((scratch_dir / 'simple_turn_v1').glob('*.json'))) == 2
+    assert len(calls) == 5
+    assert asyncio.run(score_simple_turns(*args)) == first
+    assert len(calls) == 5
+    assert len(list(legacy.glob('*.json'))) == 2
 
 
 def test_final_advantages_reach_actor_tokens_with_observation_and_padding_zero():

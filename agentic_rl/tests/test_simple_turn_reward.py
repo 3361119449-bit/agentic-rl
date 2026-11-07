@@ -34,7 +34,7 @@ def test_group_uses_labels_only_after_original_centering_and_masks_observations(
     rows = [v4_row(i) for i in range(8)]
     original = compute_group_credit(rows, CreditConfig(version='procredit-turn-v4'))
     for r in rows:
-        r['simple_turn_labels'] = {'version': 'simple-turn-v1', 'turns': [
+        r['simple_turn_labels'] = {'version': 'simple-turn-v1', 'judge_version': 'simple-turn-target-v2', 'turns': [
             {'turn_index': 0, 'bad_turn': True, 'eligible_correct_refusal': False, 'evidence': []},
             {'turn_index': 1, 'bad_turn': False, 'eligible_correct_refusal': True, 'evidence': []},
         ]}
@@ -64,10 +64,15 @@ def test_legacy_config_fingerprint_and_results_remain_unchanged():
     assert result['trajectories'][0]['token_advantages'] == [0.25, 0.25, 0, -0.25, -0.25]
 
 
-def decision(turn, *, bad=False, refusal=False, operation='', target='', revoked=None):
-    return {'turn_index': turn, 'bad_turn': bad, 'correct_refusal': refusal,
+def decision(turn, *, bad=False, refusal=False, operation='', target='', revoked=None, request=None):
+    from tau2_agentic_rl.reward.simple_turn import turn_request
+    request = request or turn_request(inputs(turn + 1), turn, [])
+    return {'turn_index': turn, 'target_message_index': request['target_message_index'],
+            'target_generation_sha256': request['target_generation_sha256'],
+            'target_quote': request['target_generation_text'][:160],
+            'bad_turn': bad, 'correct_refusal': refusal,
             'reason': 'Policy forbids changing passenger count.' if refusal else 'Reviewed visible evidence.',
-            'evidence_message_indices': [2 * turn + 1] if revoked else [0],
+            'evidence_message_indices': [request['target_message_index']],
             'refusal_requests': [{'target': target, 'operation': operation}] if refusal else [],
             'revoked_refusals': [{'turn_index': t, 'target': obj, 'operation': op}
                                  for t, obj, op in (revoked or [])]}
@@ -153,8 +158,8 @@ def test_only_true_generation_messages_count_and_neutral_prefix_has_no_future():
         {'role': 'assistant', 'turn_idx': 2, 'content': 'later generation'},
     ], 'bound policy', 2)
     request = turn_request(frozen, 0, [])
-    assert len(request['messages']) == 4
-    assert request['messages'][-1]['message']['content'] == 'generated'
+    assert len(request['history']) == 3
+    assert request['current_generation']['message']['content'] == 'generated'
     assert 'future secret' not in str(request)
 
 

@@ -83,7 +83,14 @@ def test_background_failure_reaches_adapter_without_losing_type(monkeypatch, pha
 
     with pytest.raises(type(error)) as caught:
         asyncio.run(run())
-    assert caught.value is error
+    # CPython's asyncio/concurrent-futures bridge reconstructs TimeoutError
+    # raised inside to_thread. Preserve backend identity and the exact type
+    # and arguments across that bridge, without requiring impossible identity.
+    assert adapter.env._orchestrator_error is error
+    assert type(caught.value) is type(error)
+    assert caught.value.args == error.args
+    if not isinstance(error, TimeoutError):
+        assert caught.value is error
     assert interaction_retryable("environment_reset", caught.value) == isinstance(error, TimeoutError)
     # A subsequent successful run must clear the old failure.
     adapter.env._simulation_done.clear()

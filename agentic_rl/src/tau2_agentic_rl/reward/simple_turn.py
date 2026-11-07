@@ -1,5 +1,6 @@
 """Versioned binary turn labels and the final, uncentered advantage rule."""
 
+import json
 from copy import deepcopy
 
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt
@@ -7,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt
 from tau2_agentic_rl.versions import sha256_json
 
 VERSION = "simple-turn-v1"
+JUDGE_VERSION = "simple-turn-target-v2"
 TOOL_ERRORS = frozenset({
     "parse_error", "unknown_tool", "schema_invalid",
     "model_caused_execution_error", "mixed_content_and_tool_call",
@@ -28,6 +30,9 @@ class TurnDecision(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
     turn_index: StrictInt
+    target_message_index: StrictInt
+    target_generation_sha256: str
+    target_quote: str
     bad_turn: StrictBool
     correct_refusal: StrictBool
     reason: str
@@ -74,24 +79,83 @@ def build_turn_inputs(messages, policy, turns):
             "turn_message_indices": indices}
 
 
+def _judge_message(message):
+    view = deepcopy(message)
+    # These original actor/native IDs have different bases/namespaces. Keep
+    # them in frozen inputs, but never ask the Judge to resolve their meaning.
+    view.pop("turn_idx", None)
+    view.pop("assistant_turn_id", None)
+    return view
+
+
+def _generation_text(message):
+    raw = message.get("raw_generated_text")
+    if isinstance(raw, str) and raw.strip():
+        return raw
+    parts = []
+    if isinstance(message.get("content"), str) and message["content"].strip():
+        parts.append(message["content"])
+    if message.get("tool_calls"):
+        parts.append(json.dumps(message["tool_calls"], ensure_ascii=False, sort_keys=True))
+    return "\n".join(parts) or json.dumps(message, ensure_ascii=False, sort_keys=True)
+
+
+def _target_hash(current):
+    return sha256_json({"judge_version": JUDGE_VERSION, "current_generation": current})
+
+
+def validate_target_request(request):
+    target = request.get("target_message_index")
+    current = request.get("current_generation")
+    history = request.get("history")
+    if (request.get("request_version") != JUDGE_VERSION
+        or type(target) is not int or target < 0
+        or not isinstance(current, dict) or current.get("message_index") != target
+        or not isinstance(history, list) or len(history) != target
+        or [item.get("message_index") for item in history] != list(range(target))
+        or current.get("message", {}).get("role") != "assistant"):
+        raise ValueError("invalid explicit current-generation target request")
+    if any(key in item.get("message", {})
+           for item in history + [current] for key in ("turn_idx", "assistant_turn_id")):
+        raise ValueError("Judge request contains conflicting actor turn metadata")
+    if (request.get("target_generation_sha256") != _target_hash(current)
+        or request.get("target_generation_text") != _generation_text(current["message"])):
+        raise ValueError("current-generation target fingerprint or text changed")
+    return target
+
+
 def turn_request(inputs, turn_index, previous_decisions):
     end = inputs["turn_message_indices"][turn_index]
-    prior = [dict(d) for d in previous_decisions if d["correct_refusal"] and not d["bad_turn"]]
-    return {"turn_index": turn_index, "policy": inputs["policy"],
-            "messages": [{"message_index": i, "message": deepcopy(m)}
-                         for i, m in enumerate(inputs["messages"][:end + 1])],
-            "previous_refusals": prior}
+    prior = [{"turn_index": d["turn_index"], "refusal_requests": deepcopy(d["refusal_requests"])}
+             for d in previous_decisions if d["correct_refusal"] and not d["bad_turn"]]
+    current = {"message_index": end, "message": _judge_message(inputs["messages"][end])}
+    request = {"request_version": JUDGE_VERSION, "turn_index": turn_index,
+               "target_message_index": end, "current_generation": current,
+               "target_generation_sha256": _target_hash(current),
+               "target_generation_text": _generation_text(current["message"]),
+               "history": [{"message_index": i, "message": _judge_message(m)}
+                           for i, m in enumerate(inputs["messages"][:end])],
+               "policy": inputs["policy"], "previous_refusals": prior}
+    validate_target_request(request)
+    return request
 
 
 def validate_decision(decision, request):
+    target = validate_target_request(request)
     d = TurnDecision.model_validate(decision).model_dump()
     if d["turn_index"] != request["turn_index"] or not d["reason"].strip():
         raise ValueError("turn label identity or reason missing")
+    text, quote = request["target_generation_text"], d["target_quote"]
+    if (d["target_message_index"] != target
+        or d["target_generation_sha256"] != request["target_generation_sha256"]
+        or not quote.strip() or quote not in text
+        or len(quote.strip()) < min(16, len(text.strip()))):
+        raise ValueError("decision target identity/quote must match the current generation")
     evidence = d["evidence_message_indices"]
     if (len(set(evidence)) != len(evidence)
-        or any(i < 0 or i >= len(request["messages"]) for i in evidence)
-        or ((d["bad_turn"] or d["correct_refusal"]) and not evidence)):
-        raise ValueError("turn label evidence must cite the visible causal prefix")
+        or any(i < 0 or i > target for i in evidence)
+        or target not in evidence):
+        raise ValueError("turn label evidence must include the current generation within the causal prefix")
     keys = [request_key(r) for r in d["refusal_requests"]]
     if bool(keys) != d["correct_refusal"] or len(set(keys)) != len(keys):
         raise ValueError("refusal requests must be distinct and match correct_refusal")
@@ -101,7 +165,7 @@ def validate_decision(decision, request):
     if (len(set(revoked)) != len(revoked) or set(revoked) - prior
         or any(i >= d["turn_index"] for i, _ in revoked) or (revoked and not d["bad_turn"])):
         raise ValueError("refusal revocation requires an earlier refusal and current illegal commitment")
-    if revoked and len(request["messages"]) - 1 not in evidence:
+    if revoked and target not in evidence:
         raise ValueError("revocation requires current generation evidence")
     return d
 
@@ -157,13 +221,15 @@ def build_label_trace(inputs, decisions, events, policy_credit):
         label["eligible_refusal_keys"] = [key for key in label["eligible_refusal_keys"] if key not in revoked_keys]
         label["eligible_correct_refusal"] = bool(label["eligible_refusal_keys"])
         label["refusal_bonus"] = int(label["eligible_correct_refusal"])
-    return {"version": VERSION, "inputs_sha256": sha256_json(inputs),
+    return {"version": VERSION, "judge_version": JUDGE_VERSION, "inputs_sha256": sha256_json(inputs),
             "decisions": parsed, "turns": labels}
 
 
 def validate_labels(trace, turns):
     if not isinstance(trace, dict) or trace.get("version") != VERSION:
         raise ValueError("missing simple turn labels")
+    if trace.get("judge_version") != JUDGE_VERSION:
+        raise ValueError("legacy target-unbound Judge labels require frozen rescoring")
     labels = trace.get("turns")
     if not isinstance(labels, list) or len(labels) != turns:
         raise ValueError("turn label coverage differs from actor turns")

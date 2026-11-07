@@ -39,7 +39,7 @@ else:
 每条轨迹额外执行至多与 assistant 生成轮数相同的语义评分请求（失败有界重试），
 复用当前 Judge 的模型、服务地址、API key、并发预算和传输重试。
 这会增加未来训练的 Judge 调用成本；缓存命中不再次请求。
-缓存位于当前 Judge 缓存目录下的 `simple_turn_v1/`，与旧整轨迹评分隔离。
+缓存位于当前 Judge 缓存目录下的 `simple_turn_target_v2/`，与旧整轨迹评分隔离。
 
 语义服务临时失败只重试同一份冻结轨迹的评分；不会因此重新生成 Agent 轨迹。
 标签缺失、证据越界或输入变化会阻止该记录进入更新；不会用中性标签凑齐。
@@ -97,3 +97,41 @@ Judge，同时报告官方和附加 strict 指标；`--no-reward-judge` 仅保�
 本次开发没有运行 GPU 训练、真实模型测评或付费 Judge。自动语义标签的判断质量
 仍需在你的真实训练轨迹上抽查，不能凭数值测试宣称模型行为已经改善。
 报告中 738 条历史轨迹的原始数据不在本次工作区，未声称重新完成其全量重放。
+
+
+## 2026-11-07: explicit target binding (simple-turn-target-v2)
+
+The final advantage rule remains `simple-turn-v1`; no scalar formula, policy
+penalty, refusal deduplication/revocation, or actor-token mapping is changed.
+The semantic Judge request/schema/cache version is now `simple-turn-target-v2`.
+Frozen `simple_turn_inputs` and original actor messages remain unchanged.
+
+The Judge view has a separate `current_generation` and `target_message_index`;
+`history` contains only earlier causal messages. Actor/native `turn_idx` and
+`assistant_turn_id` metadata are omitted from this presentation to remove the
+zero-based/one-based ambiguity. Message text, raw generation and tool arguments
+are preserved. Future messages, hidden task answers and undelivered full tool
+returns are still excluded.
+
+Every response, including a neutral decision, must echo the target position and
+supplied SHA256, quote a literal substring of the current raw text with at least 16
+characters (the whole text when shorter), and cite the current message in its evidence.
+Wrong identity, old-generation quote, missing current evidence, future evidence,
+and incomplete schema fail validation and use the existing bounded frozen-score
+retry path. A hash/quote check binds the selected object; it does not certify the
+semantic truth of all policy or arithmetic judgments.
+
+New traces contain `judge_version: simple-turn-target-v2`, and the Judge uses
+`simple_turn_target_v2/` with new prompt/rubric/schema/scorer version keys. Old
+cache files and target-unbound traces are preserved for audit but cannot enter
+training silently. Regrade all turns from their unchanged frozen actor-visible
+inputs and recompute group advantages; do not shift or relabel old decisions.
+Use the real Judge when regrading; no neutral labels or quotes may be fabricated
+from a legacy response just to satisfy this schema.
+
+A requested quote length of 16-160 characters is a brevity preference, not a
+condition of target identity. A longer verbatim current-generation sentence is
+valid; do not reject or truncate correct target evidence solely for its length.
+The target position, hash, exact substring match, minimum specificity, and
+current-message citation remain mandatory. This presentation-only correction
+does not change the Judge request or allow a quote from an earlier generation.
