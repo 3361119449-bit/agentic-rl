@@ -1,6 +1,6 @@
 # Reward v11
 
-默认配置为 configs/rl/airline_procredit_v4.yaml，奖励标识
+v11冻结配置为 configs/rl/airline_procredit_v4_v11.yaml，奖励标识
 v11-procredit-transfer-query-req。此前默认配置保存在
 configs/rl/airline_procredit_v4_v10.yaml。ProCredit-v4、simple-turn-v1
 最终优势规则和 simple-turn-target-v2 因果裁判保持原计算框架。
@@ -48,3 +48,5 @@ token/observation mask、优化器、BF16、采样参数、Target-v2 请求语�
 
 新版本使用新实验身份，不能冒充旧奖励实验的精确续训。
 CPU、原生工具重放及离线回归不等于已完成 GPU RL smoke test。
+
+当前v12默认另采用 [35轮截断策略](TRUNCATION_35.md)，截断归零是对最终优势规则的明确例外。

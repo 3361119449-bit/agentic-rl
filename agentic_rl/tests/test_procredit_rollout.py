@@ -15,12 +15,13 @@ from tau2_agentic_rl.scoring_retry import retry_scoring
 def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=False,
                     credit_version=None, judge_failures=0, version_fields=None,
                     db_subgoal_credit=False, post_completion_credit=False,
-                    final_turn_rule=None, turn_scorer=None):
+                    final_turn_rule=None, turn_scorer=None, zero_truncation=False,
+                    hard_limit=None, natural_stop_at=None, judge_enabled=True):
     loop, scope = minimal_loop(scratch_dir)
     cleaned, judge_calls = [], []
     loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
     loop.project["reward"] = {"mode": "strict_progress_v1"}
-    loop.project["judge"] = {"enabled": True}
+    loop.project["judge"] = {"enabled": judge_enabled}
     if credit_version:
         policy_credit_v2 = True
     if policy_credit_v2:
@@ -40,6 +41,15 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
         loop.project["credit"]["final_turn_rule"] = final_turn_rule
     if turn_scorer is not None:
         scope["score_simple_turns"] = turn_scorer
+    if not judge_enabled:
+        loop.project["reward"]["mode"] = "legacy"
+    if zero_truncation:
+        loop.project["reward"].update(truncation_policy="zero-trajectory-v1", truncation_multiplier=0)
+        loop.project["rollout"].update(max_soft_turns=35, max_hard_turns=35)
+        loop.project.setdefault("slot_recovery", {}).update(max_truncation_resamples=2)
+    if hard_limit is not None:
+        loop.hard_turn_limit = hard_limit
+    loop.test_judge_calls = judge_calls
     loop.reward_config = build_reward_config(loop.project)
     loop.semantic, loop.transfer, loop.policy_rules = {"0": {}}, {"0": {}}, {"0": {}}
     loop.required_actions, loop.action_dependencies = {"0": []}, {}
@@ -51,6 +61,7 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
 
         def __init__(self, **kwargs):
             self.messages = [{"role": "user", "content": "help"}]
+            self.text_calls = 0
 
         async def reset(self, **kwargs):
             return list(self.messages)
@@ -63,7 +74,12 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
             ]
             if fail_after_delivery:
                 raise RuntimeError("backend failed after delivery")
-            return GymStep([self.messages[-1]], 0, False, {}, False, None, None)
+            self.text_calls += 1
+            return GymStep([self.messages[-1]], 0, self.text_calls == natural_stop_at,
+                           {}, False, None, None)
+
+        def tau2_termination_reason(self):
+            return "user_stop"
 
         def full_trajectory(self):
             return self.messages
@@ -93,9 +109,9 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
         def user_prompt_hashes(self):
             return []
 
-    generated = iter([[4, 9], [5, 9], [6]])
+    generated = iter([[4, 9]] * (hard_limit + 1) if hard_limit else [[4, 9], [5, 9], [6]])
     versions = iter(version_fields if version_fields is not None else
-                    [{"min_global_steps": 0, "max_global_steps": 0}] * 3)
+                    [{"min_global_steps": 0, "max_global_steps": 0}] * ((hard_limit + 1) if hard_limit else 3))
 
     async def generate(**kwargs):
         ids = next(generated)

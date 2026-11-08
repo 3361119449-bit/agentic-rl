@@ -28,7 +28,7 @@
 
 ### 默认逐轮奖励
 
-默认 `agentic_rl/configs/rl/airline_procredit_v4.yaml` 已启用 `simple-turn-v1`，奖励版本为 `v11-procredit-transfer-query-req`。转人工动态判定、重复查询坏轮和 DB/COMM/REQ 加和进度见 [v11 说明](agentic_rl/REWARD_V11.md)。此前 v10 默认配置保存在 `airline_procredit_v4_v10.yaml`。在原 ProCredit v4 最终 token advantage `A0` 之后应用：
+默认 `agentic_rl/configs/rl/airline_procredit_v4.yaml` 已启用 `simple-turn-v1`，奖励版本为 `v12-procredit-35turn-zero-truncation`。35轮上限、截断归零与训练最多2次截断重采见 [截断策略](agentic_rl/TRUNCATION_35.md)。转人工动态判定、重复查询坏轮和 DB/COMM/REQ 加和进度见 [v11 说明](agentic_rl/REWARD_V11.md)。此前 v10 默认配置保存在 `airline_procredit_v4_v10.yaml`。在原 ProCredit v4 最终 token advantage `A0` 之后应用：
 
 ~~~python
 if bad_turn:
@@ -66,7 +66,7 @@ else:
 | `custom_reward.strict_success` | 本项目附加的严格合规成功判定 |
 | `custom_reward.train_reward` | 用于训练的自定义标量奖励 |
 
-默认独立评估同时提供官方 `official_pass1` / `official_pass4` 和附加 `custom_strict_pass1` / `custom_strict_pass4`；只需官方指标时显式关闭 Agent 奖励 Judge，并使用新的评估 tag。
+当前截断计零策略主指标为 `evaluation_pass1` / `evaluation_pass4`，原始 Tau2 指标单列为 `raw_tau2_official_pass1` / `raw_tau2_official_pass4`。开启 Judge 时另有 `custom_strict_pass1/pass4`；旧manifest继续保留原报告口径。
 
 `pass^k` 衡量重复运行的一致成功率：每任务取 `comb(成功次数, k) / comb(有效次数, k)`，再对任务等权平均。4 次运行时，`pass^4` 要求 4 次全部成功。用户模拟器合规过滤默认开启，因此报告需披露过滤条件、拒绝数和补采情况；独立旧 SFT 报告未执行同一过滤，比较时需统一口径。
 

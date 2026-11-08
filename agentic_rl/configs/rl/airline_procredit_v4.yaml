@@ -4,7 +4,7 @@ project:
   tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
   verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
   annotation_version: v4-policy-applicability
-  reward_version: v11-procredit-transfer-query-req
+  reward_version: v12-procredit-35turn-zero-truncation
 agent_policy:
   path: configs/prompts/areal_airline_sft.v1.json
   system_prompt_sha256: e490e0859e1357ed6dd777fdbddab15b11d6de96ff7161328a6babcab77348ab
@@ -25,8 +25,8 @@ rollout:
   tool_parser: hermes
   max_context_length: 16384
   initial_prompt_max_tokens: 8192
-  max_soft_turns: 15
-  max_hard_turns: 30
+  max_soft_turns: 35
+  max_hard_turns: 35
   reserved_observation_tokens: 1024
   reserved_template_tokens: 128
   min_final_response_tokens: 64
@@ -77,7 +77,8 @@ annotations:
   transfer_rules: data/annotations/airline_transfer_rules.train.v1.json
   policy_rules: data/annotations/airline_mandatory_policy_rules.train.v1.json
 reward:
-  truncation_multiplier: 0.75
+  truncation_multiplier: 0.0
+  truncation_policy: zero-trajectory-v1
   mandatory_policy_gate: false
   task_safety_gate: false
   process_penalties:
@@ -165,6 +166,7 @@ precision:
   buffer_dtype: float32
 
 slot_recovery:
+  max_truncation_resamples: 2
   max_resamples: 2
   max_scoring_retries: 2
   on_exhaustion: salvage_group

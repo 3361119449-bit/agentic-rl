@@ -668,7 +668,27 @@ class CappedPPOTrainerSync(PPOTrainerSync):
     def _compute_advantage(self, batch: KVBatchMeta, metrics: dict) -> KVBatchMeta:
         runtime = self._procredit_runtime()
         if runtime is None:
-            return super()._compute_advantage(batch, metrics)
+            result = super()._compute_advantage(batch, metrics)
+            import os
+
+            from tau2_agentic_rl.config import load_runtime_config
+            from tau2_agentic_rl.procredit_runtime import zero_native_truncated_tensors
+
+            runtime_path = os.environ.get("AGENTIC_RL_CONFIG")
+            if not runtime_path or load_runtime_config(runtime_path).get("reward", {}).get(
+                "truncation_policy"
+            ) != "zero-trajectory-v1":
+                return result
+            data = tq.kv_batch_get(
+                keys=batch.keys, partition_id=batch.partition_id,
+                select_fields=["advantages", "returns", "extra_fields"],
+            )
+            fields, count = zero_native_truncated_tensors(data)
+            if fields:
+                tq.kv_batch_put(keys=batch.keys, partition_id=batch.partition_id,
+                               fields=TensorDict(fields, batch_size=len(batch.keys)))
+            metrics["truncation/zeroed_trajectories"] = count
+            return result
         config, audit_dir = runtime
         data = tq.kv_batch_get(
             keys=batch.keys, partition_id=batch.partition_id,

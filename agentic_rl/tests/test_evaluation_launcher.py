@@ -147,10 +147,10 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
         assert batches[1][0] == batches[0][0]
     result = json.loads((root / "summary.json").read_text(encoding="utf-8"))
     assert result["valid_samples"] == 80
-    assert result["aggregate"]["official_pass1"] == pytest.approx(
+    assert result["aggregate"]["evaluation_pass1"] == pytest.approx(
         pending_count / 80 if scoring_only else 0
     )
-    assert result["aggregate"]["official_pass4"] == (0.05 if scoring_only else 0)
+    assert result["aggregate"]["evaluation_pass4"] == (0.05 if scoring_only else 0)
     assert peak_scoring == (4 if scoring_only and reward_judge else 0)
     assert active_scoring == 0
     assert scored == (pending_count if scoring_only and reward_judge else 0)
@@ -366,4 +366,5 @@ def test_user_filter_refills_invalid_slot_but_never_rerolls_pending_check(
     assert len(report["user_sim_pending_slots"]) == int(quality_api_fails)
     assert checked and all(set(call) == {"inputs"} for call in checked)
     if not quality_api_fails:
-        assert report["aggregate"] == {"official_pass1": 0, "official_pass4": 0}
+        assert report["aggregate"] == {"evaluation_pass1": 0, "evaluation_pass4": 0,
+                                        "raw_tau2_official_pass1": 0, "raw_tau2_official_pass4": 0}

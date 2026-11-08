@@ -64,6 +64,10 @@ def initialize_evaluation(
 
 
 def _validate_sample_plan(identity: dict[str, Any]) -> tuple[list[str], int]:
+    from tau2_agentic_rl.reward.truncation import ZERO_TRUNCATION
+
+    if identity.get("truncation_policy") not in (None, ZERO_TRUNCATION):
+        raise ValueError("unknown evaluation truncation policy")
     raw_tasks = identity.get("task_ids")
     n = identity.get("samples_per_task")
     if not isinstance(raw_tasks, list) or type(n) is not int or n < 4:
@@ -118,7 +122,12 @@ def evaluation_coverage(records_dir: Path, manifest: dict[str, Any]) -> dict[str
                 f"non-retryable interaction failure: {row['trajectory_id']}: "
                 f"{metadata.get('failure_phase')}; stop instead of refilling the slot"
             )
-        if with_filter:
+        from tau2_agentic_rl.reward.truncation import zero_truncated
+
+        zero_cutoff = zero_truncated(
+            {"reward": {"truncation_policy": identity.get("truncation_policy")}},
+            row.get("termination_reason"))
+        if with_filter and not zero_cutoff:
             verdict = row.get("user_sim_result")
             if verdict is not None:
                 verdict = validate_saved_screen(row)
@@ -161,13 +170,13 @@ def evaluation_coverage(records_dir: Path, manifest: dict[str, Any]) -> dict[str
                 validate_unit_score(
                     score.get(score_key), name=f"{path.name}: {field}.{score_key}"
                 )
-        if with_judge and scoring_pending(row):
+        if with_judge and not zero_cutoff and scoring_pending(row):
             if key in valid or key in pending or key in user_pending:
                 raise ValueError(f"duplicate interaction for valid slot: {key}")
             pending[key] = row
             continue
         if (
-            (with_judge and row.get("custom_reward") is None)
+            (with_judge and not zero_cutoff and row.get("custom_reward") is None)
             or row.get("official_scores") is None
             or row.get("termination_reason")
             in {"infrastructure_error", "infrastructure_failure"}

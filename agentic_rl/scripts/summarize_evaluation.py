@@ -11,6 +11,7 @@ from typing import Any
 
 from tau2_agentic_rl.evaluation import evaluation_coverage
 from tau2_agentic_rl.pass_metrics import official_success
+from tau2_agentic_rl.reward.truncation import TRUNCATED_TERMINATIONS, ZERO_TRUNCATION
 
 
 def pass_hat_k(samples: int, successes: int, k: int) -> float:
@@ -65,13 +66,23 @@ def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str,
     groups: dict[str, list] = defaultdict(list)
     for row in records:
         groups[str(row["task_id"])].append(row)
+    zero_policy = manifest["identity"].get("truncation_policy") == ZERO_TRUNCATION
+    primary1, primary4 = (("evaluation_pass1", "evaluation_pass4") if zero_policy
+                          else ("official_pass1", "official_pass4"))
+    truncated_samples = sum(row.get("termination_reason") in TRUNCATED_TERMINATIONS
+                            for row in records)
     per_task = []
     for task, rows in sorted(groups.items(), key=lambda item: int(item[0])):
-        official = sum(
+        raw_official = sum(
             official_success(row["official_scores"]["reward"]) for row in rows
         )
+        official = sum(official_success(row["official_scores"]["reward"])
+                       and not (zero_policy and row.get("termination_reason") in TRUNCATED_TERMINATIONS)
+                       for row in rows)
         strict = (
-            sum(row["custom_reward"]["strict_success"] == 1.0 for row in rows)
+            sum(row.get("custom_reward") is not None and row["custom_reward"]["strict_success"] == 1.0
+                and not (zero_policy and row.get("termination_reason") in TRUNCATED_TERMINATIONS)
+                for row in rows)
             if with_judge
             else 0
         )
@@ -79,8 +90,11 @@ def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str,
             {
                 "task_id": task,
                 "samples": len(rows),
-                "official_pass1": pass_hat_k(len(rows), official, 1),
-                "official_pass4": pass_hat_k(len(rows), official, 4),
+                primary1: pass_hat_k(len(rows), official, 1),
+                primary4: pass_hat_k(len(rows), official, 4),
+                **({"raw_tau2_official_pass1": pass_hat_k(len(rows), raw_official, 1),
+                    "raw_tau2_official_pass4": pass_hat_k(len(rows), raw_official, 4)}
+                   if zero_policy else {}),
                 **(
                     {
                         "custom_strict_pass1": pass_hat_k(len(rows), strict, 1),
@@ -92,16 +106,22 @@ def summarize(records_dir: Path, *, allow_incomplete: bool = False) -> dict[str,
             }
         )
     keys = (
-        "official_pass1",
-        "official_pass4",
+        primary1,
+        primary4,
         "custom_strict_pass1",
         "custom_strict_pass4",
     )
     if not with_judge:
-        keys = ("official_pass1", "official_pass4")
+        keys = (primary1, primary4)
+    if zero_policy:
+        keys += ("raw_tau2_official_pass1", "raw_tau2_official_pass4")
     return {
         "status": "complete",
-        "metric_definition": "tau2_pass_hat_k",
+        "metric_definition": ("tau2_pass_hat_k_zero_truncation_v1" if zero_policy
+                              else "tau2_pass_hat_k"),
+        **({"truncation_policy": ZERO_TRUNCATION, "truncated_samples": truncated_samples,
+            "primary_metrics": [primary1, primary4], "raw_official_metric_definition": "tau2_pass_hat_k"}
+           if zero_policy else {}),
         "metric_formula": "comb(successes, k) / comb(samples, k)",
         "manifest_id": manifest["manifest_id"],
         "reward_judge_enabled": with_judge,

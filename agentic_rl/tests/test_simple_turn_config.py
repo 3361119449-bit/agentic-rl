@@ -28,7 +28,13 @@ def test_default_enables_final_rule_and_legacy_keeps_original_config():
         assert cfg['rollout'].pop(key) == 8
         assert legacy['rollout'].pop(key) == 2
     # Current training/evaluation use30 assistant turns; legacy stays frozen.
-    assert cfg['rollout']['max_hard_turns'] == 30
+    assert cfg['rollout']['max_hard_turns'] == 35
+    assert cfg['rollout']['max_soft_turns'] == 35
+    cfg['rollout']['max_soft_turns'] = legacy['rollout']['max_soft_turns']
+    assert cfg['reward'].pop('truncation_policy') == 'zero-trajectory-v1'
+    assert cfg['reward']['truncation_multiplier'] == 0
+    cfg['reward']['truncation_multiplier'] = legacy['reward']['truncation_multiplier']
+    assert cfg['slot_recovery'].pop('max_truncation_resamples') == 2
     assert legacy['rollout']['max_hard_turns'] == 24
     cfg['rollout']['max_hard_turns'] = legacy['rollout']['max_hard_turns']
     assert cfg == legacy

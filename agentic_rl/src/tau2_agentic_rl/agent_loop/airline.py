@@ -63,6 +63,11 @@ from tau2_agentic_rl.reward.required_actions import (
 from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
 from tau2_agentic_rl.reward.simple_turn import build_turn_inputs
 from tau2_agentic_rl.reward.simple_turn import enabled as simple_turn_enabled
+from tau2_agentic_rl.reward.truncation import (
+    deterministic_zero_reward,
+    truncation_metadata,
+    zero_truncated,
+)
 from tau2_agentic_rl.rollout_audit import audited_official_scores, snapshot_transcript
 from tau2_agentic_rl.schemas import TokenTurn, ToolEvent, TrajectoryRecord
 from tau2_agentic_rl.scoring_retry import SCORING_FAILURES, retry_scoring
@@ -364,7 +369,9 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
     async def _run_valid_trajectory(self, sampling_params, *, stop_requested=None, **kwargs):
         """Replace invalid USER episodes before any tokens reach DAPO/PPO."""
         if (
-            self.project.get("credit", {}).get("version") == "procredit-turn-v4"
+            (self.project.get("credit", {}).get("version") == "procredit-turn-v4"
+             or (self.project.get("reward", {}).get("truncation_policy") == "zero-trajectory-v1"
+                 and _split(kwargs)[1] == "train"))
             and not os.environ.get("EVALUATION_MANIFEST_ID")
         ):
             partition = "train" if _split(kwargs)[1] == "train" else "val"
@@ -900,7 +907,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             if terminated:
                 tau_reason = environment.tau2_termination_reason()
                 termination_reason = _termination_reason(tau_reason)
-                if any(
+                if termination_reason in {"user_stop", "agent_stop", "environment_terminated"} and any(
                     event.name == "transfer_to_human_agents" and event.success
                     for event in tool_events
                 ):
@@ -933,8 +940,10 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     trajectory_for_judge, progress_inputs["prefix_lengths"]
                 )
         interaction_termination_reason = termination_reason
+        zero_cutoff = infrastructure_error is None and zero_truncated(
+            self.project, interaction_termination_reason)
         user_sim_inputs = None
-        if filter_enabled(self.project) and infrastructure_error is None:
+        if filter_enabled(self.project) and infrastructure_error is None and not zero_cutoff:
             try:
                 guidelines, scenario = environment.user_sim_context()
                 user_sim_inputs = make_user_sim_inputs(
@@ -948,7 +957,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         try:
             official_reward, official_payload = environment.official_reward_payload()
             official = audited_official_scores(
-                official_reward, official_payload, termination_reason
+                official_reward, official_payload, termination_reason,
+                    **({"preserve_raw_reward": True} if zero_cutoff else {})
             )
         except Exception as exc:
             if infrastructure_error is None:
@@ -990,7 +1000,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         }
         if progress_inputs is not None:
             scoring_inputs["progress_inputs"] = progress_inputs
-        if simple_turn_enabled(self.project) and infrastructure_error is None:
+        if simple_turn_enabled(self.project) and infrastructure_error is None and not zero_cutoff:
             scoring_inputs["simple_turn_inputs"] = build_turn_inputs(
                 messages, scoring_inputs["judge"]["policy"], assistant_turns,
             )
@@ -1091,7 +1101,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     progress()
                 except Exception as exc:
                     infrastructure_error = ("progress_scoring", exc)
-        if infrastructure_error is None and reward_judge_enabled(self.project):
+        if infrastructure_error is None and reward_judge_enabled(self.project) and not zero_cutoff:
             try:
                 (
                     judge_result,
@@ -1107,7 +1117,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
 
         required = self.required_actions[task_id]
         custom_reward = None
-        if infrastructure_error is None and reward_judge_enabled(self.project):
+        if infrastructure_error is None and reward_judge_enabled(self.project) and not zero_cutoff:
             try:
                 if official is None or judge_result is None:
                     raise RuntimeError("successful rollout lacks scorer inputs")
@@ -1133,7 +1143,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             except Exception as exc:
                 infrastructure_error = ("reward_scoring", exc)
 
-        if infrastructure_error is None and simple_turn_enabled(self.project):
+        if infrastructure_error is None and simple_turn_enabled(self.project) and not zero_cutoff:
             try:
                 simple_turn_labels = await score_simple_turns(
                     scoring_inputs["simple_turn_inputs"], tool_events,
@@ -1143,6 +1153,10 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 infrastructure_error = ("turn_labels", exc)
                 custom_reward = None
 
+        if infrastructure_error is None and zero_cutoff and reward_judge_enabled(self.project):
+            custom_reward = deterministic_zero_reward(
+                termination_reason=interaction_termination_reason,
+                project=self.project, official=official)
         response_ids = prompt_ids[len(initial_prompt_ids) :]
         try:
             validate_aligned_response(
@@ -1197,6 +1211,14 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "initial_prompt": prompt_measurement,
                 "queue_wait_seconds": queue_wait_seconds,
                 "interaction_termination_reason": interaction_termination_reason,
+                "truncation": truncation_metadata(
+                    self.project, interaction_termination_reason, split=split,
+                    evaluation=bool(os.environ.get("EVALUATION_MANIFEST_ID")),
+                    slot_context=kwargs.get("extra_info", {}).get("slot_recovery")),
+                "truncation_zero_applied": zero_cutoff and infrastructure_error is None,
+                "judge_skipped_for_truncation": zero_cutoff,
+                "user_sim_filter_skipped_for_truncation": zero_cutoff and filter_enabled(self.project),
+                "effective_evaluation_reward": 0.0 if zero_cutoff else (official.reward if official else None),
                 "concurrency": await self.shared_budget.acall("snapshot"),
                 "scoring_inputs_sha256": sha256_json(scoring_inputs),
                 "evaluation_sample_index": kwargs.get("extra_info", {}).get(
@@ -1264,24 +1286,22 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         credit_fields = {}
         if procredit:
             credit_fields["procredit"] = credit_from_record(record)
-        # Explicit no-Judge ablation: use only the audited official reward.
+        effective_reward = (0.0 if zero_cutoff else
+                            custom_reward.train_reward if custom_reward else official.reward)
+        # Explicit no-Judge ablation retains raw official facts; zero policy is separate.
         # Never fabricate passing semantic/policy verdicts or custom metrics.
         return AgentLoopOutput(
             prompt_ids=initial_prompt_ids,
             response_ids=response_ids,
             response_mask=response_mask,
             response_logprobs=aligned_log_probs,
-            reward_score=custom_reward.train_reward
-            if custom_reward
-            else official.reward,
+            reward_score=effective_reward,
             num_turns=assistant_turns,
             metrics=metrics,
             extra_fields={
                 **credit_fields,
                 "reward_extra_info": {
-                    "train_reward": custom_reward.train_reward
-                    if custom_reward
-                    else official.reward,
+                    "train_reward": effective_reward,
                     "tau2_official_reward": official.reward,
                     **(
                         {"custom_strict_success": custom_reward.strict_success}
@@ -1301,5 +1321,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     else {}
                 ),
                 "termination_reason": termination_reason,
+                "truncation_zero_applied": zero_cutoff,
+                "truncation_policy": self.project.get("reward", {}).get("truncation_policy"),
             },
         )

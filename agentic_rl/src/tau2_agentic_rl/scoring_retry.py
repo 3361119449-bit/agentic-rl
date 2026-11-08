@@ -50,7 +50,14 @@ async def retry_scoring_batch(records, judge, store):
 
 async def retry_scoring(record, judge, store):
     """Atomically update the same ID/slot, preserving all interaction evidence."""
-    if record.user_sim_inputs is not None:
+    from tau2_agentic_rl.reward.truncation import (
+        deterministic_zero_reward,
+        zero_truncated,
+    )
+
+    zero_cutoff = zero_truncated(record.scoring_inputs.get("reward_project_config", {}),
+                                 record.termination_reason)
+    if record.user_sim_inputs is not None and not zero_cutoff:
         from tau2_agentic_rl.user_simulation import validate_saved_screen
 
         if (
@@ -79,10 +86,29 @@ async def retry_scoring(record, judge, store):
     ):
         raise ValueError("interaction differs from frozen scoring inputs")
     attempts = record.metadata.setdefault("scoring_retries", [])
-    if enabled(inputs.get("reward_project_config", {})):
+    if enabled(inputs.get("reward_project_config", {})) and not zero_cutoff:
         expected = build_turn_inputs(record.messages, inputs["judge"]["policy"], record.assistant_turns)
         if inputs.get("simple_turn_inputs") != expected:
             raise ValueError("bounded messages differ from frozen turn scoring inputs")
+    if zero_cutoff:
+        if inputs.get("progress_inputs") is not None and inputs.get("progress_trace") is None:
+            inputs["progress_trace"] = await asyncio.to_thread(
+                build_progress_trace, **inputs["progress_inputs"], events=record.tool_events,
+                required_actions=inputs["required_actions"], dependencies=inputs["action_dependencies"],
+                transfer_rule=inputs["judge"]["transfer_rule"])
+            record.metadata["scoring_inputs_sha256"] = sha256_json(inputs)
+        record.progress_trace = inputs.get("progress_trace")
+        record.custom_reward = deterministic_zero_reward(
+            termination_reason=record.termination_reason,
+            project=inputs["reward_project_config"], official=record.official_scores)
+        record.judge_result = None
+        for key in ("failure_phase", "failure_type", "failure_message", "failure_kind"):
+            record.metadata[key] = None
+        record.metadata["truncation_zero_applied"] = True
+        record.metadata["judge_skipped_for_truncation"] = True
+        attempts.append({"attempt": len(attempts) + 1, "phase": "truncation_zero", "success": True})
+        store.save(record)
+        return True
     attempt = {"attempt": len(attempts) + 1, "phase": "judge", "success": False}
     try:
         if inputs.get("progress_inputs") is not None:
