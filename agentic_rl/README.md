@@ -32,7 +32,7 @@ DB/COMM/REQ 加和进度，见 [v11 说明](REWARD_V11.md)。
 - Qwen 原始生成 token ID、vLLM old log-prob 和 turn 边界原样保存；
 - 只有 Qwen 输出 token 的 `response_mask=1`，工具、用户、模板 token 均为 0；
 - 多轮 observation 包含 Qwen `turn_separator`，完整计入上下文预算；
-- 16,384 token 生成前预算检查，15 轮软阈值、24 轮硬终止；
+- 16,384 token 生成前预算检查，15 轮软阈值、训练与评估均为 30 个助手轮次硬上限；
 - DeepSeek 用户模拟器与 Judge 使用独立 prompt、缓存和重试；
 - 原 Judge 每条完整轨迹执行一次评分流程；默认新模式额外逐轮检查实际可见前缀，二者均缓存结果并有界重试；
 - 官方 DB/COMMUNICATE、必须动作、语义与政策检查；strict 成功与训练奖励分别计算，默认 v4 将政策违规归因到对应轮次；

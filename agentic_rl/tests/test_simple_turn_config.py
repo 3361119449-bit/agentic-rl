@@ -27,6 +27,10 @@ def test_default_enables_final_rule_and_legacy_keeps_original_config():
                 'user_api_max_inflight', 'judge_api_max_inflight', 'vllm_max_num_seqs'):
         assert cfg['rollout'].pop(key) == 8
         assert legacy['rollout'].pop(key) == 2
+    # Current training/evaluation use30 assistant turns; legacy stays frozen.
+    assert cfg['rollout']['max_hard_turns'] == 30
+    assert legacy['rollout']['max_hard_turns'] == 24
+    cfg['rollout']['max_hard_turns'] = legacy['rollout']['max_hard_turns']
     assert cfg == legacy
 
 
