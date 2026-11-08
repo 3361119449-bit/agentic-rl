@@ -240,6 +240,31 @@ class DeepSeekJudge:
             self._validate_requested_criteria(parsed, inputs)
             return parsed, raw, prompt_hash, cache_key
 
+        failed_path = cache_path.with_suffix(".failed.json")
+        if grounded and failed_path.exists():
+            failed = json.loads(failed_path.read_text(encoding="utf-8"))
+            if failed.get("identity") != identity:
+                raise RuntimeError("failed Judge cache identity mismatch")
+            for entry in reversed(failed.get("validation_history", [])):
+                raw = entry.get("raw_response")
+                if not raw:
+                    continue
+                try:
+                    parsed = result_model.model_validate(json.loads(raw))
+                    self._validate_requested_criteria(parsed, inputs)
+                except (ValueError, KeyError):
+                    continue
+                self._atomic_write(cache_path, json.dumps({
+                    "identity": identity, "result": parsed.model_dump(mode="json"),
+                    "raw_response": raw, "validation_history": failed["validation_history"],
+                    "revalidated_from_failed_response": True,
+                    "revalidated_response_attempt": entry.get("attempt"),
+                    # Old failed envelopes did not bind each individual retry request.
+                    # Never invent a wire hash for those responses.
+                    "accepted_request_sha256": entry.get("request_sha256"),
+                }, ensure_ascii=False, indent=2, sort_keys=True))
+                return parsed, raw, prompt_hash, cache_key
+
         api_key = os.environ.get(self.config.api_key_env)
         if not api_key:
             raise RuntimeError(f"missing {self.config.api_key_env}")
@@ -258,6 +283,7 @@ class DeepSeekJudge:
             timeout=self.config.timeout_seconds,
         ) as client:
             for attempt in range(self.config.max_retries + 1):
+                raw = None
                 try:
                     async with api_budget().aslot("judge_api"):
                         response = await client.post(
@@ -295,7 +321,8 @@ class DeepSeekJudge:
                     last_error = exc
                     if grounded and isinstance(exc, ValueError):
                         entry = {"attempt": attempt+1, "error": str(exc)[:1200],
-                                 "raw_response": locals().get("raw", "")}
+                                 "raw_response": raw or "",
+                                 "request_sha256": sha256_json(payload["messages"])}
                         validation_history.append(entry)
                         if attempt < self.config.max_retries:
                             payload["messages"] = [*messages, {"role":"user", "content":

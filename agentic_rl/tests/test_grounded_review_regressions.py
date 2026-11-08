@@ -199,3 +199,65 @@ def test_partial_delivery_failure_preserves_original_unscored_audit(scratch_dir)
     assert record.metadata["failure_phase"] == "tau2_text_step"
     assert record.custom_reward is None and record.judge_result is None
     assert not record.metadata.get("judge_result_provenance")
+
+
+def test_global_format_metadata_cannot_replace_required_grounded_findings():
+    from tau2_agentic_rl.judge.client import DeepSeekJudge
+    from tau2_agentic_rl.schemas import GroundedJudgeResult
+
+    view, result = transfer_case(False)
+    raw = result.model_dump()
+    raw.update(
+        type="json_object",
+        transfer_validation_version="transfer-policy-v2",
+        dynamic_transfer_requirement="Copied rubric metadata, not a decision field.",
+    )
+    parsed = GroundedJudgeResult.model_validate(raw)
+    DeepSeekJudge._validate_requested_criteria(parsed, view)
+    assert parsed.model_dump() == result.model_dump()
+    del raw["policy_attributions"]
+    with pytest.raises(ValueError):
+        GroundedJudgeResult.model_validate(raw)
+
+
+@pytest.mark.asyncio
+async def test_same_identity_failed_wire_can_be_revalidated_without_new_http(
+    scratch_dir, monkeypatch
+):
+    import json
+
+    from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
+    from tau2_agentic_rl.versions import sha256_json
+
+    view, result = transfer_case(False)
+    view["task"] = {}
+    judge = DeepSeekJudge(JudgeConfig(model="fixture", cache_dir=str(scratch_dir)))
+    messages = judge.build_messages(**view)
+    identity = judge.cache_identity(messages)
+    key = sha256_json(identity)
+    raw = result.model_dump()
+    raw["type"] = "json_object"
+    (scratch_dir / (key + ".failed.json")).write_text(
+        json.dumps(
+            {
+                "identity": identity,
+                "status": "unresolved_no_score",
+                "validation_history": [
+                    {
+                        "attempt": 1,
+                        "raw_response": json.dumps(raw),
+                        "error": "format metadata",
+                    }
+                ],
+                "accepted_request_sha256": sha256_json(messages),
+            }
+        )
+    )
+    parsed, wire, _, actual = await judge.evaluate(**view)
+    assert (
+        actual == key
+        and parsed.model_dump() == result.model_dump()
+        and json.loads(wire)["type"] == "json_object"
+    )
+    saved = json.loads((scratch_dir / (key + ".json")).read_text())
+    assert saved["revalidated_from_failed_response"] is True

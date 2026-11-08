@@ -179,7 +179,7 @@ class JudgeResult(BaseModel):
 
 
 class GroundedJudgeResult(JudgeResult):
-    model_config = {"extra": "forbid", "strict": True}
+    model_config = {"extra": "ignore", "strict": True}
     grounding_version: Literal["judge-grounded-v3"]
     policy_attributions: list[PolicyAttributionWitness]
 

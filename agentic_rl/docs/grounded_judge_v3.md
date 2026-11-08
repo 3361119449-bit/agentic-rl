@@ -67,3 +67,9 @@ scoped attribution, seeded history, ordinary evaluation and transfer-facts revie
 Real API validation uses separate frozen-prefix and offline80 artifacts; source
 trajectory files remain unchanged. Unresolved scores are reported, never relabeled
 as successful or silently replaced with zero.
+
+Global root format/rubric metadata retains legacy compatibility; it cannot replace
+required grounded fields. Atomic current-turn findings remain strict. A saved failed
+raw response may be accepted only after matching the exact request identity and
+passing all current validators. Raw output and failure history remain available;
+legacy failures without a per-attempt wire hash are explicitly left without one.
