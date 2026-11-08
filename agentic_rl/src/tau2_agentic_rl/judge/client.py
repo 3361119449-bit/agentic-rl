@@ -23,7 +23,7 @@ from tau2_agentic_rl.judge.prompts import (
 )
 from tau2_agentic_rl.policy_rules import definitely_active_policy_rules
 from tau2_agentic_rl.reward.transfer_branch import validate_transfer_verdict
-from tau2_agentic_rl.schemas import GroundedJudgeResult, JudgeResult, TransferCheck
+from tau2_agentic_rl.schemas import JudgeResult, TransferCheck
 from tau2_agentic_rl.versions import sha256_json
 
 
@@ -215,18 +215,10 @@ class DeepSeekJudge:
             )
             result.transfer_check.applicable = True
         validate_evidence_turn_ids(result, inputs.get("trajectory", {}))
-        if inputs.get("judge_validation_version"):
-            from tau2_agentic_rl.judge.grounded_policy import validate_global_witnesses
-
-            validate_global_witnesses(result, inputs)
 
     async def evaluate(self, **inputs: Any) -> tuple[JudgeResult, str, str, str]:
         """Return result, raw response, prompt hash, and full cache-key hash."""
-        grounded = (inputs.get("request_version") == "simple-turn-target-v3"
-                    or inputs.get("judge_validation_version") == "judge-grounded-v3")
         messages = self.build_messages(**inputs)
-        result_model = (GroundedJudgeResult if self.result_model is JudgeResult
-                        and inputs.get("judge_validation_version") == "judge-grounded-v3" else self.result_model)
         prompt_hash = sha256_json(messages)
         identity = self.cache_identity(messages)
         cache_key = sha256_json(identity)
@@ -235,35 +227,10 @@ class DeepSeekJudge:
             envelope = json.loads(cache_path.read_text(encoding="utf-8"))
             if envelope.get("identity") != identity:
                 raise RuntimeError("judge cache identity mismatch")
-            parsed = result_model.model_validate(envelope["result"])
+            parsed = self.result_model.model_validate(envelope["result"])
             raw = str(envelope.get("raw_response", ""))
             self._validate_requested_criteria(parsed, inputs)
             return parsed, raw, prompt_hash, cache_key
-
-        failed_path = cache_path.with_suffix(".failed.json")
-        if grounded and failed_path.exists():
-            failed = json.loads(failed_path.read_text(encoding="utf-8"))
-            if failed.get("identity") != identity:
-                raise RuntimeError("failed Judge cache identity mismatch")
-            for entry in reversed(failed.get("validation_history", [])):
-                raw = entry.get("raw_response")
-                if not raw:
-                    continue
-                try:
-                    parsed = result_model.model_validate(json.loads(raw))
-                    self._validate_requested_criteria(parsed, inputs)
-                except (ValueError, KeyError):
-                    continue
-                self._atomic_write(cache_path, json.dumps({
-                    "identity": identity, "result": parsed.model_dump(mode="json"),
-                    "raw_response": raw, "validation_history": failed["validation_history"],
-                    "revalidated_from_failed_response": True,
-                    "revalidated_response_attempt": entry.get("attempt"),
-                    # Old failed envelopes did not bind each individual retry request.
-                    # Never invent a wire hash for those responses.
-                    "accepted_request_sha256": entry.get("request_sha256"),
-                }, ensure_ascii=False, indent=2, sort_keys=True))
-                return parsed, raw, prompt_hash, cache_key
 
         api_key = os.environ.get(self.config.api_key_env)
         if not api_key:
@@ -275,8 +242,6 @@ class DeepSeekJudge:
             "response_format": {"type": "json_object"},
         }
         last_error: Exception | None = None
-        grounded = (inputs.get("request_version") == "simple-turn-target-v3"
-                    or inputs.get("judge_validation_version") == "judge-grounded-v3")
         validation_history = []
         async with httpx.AsyncClient(
             base_url=self.config.base_url.rstrip("/") + "/",
@@ -293,7 +258,7 @@ class DeepSeekJudge:
                         )
                     response.raise_for_status()
                     raw = response.json()["choices"][0]["message"]["content"]
-                    parsed = result_model.model_validate(json.loads(raw))
+                    parsed = self.result_model.model_validate(json.loads(raw))
                     self._validate_requested_criteria(parsed, inputs)
                     self._atomic_write(
                         cache_path,
@@ -302,9 +267,8 @@ class DeepSeekJudge:
                                 "identity": identity,
                                 "result": parsed.model_dump(mode="json"),
                                 "raw_response": raw,
-                                **({"validation_history": validation_history,
-                                    "accepted_request_sha256": sha256_json(payload["messages"])}
-                                   if grounded else {}),
+                                "validation_history": validation_history,
+                                "accepted_request_sha256": sha256_json(payload["messages"]),
                             },
                             ensure_ascii=False,
                             indent=2,
@@ -319,16 +283,13 @@ class DeepSeekJudge:
                     ValueError,
                 ) as exc:
                     last_error = exc
-                    if grounded and isinstance(exc, ValueError):
-                        entry = {"attempt": attempt+1, "error": str(exc)[:1200],
-                                 "raw_response": raw or "",
-                                 "request_sha256": sha256_json(payload["messages"])}
-                        validation_history.append(entry)
-                        if attempt < self.config.max_retries:
-                            payload["messages"] = [*messages, {"role":"user", "content":
-                                "Validation feedback for this SAME frozen target (not new facts): "
-                                + entry["error"] + ". Reassess the original evidence and return consistent JSON. "
-                                "Do not change target identity, fabricate facts, or copy an earlier turn."}]
+                    if isinstance(exc, ValueError):
+                        validation_history.append({"attempt": attempt + 1, "error": str(exc)[:800],
+                            "raw_response": raw, "request_sha256": sha256_json(payload["messages"])})
+                        payload["messages"] = [*messages, {"role": "user", "content":
+                            "Validation error for the SAME frozen request: " + str(exc)[:800]
+                            + ". Recheck the original evidence and return consistent JSON. "
+                            "Keep the same target and fields; do not invent facts to satisfy validation."}]
                     if isinstance(exc, httpx.HTTPError):
                         from tau2_agentic_rl.slot_recovery import interaction_retryable
 
@@ -336,11 +297,6 @@ class DeepSeekJudge:
                             break
                     if attempt < self.config.max_retries:
                         await asyncio.sleep(2**attempt)
-        if grounded and validation_history:
-            self._atomic_write(cache_path.with_suffix(".failed.json"), json.dumps({
-                "identity": identity, "validation_history": validation_history,
-                "status":"unresolved_no_score", "accepted_request_sha256":sha256_json(payload["messages"]),
-            }, ensure_ascii=False, indent=2))
         from tau2_agentic_rl.slot_recovery import interaction_retryable
 
         retryable = not isinstance(last_error, httpx.HTTPError) or interaction_retryable(

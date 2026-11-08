@@ -959,10 +959,3 @@ Judge 缓存键包含模型、provider/base URL、完整消息、rubric/prompt/s
 前确定性截断并记录。Tau2 的 timeout、max_steps、agent/user/infra error 等
 终止原因会原样区分；基础设施失败轨迹保存审计信息后抛出，不进入 pass^k
 分母。
-
-
-### Grounded Judge v3
-
-The current ProCredit default enables the targeted Judge audit and causal blame
-reconciliation described in [docs/grounded_judge_v3.md](docs/grounded_judge_v3.md).
-Reward equations/weights are unchanged; v12 is preserved as a frozen config.

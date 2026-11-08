@@ -16,14 +16,12 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
                     credit_version=None, judge_failures=0, version_fields=None,
                     db_subgoal_credit=False, post_completion_credit=False,
                     final_turn_rule=None, turn_scorer=None, zero_truncation=False,
-                    hard_limit=None, natural_stop_at=None, judge_enabled=True, grounded_judge=False):
+                    hard_limit=None, natural_stop_at=None, judge_enabled=True):
     loop, scope = minimal_loop(scratch_dir)
     cleaned, judge_calls = [], []
     loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
     loop.project["reward"] = {"mode": "strict_progress_v1"}
     loop.project["judge"] = {"enabled": judge_enabled}
-    if grounded_judge:
-        loop.project["judge"]["grounding_version"] = "judge-grounded-v3"
     if credit_version:
         policy_credit_v2 = True
     if policy_credit_v2:
@@ -145,10 +143,7 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
             text = str(kwargs["trajectory"]["messages"])
             assert "cleanup" not in text and "unsent" not in text
             result = JudgeResult()
-            if grounded_judge:
-                result.grounding_version = "judge-grounded-v3"
-                result.policy_attributions = []
-            elif policy_credit_v2:
+            if policy_credit_v2:
                 result.mandatory_policy_checks = [JudgeCheck(
                     criterion_id="mixed", passed=False, evidence_turn_ids=[2],
                     violation_assistant_turn_ids=[2], short_reason="mixed text/tool action",

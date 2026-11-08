@@ -44,12 +44,6 @@ from tau2_agentic_rl.initial_prompt import (
     require_initial_prompt_fits,
 )
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
-from tau2_agentic_rl.judge.grounded import (
-    finish_grounded_trace,
-    prepare_grounded_turns,
-    result_provenance,
-)
-from tau2_agentic_rl.judge.grounded_policy import bind_undelivered
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
 from tau2_agentic_rl.judge.simple_turn import score_simple_turns
 from tau2_agentic_rl.policy_rules import validate_policy_rows
@@ -57,11 +51,6 @@ from tau2_agentic_rl.procredit_runtime import credit_from_record
 from tau2_agentic_rl.reward.db_subgoals import (
     select_db_subgoals,
     subgoal_trace_from_scoring,
-)
-from tau2_agentic_rl.reward.grounded import (
-    frozen_options,
-    global_options,
-    version_for_project,
 )
 from tau2_agentic_rl.reward.policy_credit import annotate_policy_turns
 from tau2_agentic_rl.reward.post_completion import completion_trace_from_scoring
@@ -548,7 +537,6 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             raise RolloutInfrastructureError("prompt_initialization", trajectory_id) from exc
         initial_prompt_ids = list(prompt_ids)
         procredit = is_procredit(self.project)
-        policy_prefix_lengths = [len(environment.full_trajectory())] if global_options(self.project) else None
         progress_inputs = (
             {
                 "task": deepcopy(environment.task),
@@ -660,8 +648,6 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             response_turn_ids.extend([assistant_turns] * len(output.token_ids))
             aligned_log_probs.extend(output.log_probs)
             assistant_turns += 1
-            if policy_prefix_lengths is not None:
-                policy_prefix_lengths.append(policy_prefix_lengths[-1])
             if progress_inputs is not None:
                 progress_inputs["prefix_lengths"].append(
                     progress_inputs["prefix_lengths"][-1]
@@ -892,8 +878,6 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     break
 
             progress()
-            if policy_prefix_lengths is not None:
-                policy_prefix_lengths[-1] = len(environment.full_trajectory())
             if progress_inputs is not None:
                 progress_inputs["prefix_lengths"][-1] = len(environment.full_trajectory())
             if step.messages:
@@ -943,8 +927,6 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             except Exception as exc:
                 infrastructure_error = ("reward_scoring", exc)
         trajectory_for_judge = snapshot_transcript(environment)
-        if policy_prefix_lengths is not None and infrastructure_error is None:
-            trajectory_for_judge = annotate_policy_turns(trajectory_for_judge, policy_prefix_lengths)
         if progress_inputs is not None:
             progress_inputs["messages"] = deepcopy(environment.full_trajectory())
             # A failed environment step may already have appended messages,
@@ -991,11 +973,9 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         judge_prompt_hash = None
         judge_cache_key = None
         simple_turn_labels = None
-        grounded_turns = None
         scoring_inputs = {
             "reward_judge_enabled": reward_judge_enabled(self.project),
             "judge": {
-                **global_options(self.project),
                 "task": environment.task,
                 "policy": extract_airline_policy(self.agent_system_prompt),
                 "trajectory": {
@@ -1013,21 +993,16 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             "official_scores": official.model_dump() if official is not None else None,
             "action_dependencies": self.action_dependencies.get(task_id, []),
             "reward_project_config": {
-                **frozen_options(self.project),
                 "reward": self.project.get("reward", {}),
                 "credit": self.project.get("credit", {}),
                 "rollout": self.project["rollout"],
             },
         }
-        if global_options(self.project) and infrastructure_error is None:
-            scoring_inputs["judge"]["trajectory"]["initial_prefix_length"] = policy_prefix_lengths[0]
-            scoring_inputs["judge"]["trajectory"] = bind_undelivered(scoring_inputs["judge"]["trajectory"], messages)
         if progress_inputs is not None:
             scoring_inputs["progress_inputs"] = progress_inputs
         if simple_turn_enabled(self.project) and infrastructure_error is None and not zero_cutoff:
             scoring_inputs["simple_turn_inputs"] = build_turn_inputs(
                 messages, scoring_inputs["judge"]["policy"], assistant_turns,
-                judge_version=version_for_project(self.project),
             )
         if db_subgoal_inputs is not None:
             scoring_inputs["db_subgoal_inputs"] = db_subgoal_inputs
@@ -1082,7 +1057,6 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                         policy_row.get("judge_checks", []),
                         transfer_rule,
                         require_policy_attribution=self.project.get("credit", {}).get("version") == "procredit-turn-v4",
-                        **global_options(self.project),
                         **({"transfer_validation_version": self.project["reward"]["transfer_validation_version"]}
                            if self.project.get("reward", {}).get("transfer_validation_version") else {}),
                     ),
@@ -1138,10 +1112,6 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     **scoring_inputs["judge"],
                 )
                 progress()
-                if global_options(self.project) and simple_turn_enabled(self.project):
-                    judge_result, grounded_turns = await prepare_grounded_turns(
-                        scoring_inputs["simple_turn_inputs"], scoring_inputs["judge"],
-                        judge_result, self.judge, progress=progress)
             except Exception as exc:
                 infrastructure_error = ("judge", exc)
 
@@ -1175,15 +1145,10 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
 
         if infrastructure_error is None and simple_turn_enabled(self.project) and not zero_cutoff:
             try:
-                if grounded_turns is not None:
-                    simple_turn_labels = finish_grounded_trace(
-                        scoring_inputs["simple_turn_inputs"], grounded_turns, tool_events,
-                        custom_reward.details["policy_credit"])
-                else:
-                    simple_turn_labels = await score_simple_turns(
-                        scoring_inputs["simple_turn_inputs"], tool_events,
-                        custom_reward.details["policy_credit"], self.judge, progress=progress,
-                    )
+                simple_turn_labels = await score_simple_turns(
+                    scoring_inputs["simple_turn_inputs"], tool_events,
+                    custom_reward.details["policy_credit"], self.judge, progress=progress,
+                )
             except Exception as exc:
                 infrastructure_error = ("turn_labels", exc)
                 custom_reward = None
@@ -1260,8 +1225,6 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     "evaluation_sample_index"
                 ),
                 "judge_raw": judge_raw,
-                **({"judge_result_provenance": result_provenance(grounded_turns, judge_cache_key)}
-                   if grounded_turns is not None else {}),
                 **({"simple_turn_labels": simple_turn_labels} if simple_turn_enabled(self.project) else {}),
                 "judge_prompt_hash": judge_prompt_hash,
                 "judge_cache_key": judge_cache_key,
@@ -1270,7 +1233,6 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     policy_row.get("judge_checks", []),
                     transfer_rule,
                     require_policy_attribution=self.project.get("credit", {}).get("version") == "procredit-turn-v4",
-                        **global_options(self.project),
                         **({"transfer_validation_version": self.project["reward"]["transfer_validation_version"]}
                            if self.project.get("reward", {}).get("transfer_validation_version") else {}),
                 ),

@@ -4,7 +4,7 @@ project:
   tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
   verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
   annotation_version: v4-policy-applicability
-  reward_version: v13-procredit-grounded-judge
+  reward_version: v12-procredit-35turn-zero-truncation
 agent_policy:
   path: configs/prompts/areal_airline_sft.v1.json
   system_prompt_sha256: e490e0859e1357ed6dd777fdbddab15b11d6de96ff7161328a6babcab77348ab
@@ -55,7 +55,6 @@ user_simulator:
       thinking:
         type: disabled
 judge:
-  grounding_version: judge-grounded-v3
   enabled: true
   provider: DeepSeek
   model: ${DEEPSEEK_JUDGE_MODEL}

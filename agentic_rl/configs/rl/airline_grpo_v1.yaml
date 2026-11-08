@@ -68,7 +68,6 @@ user_simulator:
         type: disabled
 
 judge:
-  grounding_version: judge-grounded-v3
   enabled: true
   provider: DeepSeek
   model: ${DEEPSEEK_JUDGE_MODEL}

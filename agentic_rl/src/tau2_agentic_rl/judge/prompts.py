@@ -14,7 +14,7 @@ Apply only the fixed rubric and Airline Policy supplied outside the trajectory.
 The fixed policy is the bound SFT policy, not Tau2's official policy. Apply
 database-write confirmation exactly as stated in that policy and in the supplied
 mandatory rubric: when a write occurs, the assistant must have listed the action
-details and obtained explicit user confirmation (yes) before the write tool call.
+details and obtained explicit user confirmation before the write tool call.
 Do not require any hidden action_proposal tag or protocol that is absent from the
 bound policy. Return one JSON object matching the requested schema. Every criterion is binary;
 never invent a continuous score. Evidence and short reasons are audit metadata.
@@ -46,17 +46,26 @@ Supporting user/tool messages are context, not offending actions. Do not copy
 messages.turn_idx into this field. Cite all offending generations when known;
 leave the list empty if the violation cannot be localized. Do not guess a final
 turn for an omission. Passed checks have an empty violation list.
+Judge each blamed generation independently against facts visible before that action.
+Do not spread an earlier mistake onto a later corrected, newly authorized action.
+Reference actions/totals measure task completion; they are not policy or factual truth.
+Correct partial refund subtotals are not false because more task goals remain unfinished.
+An unequivocal user instruction after listed details can confirm a write; do not demand
+literal yes unless Policy requires it. Recompute prices/counts/net refunds and authorized
+charges, preserving original prices of unchanged legs. Distinguish cabin-change exceptions
+from basic-economy flight-change restrictions. A legal transfer does not validate its
+summary facts or establish successful task completion. Unknown status does not prove no
+cancellation. No new evidence format is required: use the existing fields and brief reasons.
 """
 
-JUDGE_PROMPT_VERSION = "areal-airline-judge-prompt-v10-transfer-policy"
-JUDGE_RUBRIC_VERSION = "areal-airline-rubric-v6-transfer-policy"
+JUDGE_PROMPT_VERSION = "areal-airline-judge-prompt-v11-lite"
+JUDGE_RUBRIC_VERSION = "areal-airline-rubric-v7-lite"
 JUDGE_SCHEMA_VERSION = "1.0"
 
 
 def rubric_fingerprint(
     semantic_checks, mandatory_policy_checks, transfer_rule, *,
     require_policy_attribution=False, transfer_validation_version="transfer-policy-v1",
-    judge_validation_version=None,
 ):
     return sha256_json(
         {
@@ -66,7 +75,6 @@ def rubric_fingerprint(
             "mandatory_policy_checks": mandatory_policy_checks,
             "transfer_rule": transfer_rule,
             "transfer_validation_version": transfer_validation_version,
-            **({"judge_validation_version":judge_validation_version} if judge_validation_version else {}),
             **({"require_policy_attribution": True} if require_policy_attribution else {}),
         }
     )
@@ -82,7 +90,6 @@ def build_judge_messages(
     transfer_rule: dict[str, Any],
     require_policy_attribution: bool = False,
     transfer_validation_version: str = "transfer-policy-v1",
-    judge_validation_version: str | None = None,
 ) -> list[dict[str, str]]:
     """Build an isolated, injection-resistant judge request."""
     transferred = any(
@@ -213,17 +220,6 @@ def build_judge_messages(
             "transfer_scope_and_message cannot pass: identify the actual violating "
             "decision, or leave blame empty if the evidence cannot localize one."
         )
-    if judge_validation_version is not None:
-        from tau2_agentic_rl.judge.grounded_policy import (
-            GLOBAL_VERSION,
-            grounded_rubric,
-        )
-
-        if judge_validation_version != GLOBAL_VERSION:
-            raise ValueError("unknown Judge validation version")
-        rubric["grounded_policy_attribution"] = grounded_rubric(trajectory)
-        rubric["output_schema"]["grounding_version"] = GLOBAL_VERSION
-        rubric["output_schema"]["policy_attributions"] = [rubric["grounded_policy_attribution"]["witness_schema"]]
     content = (
         "FIXED_AIRLINE_POLICY:\n"
         + policy
@@ -233,8 +229,6 @@ def build_judge_messages(
         + json.dumps(trajectory, ensure_ascii=False)
     )
     system = JUDGE_SYSTEM_PROMPT
-    if judge_validation_version is not None:
-        system = system.replace("explicit user confirmation (yes)", "explicit user confirmation")
     if transfer_validation_version == "transfer-policy-v2":
         system = system.replace(
             "and its evidence list empty; applicable is true only if the task requires transfer.",
