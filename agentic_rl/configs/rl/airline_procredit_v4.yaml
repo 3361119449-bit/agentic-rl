@@ -26,7 +26,7 @@ rollout:
   max_context_length: 16384
   initial_prompt_max_tokens: 8192
   max_soft_turns: 15
-  max_hard_turns: 24
+  max_hard_turns: 30
   reserved_observation_tokens: 1024
   reserved_template_tokens: 128
   min_final_response_tokens: 64
