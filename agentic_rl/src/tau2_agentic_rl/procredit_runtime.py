@@ -128,6 +128,9 @@ def credit_from_record(record) -> dict:
     ):
         raise ValueError("record lacks complete ProCredit scoring inputs")
     validate_progress_trace(trace, turns=record.assistant_turns)
+    frozen_reward = record.scoring_inputs.get("reward_project_config", {}).get("reward", {})
+    if trace["version"] != frozen_reward.get("progress_version", trace["version"]):
+        raise ValueError("record progress version differs from frozen configuration")
     valid = reward.policy_gate and reward.task_safety_gate
     version = reward.details.get("credit_version", "procredit-turn-v1")
     local_only = version == "procredit-turn-v4"
@@ -137,6 +140,24 @@ def credit_from_record(record) -> dict:
 
         terminal = strict_success(reward.components)
         transfer_target = record.scoring_inputs.get("judge", {}).get("transfer_rule", {}).get("required", False)
+        if transfer_target and frozen_reward.get("transfer_validation_version") == "transfer-policy-v2":
+            from tau2_agentic_rl.reward.transfer_branch import (
+                transfer_components,
+                transfer_task_completion,
+            )
+
+            if record.judge_result is None:
+                raise ValueError("v2 transfer completion requires explicit frozen Judge facts")
+            transfer_valid, transfer_scores = transfer_components(
+                record.tool_events, record.environment_transcript,
+                record.scoring_inputs["judge"]["transfer_rule"], record.judge_result,
+                validation_version="transfer-policy-v2",
+            )
+            if transfer_scores != reward.components or transfer_valid != reward.details.get("transfer_valid"):
+                raise ValueError("transfer completion evidence differs from frozen facts")
+            terminal = transfer_task_completion(
+                transfer_scores, transfer_valid, record.judge_result, "transfer-policy-v2",
+            )
         if (
             reward.reward_mode != "turn_local_v1"
             or reward.branch != ("human_transfer" if transfer_target else "normal")
@@ -225,7 +246,7 @@ def credit_from_record(record) -> dict:
         config = build_reward_config(frozen)
         if (
             config.credit_version != version
-            or trace["version"] != "progress-v2"
+            or trace["version"] not in {"progress-v2", "progress-v3"}
             or reward.details.get("process_config") != asdict(config.process)
         ):
             raise ValueError("record process configuration differs from frozen inputs")

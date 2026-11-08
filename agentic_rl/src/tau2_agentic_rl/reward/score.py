@@ -31,6 +31,8 @@ from tau2_agentic_rl.reward.required_actions import evaluate_required_actions
 from tau2_agentic_rl.reward.transfer_branch import (
     successful_transfer_event,
     transfer_components,
+    transfer_required,
+    transfer_task_completion,
 )
 from tau2_agentic_rl.schemas import (
     ComponentScore,
@@ -59,6 +61,8 @@ class RewardConfig:
     """First-version reward coefficients."""
 
     mode: str = "legacy"
+    transfer_validation_version: str = "transfer-policy-v1"
+    duplicate_query_version: str | None = None
     progress_scale: float = 0.5
     credit_version: str = "procredit-turn-v1"
     normal_weights: dict[str, float] = field(
@@ -85,6 +89,10 @@ class RewardConfig:
     process: ProcessPenaltyConfig = field(default_factory=ProcessPenaltyConfig)
 
     def __post_init__(self) -> None:
+        if self.duplicate_query_version not in {None, "duplicate-query-v1"}:
+            raise ValueError("unknown duplicate query version")
+        if self.transfer_validation_version not in {"transfer-policy-v1", "transfer-policy-v2"}:
+            raise ValueError("unknown transfer validation version")
         if self.credit_version not in {"procredit-turn-v1", "procredit-turn-v2", "procredit-turn-v3", "procredit-turn-v4"}:
             raise ValueError("unknown credit version")
         local_only = self.credit_version == "procredit-turn-v4"
@@ -127,6 +135,8 @@ def build_reward_config(project_config: dict[str, Any]) -> RewardConfig:
     process_defaults = defaults.process
     return RewardConfig(
         mode=reward.get("mode", "legacy"),
+        transfer_validation_version=reward.get("transfer_validation_version", "transfer-policy-v1"),
+        duplicate_query_version=reward.get("duplicate_query_version"),
         credit_version=project_config.get("credit", {}).get("version", "procredit-turn-v1"),
         progress_scale=float(reward.get("progress_scale", 0.5)),
         normal_weights={
@@ -232,7 +242,11 @@ def _score_legacy(
         _judge_policy_checks(judge),
     )
     transfer_event = successful_transfer_event(events)
-    if bool((transfer_rule or {}).get("required", False)):
+    dynamic_transfer = config.transfer_validation_version == "transfer-policy-v2"
+    transfer_target = transfer_required(
+        transfer_rule or {}, judge, config.transfer_validation_version,
+    )
+    if transfer_target:
         policy_checks.append(
             PolicyCheckResult(
                 rule_id="required_human_transfer_completed",
@@ -255,19 +269,39 @@ def _score_legacy(
     safety_blocks_reward = config.enable_task_safety_gate and not task_safety_gate
 
     local_only = config.credit_version == "procredit-turn-v4"
-    transfer_target = bool((transfer_rule or {}).get("required"))
     transfer_valid, transfer_scores = None, None
-    if transfer_event is not None or (local_only and transfer_target):
+    if transfer_event is not None or ((local_only or dynamic_transfer) and transfer_target):
         transfer_valid, transfer_scores = transfer_components(
             events,
             messages,
             transfer_rule or {},
             judge,
+            validation_version=config.transfer_validation_version,
         )
-    if (local_only and transfer_target) or (not local_only and transfer_event is not None):
+    transfer_details = (
+        {
+            "transfer_valid": transfer_valid,
+            "transfer_required": transfer_target,
+            "transfer_validation_version": config.transfer_validation_version,
+            "transfer_self_caused_only": judge.transfer_check.self_caused_only,
+        }
+        if dynamic_transfer else {}
+    )
+    use_transfer_branch = (
+        bool((transfer_rule or {}).get("required")) if dynamic_transfer
+        else ((local_only and transfer_target) or (not local_only and transfer_event is not None))
+    )
+    if use_transfer_branch:
         valid, components = transfer_valid, transfer_scores
         progress = normalized_weighted_mean(components, config.transfer_weights)
-        strict = strict_success(components)
+        strict = transfer_task_completion(
+            components, valid, judge, config.transfer_validation_version,
+        )
+        if dynamic_transfer and (not valid or judge.transfer_check.self_caused_only):
+            # Execution legality cannot manufacture completion or progress when
+            # only the assistant's own failures created the need for transfer.
+            strict = 0.0
+            progress = 0.0
         reward = _clip(
             config.progress_coefficient * progress
             + config.strict_coefficient * strict
@@ -293,14 +327,16 @@ def _score_legacy(
                 "truncation_multiplier": multiplier,
                 "reward_before_truncation": reward,
                 "transfer_valid": valid,
+                **transfer_details,
                 "policy_checks": [item.model_dump() for item in policy_checks],
                 "task_safety_check": task_safety_check.model_dump(),
                 "process_events": process.events,
             },
         )
 
-    if local_only and transfer_event is not None:
+    if (local_only or dynamic_transfer) and transfer_event is not None:
         policy_gate = policy_gate and bool(transfer_valid)
+        policy_blocks_reward = config.enable_mandatory_policy_gate and not policy_gate
     action_result = evaluate_required_actions(
         required_actions, events, action_dependencies
     )
@@ -345,6 +381,7 @@ def _score_legacy(
             "reward_before_truncation": reward,
             "required_actions": action_result.model_dump(),
             **({"transfer_valid": transfer_valid} if local_only and transfer_event is not None else {}),
+            **transfer_details,
             "policy_checks": [item.model_dump() for item in policy_checks],
             "task_safety_check": task_safety_check.model_dump(),
             "process_events": process.events,
@@ -359,13 +396,21 @@ def score_trajectory(
 ) -> RewardResult:
     """Preserve strict/gate semantics and version only the training score."""
     config = config or RewardConfig()
+    if config.duplicate_query_version:
+        from tau2_agentic_rl.reward.duplicate_queries import detect_duplicate_queries
+
+        audits = detect_duplicate_queries(kwargs["events"], require_evidence=True)
+        if any(event.duplicate_query != audit["duplicate_query"]
+               or event.duplicate_of_event_id != audit["duplicate_of_event_id"]
+               for event, audit in zip(kwargs["events"], audits, strict=True)):
+            raise ValueError("duplicate query flags differ from native state evidence")
     result = _score_legacy(config=config, **kwargs)
     if config.mode == "legacy":
         return result
     if progress_trace is None:
         raise ValueError("ProCredit reward requires frozen progress")
-    if config.credit_version in {"procredit-turn-v3", "procredit-turn-v4"} and progress_trace.get("version") != "progress-v2":
-        raise ValueError("ProCredit v3 requires progress-v2")
+    if config.credit_version in {"procredit-turn-v3", "procredit-turn-v4"} and progress_trace.get("version") not in {"progress-v2", "progress-v3"}:
+        raise ValueError("ProCredit v3/v4 requires versioned progress")
     phi = validate_progress_trace(progress_trace, turns=kwargs["assistant_turns"])
     validate_progress_inputs(
         progress_trace, required_actions=kwargs["required_actions"],

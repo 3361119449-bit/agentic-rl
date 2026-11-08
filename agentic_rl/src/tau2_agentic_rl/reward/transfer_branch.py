@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from tau2_agentic_rl.failures import PolicyAttributionPending
 from tau2_agentic_rl.reward.required_actions import arguments_equal
 from tau2_agentic_rl.schemas import ComponentScore, JudgeResult, ToolEvent
 
@@ -20,6 +21,29 @@ def successful_transfer_event(events: list[ToolEvent]) -> ToolEvent | None:
         ),
         None,
     )
+
+
+def validate_transfer_verdict(judge: JudgeResult) -> None:
+    """V2 needs fresh, explicit facts; legacy defaults are not decisions."""
+    check = judge.transfer_check
+    fields = {"applicable", "valid", "policy_required", "self_caused_only", "short_reason"}
+    if (
+        not fields <= check.model_fields_set
+        or check.policy_required is None
+        or check.self_caused_only is None
+        or not check.short_reason.strip()
+    ):
+        raise PolicyAttributionPending(
+            "transfer-policy-v2 requires an explicit transfer verdict; retry frozen Judge input"
+        )
+
+
+def transfer_required(rule: dict[str, Any], judge: JudgeResult, version: str) -> bool:
+    """Required annotations and bound policy/user obligations override prohibition."""
+    if version == "transfer-policy-v2":
+        validate_transfer_verdict(judge)
+        return bool(rule.get("required")) or judge.transfer_check.policy_required is True
+    return bool(rule.get("required"))
 
 
 def _argument_pattern_matches(expected: Any, actual: Any) -> bool:
@@ -105,14 +129,24 @@ def transfer_components(
     messages: list[dict[str, Any]],
     rule: dict[str, Any],
     judge: JudgeResult,
+    *,
+    validation_version: str = "transfer-policy-v1",
 ) -> tuple[bool, dict[str, ComponentScore]]:
-    """Build transfer components and the transfer validity hard gate."""
+    """Build transfer components, independently of task completion."""
     event = successful_transfer_event(events)
-    allowed = bool(rule.get("allowed", False))
-    judge_valid = (
-        judge.transfer_check.valid if judge.transfer_check.applicable else True
-    )
-    valid = event is not None and allowed and judge_valid
+    if validation_version == "transfer-policy-v2":
+        required = transfer_required(rule, judge, validation_version)
+        forbidden = bool(rule.get("forbidden")) and not required
+        valid = (
+            event is not None and not forbidden
+            and judge.transfer_check.applicable and judge.transfer_check.valid
+        )
+    else:
+        allowed = bool(rule.get("allowed", False))
+        judge_valid = (
+            judge.transfer_check.valid if judge.transfer_check.applicable else True
+        )
+        valid = event is not None and allowed and judge_valid
 
     communication_checks = rule.get("required_communication_checks", [])
     communication_value = _communication_score(messages, communication_checks)
@@ -143,3 +177,14 @@ def transfer_components(
         ),
     }
     return valid, components
+
+
+def transfer_task_completion(components, valid, judge, validation_version):
+    """Share the guarded transfer completion value with training readers."""
+    from tau2_agentic_rl.reward.normal_branch import strict_success
+
+    if validation_version == "transfer-policy-v2":
+        validate_transfer_verdict(judge)
+        if not valid or judge.transfer_check.self_caused_only:
+            return 0.0
+    return strict_success(components)

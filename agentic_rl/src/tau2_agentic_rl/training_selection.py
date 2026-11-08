@@ -19,6 +19,7 @@ from tau2_agentic_rl.versions import sha256_file, sha256_json
 def select_training_rows(
     *, rows: list[dict], tasks: dict, required: dict, dependencies: dict,
     transfers: dict, split: dict, evaluator=None, mode="verified_progress",
+    progress_version="progress-v2",
 ) -> tuple[list[dict], dict]:
     """Evaluate the actual initial history; no rollout or model calls."""
     if mode not in {"verified_progress", "task_or_local_credit"}:
@@ -43,7 +44,7 @@ def select_training_rows(
             task=task, messages=messages, prefix_lengths=[len(messages)], events=[],
             required_actions=required[task_id], dependencies=dependencies.get(task_id, []),
             transfer_rule=transfers[task_id], initial_state_fingerprint=sha256_json(initial),
-            evaluator=evaluator, version="progress-v2",
+            evaluator=evaluator, version=progress_version,
         )
         progress = any(check["included"] for check in trace["checks"])
         # v4's terminal task score and local policy/process credit can train
@@ -122,6 +123,7 @@ def prepare_training_selection(source: Path, project_root: Path, project: dict) 
         transfers=load_task_mapping(project_root / annotations["transfer_rules"]),
         split=json.loads((project_root / "data/splits/airline_internal_dev.v1.json").read_text(encoding="utf-8")),
         mode=project["training_selection"]["mode"],
+        progress_version=project.get("reward", {}).get("progress_version", "progress-v2"),
     )
     manifest["tau2_commit"] = project["project"]["tau2_commit"]
     directory = "procredit_v4" if project["credit"]["version"] == "procredit-turn-v4" else "procredit_v3"

@@ -98,8 +98,8 @@ def validate_procredit_config(config: dict) -> None:
             if type(recovery.get(key)) is not int or not 0 <= recovery[key] <= 10:
                 raise ValueError(f"slot_recovery.{key} must be an integer within [0, 10]")
     if credit.version in {"procredit-turn-v3", "procredit-turn-v4"}:
-        if config["reward"].get("progress_version") != "progress-v2":
-            raise ValueError("ProCredit v3/v4 requires reward.progress_version=progress-v2")
+        if config["reward"].get("progress_version") not in {"progress-v2", "progress-v3"}:
+            raise ValueError("ProCredit v3/v4 requires versioned progress-v2 or progress-v3")
         expected_process = "uncapped_local_additive" if local_only else "capped_local_max"
         if config["credit"].get("process_credit") != expected_process:
             raise ValueError(f"{credit.version} requires {expected_process} process credit")

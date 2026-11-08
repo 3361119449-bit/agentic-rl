@@ -28,7 +28,7 @@
 
 ### 默认逐轮奖励
 
-默认 `agentic_rl/configs/rl/airline_procredit_v4.yaml` 已启用 `simple-turn-v1`，奖励版本为 `v10-procredit-simple-turn`。在原 ProCredit v4 最终 token advantage `A0` 之后应用：
+默认 `agentic_rl/configs/rl/airline_procredit_v4.yaml` 已启用 `simple-turn-v1`，奖励版本为 `v11-procredit-transfer-query-req`。转人工动态判定、重复查询坏轮和 DB/COMM/REQ 加和进度见 [v11 说明](agentic_rl/REWARD_V11.md)。此前 v10 默认配置保存在 `airline_procredit_v4_v10.yaml`。在原 ProCredit v4 最终 token advantage `A0` 之后应用：
 
 ~~~python
 if bad_turn:

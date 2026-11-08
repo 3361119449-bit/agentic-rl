@@ -91,7 +91,10 @@ def build_policy_credit(
             continue
         ids = check.get("evidence_event_ids", [])
         if (
-            reward.reward_mode == "turn_local_v1"
+            (
+                reward.reward_mode == "turn_local_v1"
+                or reward.details.get("transfer_validation_version") == "transfer-policy-v2"
+            )
             and rule_id == "required_human_transfer_completed"
             and not ids
         ):

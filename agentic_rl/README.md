@@ -2,6 +2,10 @@
 
 这是本仓库的强化学习与冻结评估模块。项目使用固定版 Tau2 Airline 环境、选定的 Qwen3-4B SFT（或上一阶段 RL）合并模型和新挂载的 RL LoRA，在 veRL v0.9.0 上进行 GRPO / DAPO-style 训练。项目总览、数据版本与实验路线见 [根目录 README](../README.md)。
 
+默认奖励为 `v11-procredit-transfer-query-req`：转人工动态判定、确定性重复查询、
+DB/COMM/REQ 加和进度，见 [v11 说明](REWARD_V11.md)。
+此前 v10 配置另存为 `configs/rl/airline_procredit_v4_v10.yaml`。
+
 默认奖励已启用简单逐轮规则：坏轮 `min(A0, -1)`，合格正确拒绝
 `max(A0 + 1, 1)`，其余保留原始 A0。旧 v4 配置、运行命令、额外 Judge 成本与
 证据审计见 [SIMPLE_TURN_REWARD.md](SIMPLE_TURN_REWARD.md)。
