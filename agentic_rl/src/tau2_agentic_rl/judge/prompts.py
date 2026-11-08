@@ -56,6 +56,7 @@ JUDGE_SCHEMA_VERSION = "1.0"
 def rubric_fingerprint(
     semantic_checks, mandatory_policy_checks, transfer_rule, *,
     require_policy_attribution=False, transfer_validation_version="transfer-policy-v1",
+    judge_validation_version=None,
 ):
     return sha256_json(
         {
@@ -65,6 +66,7 @@ def rubric_fingerprint(
             "mandatory_policy_checks": mandatory_policy_checks,
             "transfer_rule": transfer_rule,
             "transfer_validation_version": transfer_validation_version,
+            **({"judge_validation_version":judge_validation_version} if judge_validation_version else {}),
             **({"require_policy_attribution": True} if require_policy_attribution else {}),
         }
     )
@@ -80,6 +82,7 @@ def build_judge_messages(
     transfer_rule: dict[str, Any],
     require_policy_attribution: bool = False,
     transfer_validation_version: str = "transfer-policy-v1",
+    judge_validation_version: str | None = None,
 ) -> list[dict[str, str]]:
     """Build an isolated, injection-resistant judge request."""
     transferred = any(
@@ -210,6 +213,17 @@ def build_judge_messages(
             "transfer_scope_and_message cannot pass: identify the actual violating "
             "decision, or leave blame empty if the evidence cannot localize one."
         )
+    if judge_validation_version is not None:
+        from tau2_agentic_rl.judge.grounded_policy import (
+            GLOBAL_VERSION,
+            grounded_rubric,
+        )
+
+        if judge_validation_version != GLOBAL_VERSION:
+            raise ValueError("unknown Judge validation version")
+        rubric["grounded_policy_attribution"] = grounded_rubric(trajectory)
+        rubric["output_schema"]["grounding_version"] = GLOBAL_VERSION
+        rubric["output_schema"]["policy_attributions"] = [rubric["grounded_policy_attribution"]["witness_schema"]]
     content = (
         "FIXED_AIRLINE_POLICY:\n"
         + policy
@@ -219,6 +233,8 @@ def build_judge_messages(
         + json.dumps(trajectory, ensure_ascii=False)
     )
     system = JUDGE_SYSTEM_PROMPT
+    if judge_validation_version is not None:
+        system = system.replace("explicit user confirmation (yes)", "explicit user confirmation")
     if transfer_validation_version == "transfer-policy-v2":
         system = system.replace(
             "and its evidence list empty; applicable is true only if the task requires transfer.",

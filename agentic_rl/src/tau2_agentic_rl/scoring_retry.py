@@ -3,8 +3,14 @@
 import asyncio
 
 from tau2_agentic_rl.failures import scoring_retryable
+from tau2_agentic_rl.judge.grounded import (
+    finish_grounded_trace,
+    prepare_grounded_turns,
+    result_provenance,
+)
 from tau2_agentic_rl.judge.simple_turn import score_simple_turns
 from tau2_agentic_rl.reward.db_subgoals import subgoal_trace_from_scoring
+from tau2_agentic_rl.reward.grounded import global_options, version_for_project
 from tau2_agentic_rl.reward.post_completion import completion_trace_from_scoring
 from tau2_agentic_rl.reward.progress import build_progress_trace
 from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
@@ -87,7 +93,8 @@ async def retry_scoring(record, judge, store):
         raise ValueError("interaction differs from frozen scoring inputs")
     attempts = record.metadata.setdefault("scoring_retries", [])
     if enabled(inputs.get("reward_project_config", {})) and not zero_cutoff:
-        expected = build_turn_inputs(record.messages, inputs["judge"]["policy"], record.assistant_turns)
+        expected = build_turn_inputs(record.messages, inputs["judge"]["policy"], record.assistant_turns,
+            judge_version=version_for_project(inputs.get("reward_project_config", {})))
         if inputs.get("simple_turn_inputs") != expected:
             raise ValueError("bounded messages differ from frozen turn scoring inputs")
     if zero_cutoff:
@@ -126,6 +133,10 @@ async def retry_scoring(record, judge, store):
             record.progress_trace = inputs["progress_trace"]
         attempt["phase"] = "judge"
         result, raw, prompt_hash, cache_key = await judge.evaluate(**inputs["judge"])
+        grounded_turns = None
+        if global_options(inputs.get("reward_project_config", {})) and enabled(inputs.get("reward_project_config", {})):
+            result, grounded_turns = await prepare_grounded_turns(
+                inputs["simple_turn_inputs"], inputs["judge"], result, judge)
         attempt["phase"] = "reward_scoring"
         reward = score_trajectory(
             events=record.tool_events,
@@ -148,9 +159,15 @@ async def retry_scoring(record, judge, store):
         )
         if enabled(inputs.get("reward_project_config", {})):
             attempt["phase"] = "turn_labels"
-            record.metadata["simple_turn_labels"] = await score_simple_turns(
-                inputs["simple_turn_inputs"], record.tool_events, reward.details["policy_credit"], judge,
-            )
+            if grounded_turns is not None:
+                record.metadata["simple_turn_labels"] = finish_grounded_trace(
+                    inputs["simple_turn_inputs"], grounded_turns, record.tool_events, reward.details["policy_credit"])
+            else:
+                record.metadata["simple_turn_labels"] = await score_simple_turns(
+                    inputs["simple_turn_inputs"], record.tool_events, reward.details["policy_credit"], judge,
+                )
+        if grounded_turns is not None:
+            record.metadata["judge_result_provenance"] = result_provenance(grounded_turns, cache_key)
         record.judge_result = result
         record.custom_reward = reward
         record.metadata.update(

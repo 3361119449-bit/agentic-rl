@@ -15,6 +15,7 @@ def test_default_enables_final_rule_and_legacy_keeps_original_config():
     assert CreditConfig.from_project(cfg).final_turn_rule == 'simple-turn-v1'
     assert CreditConfig.from_project(legacy).final_turn_rule is None
     validate_procredit_config(cfg)
+    assert cfg['judge'].pop('grounding_version') == 'judge-grounded-v3'
     # The v11 default adds only the three approved, versioned reward changes.
     assert cfg['reward'].pop('transfer_validation_version') == 'transfer-policy-v2'
     assert cfg['reward'].pop('duplicate_query_version') == 'duplicate-query-v1'

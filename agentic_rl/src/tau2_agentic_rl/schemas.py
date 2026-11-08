@@ -146,6 +146,18 @@ class TransferCheck(BaseModel):
         return result
 
 
+class PolicyAttributionWitness(BaseModel):
+    """A current actor quote and causal message evidence for one global blame."""
+
+    model_config = {"extra": "forbid", "strict": True}
+    criterion_id: str
+    assistant_turn_id: int = Field(strict=True, ge=1)
+    quote: str = Field(min_length=1)
+    policy_quote: str = Field(min_length=1)
+    evidence_message_indices: list[EvidenceTurnId]
+    reason: str = Field(min_length=1)
+
+
 class JudgeResult(BaseModel):
     """Strict structured output accepted from the external judge."""
 
@@ -154,6 +166,22 @@ class JudgeResult(BaseModel):
     transfer_semantic_checks: list[JudgeCheck] = Field(default_factory=list)
     mandatory_policy_checks: list[JudgeCheck] = Field(default_factory=list)
     transfer_check: TransferCheck = Field(default_factory=TransferCheck)
+    grounding_version: Literal["judge-grounded-v3"] | None = None
+    policy_attributions: list[PolicyAttributionWitness] | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize_grounding(self, handler):
+        result = handler(self)
+        for name in ("grounding_version", "policy_attributions"):
+            if name not in self.model_fields_set:
+                result.pop(name, None)
+        return result
+
+
+class GroundedJudgeResult(JudgeResult):
+    model_config = {"extra": "forbid", "strict": True}
+    grounding_version: Literal["judge-grounded-v3"]
+    policy_attributions: list[PolicyAttributionWitness]
 
 
 class OfficialScores(BaseModel):

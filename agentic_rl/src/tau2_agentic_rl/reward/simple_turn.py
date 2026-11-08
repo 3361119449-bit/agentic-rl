@@ -9,6 +9,7 @@ from tau2_agentic_rl.versions import sha256_json
 
 VERSION = "simple-turn-v1"
 JUDGE_VERSION = "simple-turn-target-v2"
+GROUNDED_VERSION = "simple-turn-target-v3"
 TOOL_ERRORS = frozenset({
     "parse_error", "unknown_tool", "schema_invalid",
     "model_caused_execution_error", "mixed_content_and_tool_call",
@@ -63,10 +64,12 @@ def transform_advantage(a0, bad_turn, eligible_correct_refusal):
     return a0
 
 
-def build_turn_inputs(messages, policy, turns):
+def build_turn_inputs(messages, policy, turns, *, judge_version=JUDGE_VERSION):
     """Freeze exactly the bounded messages, never the environment transcript."""
     if type(turns) is not int or turns < 1 or not isinstance(policy, str) or not policy.strip():
         raise ValueError("simple turn labels require turns and bound policy")
+    if judge_version not in {JUDGE_VERSION, GROUNDED_VERSION}:
+        raise ValueError("unknown turn Judge version")
     indices = []
     for index, message in enumerate(messages):
         if message.get("role") == "assistant" and "turn_idx" in message:
@@ -75,8 +78,11 @@ def build_turn_inputs(messages, policy, turns):
             indices.append(index)
     if len(indices) != turns:
         raise ValueError("bounded messages differ from assistant turns")
-    return {"version": VERSION, "messages": deepcopy(messages), "policy": policy,
-            "turn_message_indices": indices}
+    result = {"version": VERSION, "messages": deepcopy(messages), "policy": policy,
+              "turn_message_indices": indices}
+    if judge_version != JUDGE_VERSION:
+        result["judge_version"] = judge_version
+    return result
 
 
 def _judge_message(message):
@@ -100,15 +106,15 @@ def _generation_text(message):
     return "\n".join(parts) or json.dumps(message, ensure_ascii=False, sort_keys=True)
 
 
-def _target_hash(current):
-    return sha256_json({"judge_version": JUDGE_VERSION, "current_generation": current})
+def _target_hash(current, judge_version=JUDGE_VERSION):
+    return sha256_json({"judge_version": judge_version, "current_generation": current})
 
 
 def validate_target_request(request):
     target = request.get("target_message_index")
     current = request.get("current_generation")
     history = request.get("history")
-    if (request.get("request_version") != JUDGE_VERSION
+    if (request.get("request_version") not in {JUDGE_VERSION, GROUNDED_VERSION}
         or type(target) is not int or target < 0
         or not isinstance(current, dict) or current.get("message_index") != target
         or not isinstance(history, list) or len(history) != target
@@ -118,7 +124,7 @@ def validate_target_request(request):
     if any(key in item.get("message", {})
            for item in history + [current] for key in ("turn_idx", "assistant_turn_id")):
         raise ValueError("Judge request contains conflicting actor turn metadata")
-    if (request.get("target_generation_sha256") != _target_hash(current)
+    if (request.get("target_generation_sha256") != _target_hash(current, request["request_version"])
         or request.get("target_generation_text") != _generation_text(current["message"])):
         raise ValueError("current-generation target fingerprint or text changed")
     return target
@@ -129,9 +135,10 @@ def turn_request(inputs, turn_index, previous_decisions):
     prior = [{"turn_index": d["turn_index"], "refusal_requests": deepcopy(d["refusal_requests"])}
              for d in previous_decisions if d["correct_refusal"] and not d["bad_turn"]]
     current = {"message_index": end, "message": _judge_message(inputs["messages"][end])}
-    request = {"request_version": JUDGE_VERSION, "turn_index": turn_index,
+    version = inputs.get("judge_version", JUDGE_VERSION)
+    request = {"request_version": version, "turn_index": turn_index,
                "target_message_index": end, "current_generation": current,
-               "target_generation_sha256": _target_hash(current),
+               "target_generation_sha256": _target_hash(current, version),
                "target_generation_text": _generation_text(current["message"]),
                "history": [{"message_index": i, "message": _judge_message(m)}
                            for i, m in enumerate(inputs["messages"][:end])],
@@ -172,7 +179,8 @@ def validate_decision(decision, request):
 
 def build_label_trace(inputs, decisions, events, policy_credit):
     turns = len(inputs["turn_message_indices"])
-    if inputs != build_turn_inputs(inputs["messages"], inputs["policy"], turns):
+    if inputs != build_turn_inputs(inputs["messages"], inputs["policy"], turns,
+                                   judge_version=inputs.get("judge_version", JUDGE_VERSION)):
         raise ValueError("invalid frozen turn label inputs")
     if len(decisions) != turns:
         raise ValueError("missing turn labels")
@@ -230,14 +238,14 @@ def build_label_trace(inputs, decisions, events, policy_credit):
         label["eligible_refusal_keys"] = [key for key in label["eligible_refusal_keys"] if key not in revoked_keys]
         label["eligible_correct_refusal"] = bool(label["eligible_refusal_keys"])
         label["refusal_bonus"] = int(label["eligible_correct_refusal"])
-    return {"version": VERSION, "judge_version": JUDGE_VERSION, "inputs_sha256": sha256_json(inputs),
+    return {"version": VERSION, "judge_version": inputs.get("judge_version", JUDGE_VERSION), "inputs_sha256": sha256_json(inputs),
             "decisions": parsed, "turns": labels}
 
 
 def validate_labels(trace, turns):
     if not isinstance(trace, dict) or trace.get("version") != VERSION:
         raise ValueError("missing simple turn labels")
-    if trace.get("judge_version") != JUDGE_VERSION:
+    if trace.get("judge_version") not in {JUDGE_VERSION, GROUNDED_VERSION}:
         raise ValueError("legacy target-unbound Judge labels require frozen rescoring")
     labels = trace.get("turns")
     if not isinstance(labels, list) or len(labels) != turns:
@@ -263,11 +271,23 @@ def validate_record_labels(record):
             raise ValueError("duplicate query labels differ from frozen native state evidence")
     if sha256_json(inputs) != record.metadata.get("scoring_inputs_sha256"):
         raise ValueError("frozen simple turn scoring inputs changed")
-    expected = build_turn_inputs(record.messages, inputs["judge"]["policy"], record.assistant_turns)
+    from tau2_agentic_rl.reward.grounded import version_for_project
+
+    expected = build_turn_inputs(record.messages, inputs["judge"]["policy"], record.assistant_turns,
+        judge_version=version_for_project(inputs.get("reward_project_config", {})))
     if inputs.get("simple_turn_inputs") != expected:
         raise ValueError("bounded record messages differ from frozen simple turn inputs")
     trace = record.metadata.get("simple_turn_labels")
     validate_labels(trace, record.assistant_turns)
+    if expected.get("judge_version") == GROUNDED_VERSION:
+        from tau2_agentic_rl.judge.grounded import result_provenance, validate_prepared
+
+        derived = validate_prepared(expected, inputs["judge"], record.judge_result, trace.get("grounded_audit", {}))
+        if derived != trace["decisions"]:
+            raise ValueError("grounded labels differ from typed findings")
+        if record.metadata.get("judge_result_provenance") != result_provenance(
+            trace["grounded_audit"], record.metadata.get("judge_cache_key")):
+            raise ValueError("grounded composite provenance differs from findings")
     rebuilt = build_label_trace(expected, trace["decisions"], record.tool_events,
                                 record.custom_reward.details["policy_credit"])
     if any(trace.get(k) != v for k, v in rebuilt.items()):
