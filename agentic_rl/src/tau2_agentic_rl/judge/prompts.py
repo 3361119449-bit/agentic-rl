@@ -14,7 +14,7 @@ Apply only the fixed rubric and Airline Policy supplied outside the trajectory.
 The fixed policy is the bound SFT policy, not Tau2's official policy. Apply
 database-write confirmation exactly as stated in that policy and in the supplied
 mandatory rubric: when a write occurs, the assistant must have listed the action
-details and obtained explicit user confirmation (yes) before the write tool call.
+details and obtained explicit user confirmation before the write tool call.
 Do not require any hidden action_proposal tag or protocol that is absent from the
 bound policy. Return one JSON object matching the requested schema. Every criterion is binary;
 never invent a continuous score. Evidence and short reasons are audit metadata.
@@ -46,10 +46,20 @@ Supporting user/tool messages are context, not offending actions. Do not copy
 messages.turn_idx into this field. Cite all offending generations when known;
 leave the list empty if the violation cannot be localized. Do not guess a final
 turn for an omission. Passed checks have an empty violation list.
+Judge each blamed generation independently against facts visible before that action.
+Do not spread an earlier mistake onto a later corrected, newly authorized action.
+Reference actions/totals measure task completion; they are not policy or factual truth.
+Correct partial refund subtotals are not false because more task goals remain unfinished.
+An unequivocal user instruction after listed details can confirm a write; do not demand
+literal yes unless Policy requires it. Recompute prices/counts/net refunds and authorized
+charges, preserving original prices of unchanged legs. Distinguish cabin-change exceptions
+from basic-economy flight-change restrictions. A legal transfer does not validate its
+summary facts or establish successful task completion. Unknown status does not prove no
+cancellation. No new evidence format is required: use the existing fields and brief reasons.
 """
 
-JUDGE_PROMPT_VERSION = "areal-airline-judge-prompt-v10-transfer-policy"
-JUDGE_RUBRIC_VERSION = "areal-airline-rubric-v6-transfer-policy"
+JUDGE_PROMPT_VERSION = "areal-airline-judge-prompt-v11-lite"
+JUDGE_RUBRIC_VERSION = "areal-airline-rubric-v7-lite"
 JUDGE_SCHEMA_VERSION = "1.0"
 
 

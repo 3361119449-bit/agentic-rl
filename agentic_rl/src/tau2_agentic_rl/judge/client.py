@@ -242,11 +242,13 @@ class DeepSeekJudge:
             "response_format": {"type": "json_object"},
         }
         last_error: Exception | None = None
+        validation_history = []
         async with httpx.AsyncClient(
             base_url=self.config.base_url.rstrip("/") + "/",
             timeout=self.config.timeout_seconds,
         ) as client:
             for attempt in range(self.config.max_retries + 1):
+                raw = None
                 try:
                     async with api_budget().aslot("judge_api"):
                         response = await client.post(
@@ -265,6 +267,8 @@ class DeepSeekJudge:
                                 "identity": identity,
                                 "result": parsed.model_dump(mode="json"),
                                 "raw_response": raw,
+                                "validation_history": validation_history,
+                                "accepted_request_sha256": sha256_json(payload["messages"]),
                             },
                             ensure_ascii=False,
                             indent=2,
@@ -279,6 +283,13 @@ class DeepSeekJudge:
                     ValueError,
                 ) as exc:
                     last_error = exc
+                    if isinstance(exc, ValueError):
+                        validation_history.append({"attempt": attempt + 1, "error": str(exc)[:800],
+                            "raw_response": raw, "request_sha256": sha256_json(payload["messages"])})
+                        payload["messages"] = [*messages, {"role": "user", "content":
+                            "Validation error for the SAME frozen request: " + str(exc)[:800]
+                            + ". Recheck the original evidence and return consistent JSON. "
+                            "Keep the same target and fields; do not invent facts to satisfy validation."}]
                     if isinstance(exc, httpx.HTTPError):
                         from tau2_agentic_rl.slot_recovery import interaction_retryable
 
