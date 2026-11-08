@@ -113,11 +113,86 @@ def queue_group_reports(
     return reports
 
 
+def _record_token_mapping(record):
+    turns = record.token_turns
+    if not turns or len(turns) != record.assistant_turns:
+        raise ValueError("record lacks original policy turns")
+    initial_length = len(turns[0].prompt_token_ids)
+    mapping = record.response_turn_ids
+    if len(mapping) != record.trajectory_tokens - initial_length:
+        raise ValueError("record token-to-turn mapping has a different response length")
+    expected_map, previous_end = [-1] * len(mapping), 0
+    for index, turn in enumerate(turns):
+        start = len(turn.prompt_token_ids) - initial_length
+        end = start + len(turn.output_token_ids)
+        if (
+            turn.assistant_turn_index != index
+            or start < previous_end
+            or end > len(mapping)
+        ):
+            raise ValueError("record policy turn boundaries changed")
+        expected_map[start:end] = [index] * (end - start)
+        previous_end = end
+    if mapping != expected_map or not any(t >= 0 for t in mapping):
+        raise ValueError(
+            "record token-to-turn mapping differs from original policy tokens"
+        )
+    return mapping
+
+
+def _zero_credit_from_record(record):
+    from tau2_agentic_rl.reward.progress import validate_progress_trace
+    from tau2_agentic_rl.reward.score import build_reward_config
+    from tau2_agentic_rl.reward.truncation import (
+        ZERO_TRUNCATION,
+        deterministic_zero_reward,
+    )
+
+    x = record.scoring_inputs
+    if record.schema_version != "2.0" or sha256_json(x) != record.metadata.get("scoring_inputs_sha256"):
+        raise ValueError("zero truncation requires complete frozen scoring identity")
+    config = build_reward_config(x["reward_project_config"])
+    trajectory = x["judge"]["trajectory"]
+    if (trajectory["messages"] != record.environment_transcript
+        or trajectory["tool_events"] != [e.model_dump() for e in record.tool_events]
+        or trajectory["termination_reason"] != record.termination_reason
+        or x["official_scores"] != record.official_scores.model_dump()):
+        raise ValueError("truncated interaction differs from frozen evidence")
+    expected = deterministic_zero_reward(termination_reason=record.termination_reason,
+        project=x["reward_project_config"], official=record.official_scores)
+    if record.custom_reward != expected:
+        raise ValueError("zero truncation reward differs from deterministic policy")
+    trace = record.progress_trace
+    validate_progress_trace(trace, turns=record.assistant_turns)
+    if x.get("progress_trace") != trace:
+        raise ValueError("truncated progress trace differs from frozen inputs")
+    turns = record.assistant_turns
+    return {
+        "trajectory_id": record.trajectory_id, "task_id": record.task_id,
+        "policy_version": record.policy_version,
+        "checkset_fingerprint": trace["checkset_fingerprint"],
+        "initial_state_fingerprint": trace["initial_state_fingerprint"],
+        "score": 0.0, "valid": False, "terminal_success": 0.0, "multiplier": 0.0,
+        "phi": [0.0] * (turns + 1), "raw_progress_phi": trace["phi"],
+        "response_turn_ids": _record_token_mapping(record),
+        "credit_version": config.credit_version,
+        "truncation_policy": ZERO_TRUNCATION, "termination_reason": record.termination_reason,
+        "truncation_zero_applied": True,
+        "policy_credit": {"version": "policy-credit-v1", "violating_turns": [],
+            "attribution_complete": False, "unresolved_checks": ["skipped_for_truncation"]},
+        "process_credit": {"version": "process-credit-v2", "turn_costs": [0.0] * turns},
+    }
+
+
 def credit_from_record(record) -> dict:
     """Rebuild only from a fully scored versioned record, never terminal guesses."""
     from tau2_agentic_rl.reward.policy_credit import build_policy_credit
     from tau2_agentic_rl.reward.progress import validate_progress_trace
+    from tau2_agentic_rl.reward.truncation import zero_truncated
 
+    if zero_truncated(record.scoring_inputs.get("reward_project_config", {}),
+                      getattr(record, "termination_reason", None)):
+        return _zero_credit_from_record(record)
     reward, trace = record.custom_reward, record.progress_trace
     if (
         record.schema_version != "2.0"
@@ -183,29 +258,7 @@ def credit_from_record(record) -> dict:
         )
     ):
         raise ValueError("record reward differs from verified ProCredit inputs")
-    turns = record.token_turns
-    if not turns or len(turns) != record.assistant_turns:
-        raise ValueError("record lacks original policy turns")
-    initial_length = len(turns[0].prompt_token_ids)
-    mapping = record.response_turn_ids
-    if len(mapping) != record.trajectory_tokens - initial_length:
-        raise ValueError("record token-to-turn mapping has a different response length")
-    expected_map, previous_end = [-1] * len(mapping), 0
-    for index, turn in enumerate(turns):
-        start = len(turn.prompt_token_ids) - initial_length
-        end = start + len(turn.output_token_ids)
-        if (
-            turn.assistant_turn_index != index
-            or start < previous_end
-            or end > len(mapping)
-        ):
-            raise ValueError("record policy turn boundaries changed")
-        expected_map[start:end] = [index] * (end - start)
-        previous_end = end
-    if mapping != expected_map or not any(t >= 0 for t in mapping):
-        raise ValueError(
-            "record token-to-turn mapping differs from original policy tokens"
-        )
+    mapping = _record_token_mapping(record)
     row = {
         "trajectory_id": record.trajectory_id,
         "task_id": record.task_id,
@@ -386,3 +439,38 @@ def build_credit_tensors(
             report["credit"]["process_cost_turns"] for report in reports.values()
         )
     return {"advantages": advantages, "returns": advantages.clone()}, metrics
+
+
+def zero_native_truncated_tensors(data):
+    """Final native GRPO mask; no effect on nontruncated rows or old log-probs."""
+    import torch
+
+    from tau2_agentic_rl.reward.truncation import (
+        TRUNCATED_TERMINATIONS,
+        ZERO_TRUNCATION,
+    )
+
+    extras = [getattr(x, "data", x) for x in data["extra_fields"]]
+    flags = []
+    for extra in extras:
+        flag = extra.get("truncation_zero_applied", False)
+        if type(flag) is not bool:
+            raise ValueError("truncation mask must be boolean")
+        if flag and (extra.get("truncation_policy") != ZERO_TRUNCATION
+                     or extra.get("termination_reason") not in TRUNCATED_TERMINATIONS
+                     or extra.get("reward_extra_info", {}).get("train_reward") != 0):
+            raise ValueError("native truncation mask lacks explicit zero-reward evidence")
+        flags.append(flag)
+    if not any(flags):
+        return {}, 0
+    fields = {}
+    for key in ("advantages", "returns"):
+        original = data[key]
+        rows = list(original.unbind())
+        if len(rows) != len(flags):
+            raise ValueError("native truncation mask has different batch length")
+        values = [torch.zeros_like(row) if flag else row
+                  for row, flag in zip(rows, flags, strict=True)]
+        fields[key] = (torch.nested.as_nested_tensor(values, layout=torch.jagged)
+                       if original.is_nested else torch.stack(values))
+    return fields, sum(flags)

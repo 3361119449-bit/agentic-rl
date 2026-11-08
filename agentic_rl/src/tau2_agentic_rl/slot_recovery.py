@@ -118,9 +118,13 @@ def slot_metadata(kwargs: dict) -> dict:
 
 async def run_training_slot(generate, sampling_params, *, project: dict, kwargs: dict, stop_requested=None, on_attempt=None):
     """Keep uid/session, task, sampling parameters and policy version unchanged."""
-    max_infra = project["slot_recovery"]["max_resamples"]
+    max_infra = project.get("slot_recovery", {}).get("max_resamples", 0)
+    extra = dict(kwargs.get("extra_info", {}) or {})
+    max_truncation = project["slot_recovery"].get("max_truncation_resamples", 0)
+    if extra.get("split", "train") != "train":
+        max_truncation = 0
     max_user = project.get("user_sim_filter", {}).get("max_resamples", 2) if filter_enabled(project) else 0
-    if any(type(n) is not int or n < 0 for n in (max_infra, max_user)):
+    if any(type(n) is not int or n < 0 for n in (max_infra, max_user, max_truncation)):
         raise ValueError("slot replacement budgets must be nonnegative integers")
     first_id = kwargs.get("trajectory_id") or uuid4().hex
     extra = dict(kwargs.get("extra_info", {}) or {})
@@ -128,7 +132,8 @@ async def run_training_slot(generate, sampling_params, *, project: dict, kwargs:
     if base_seed is None:
         base_seed = int(first_id[:8], 16) % (2**31 - 1)
     failures = []
-    infra_count = user_count = 0
+    infra_count = user_count = truncation_count = 0
+    truncated_attempts = []
     attempt_kind = "initial"
     while True:
         if stop_requested is not None and stop_requested():
@@ -138,6 +143,9 @@ async def run_training_slot(generate, sampling_params, *, project: dict, kwargs:
             "parent_trajectory_id": first_id, "attempt": len(failures),
             "infrastructure_replacements": infra_count, "user_replacements": user_count,
             "failed_attempts": deepcopy(failures),
+            **({"truncation_replacements": truncation_count,
+                "truncated_attempts": deepcopy(truncated_attempts)}
+               if project["slot_recovery"].get("max_truncation_resamples", 0) else {}),
         }
         current = {
             **kwargs, "trajectory_id": current_id,
@@ -151,6 +159,20 @@ async def run_training_slot(generate, sampling_params, *, project: dict, kwargs:
             if on_attempt is not None:
                 await on_attempt(attempt_kind)
             output = await generate(sampling_params, **current)
+            from tau2_agentic_rl.reward.truncation import TRUNCATED_TERMINATIONS
+
+            reason = output.extra_fields.get("termination_reason")
+            if reason in TRUNCATED_TERMINATIONS and project["slot_recovery"].get("max_truncation_resamples", 0):
+                truncated_attempts.append({"trajectory_id": current_id, "termination_reason": reason})
+                context["truncated_attempts"] = deepcopy(truncated_attempts)
+                context["truncation_replacements"] = truncation_count
+                if truncation_count < max_truncation:
+                    failures.append({"trajectory_id": current_id, "phase": "truncation",
+                                     "termination_reason": reason})
+                    truncation_count += 1
+                    attempt_kind = "truncation"
+                    continue
+                context["truncation_resamples_exhausted"] = max_truncation > 0
             output.extra_fields["slot_recovery"] = context
             return output
         except UserSimulationRejected as exc:

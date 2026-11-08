@@ -94,6 +94,9 @@ def validate_procredit_config(config: dict) -> None:
         recovery = config.get("slot_recovery", {})
         if recovery.get("on_exhaustion") != "salvage_group":
             raise ValueError("slot exhaustion must salvage scored group members")
+        truncation_retries = recovery.get("max_truncation_resamples", 0)
+        if type(truncation_retries) is not int or not 0 <= truncation_retries <= 2:
+            raise ValueError("truncation resamples must be an integer within [0,2]")
         for key in ("max_resamples", "max_scoring_retries"):
             if type(recovery.get(key)) is not int or not 0 <= recovery[key] <= 10:
                 raise ValueError(f"slot_recovery.{key} must be an integer within [0, 10]")

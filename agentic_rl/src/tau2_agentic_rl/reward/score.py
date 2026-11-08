@@ -84,11 +84,16 @@ class RewardConfig:
     progress_coefficient: float = 0.75
     strict_coefficient: float = 0.25
     truncation_multiplier: float = 0.75
+    truncation_policy: str | None = None
     enable_mandatory_policy_gate: bool = True
     enable_task_safety_gate: bool = True
     process: ProcessPenaltyConfig = field(default_factory=ProcessPenaltyConfig)
 
     def __post_init__(self) -> None:
+        if self.truncation_policy not in (None, "zero-trajectory-v1"):
+            raise ValueError("unknown truncation policy")
+        if self.truncation_policy and self.truncation_multiplier != 0:
+            raise ValueError("zero truncation policy requires multiplier0")
         if self.duplicate_query_version not in {None, "duplicate-query-v1"}:
             raise ValueError("unknown duplicate query version")
         if self.transfer_validation_version not in {"transfer-policy-v1", "transfer-policy-v2"}:
@@ -104,7 +109,7 @@ class RewardConfig:
             raise ValueError("unknown reward mode")
         if self.mode in {"strict_progress_v1", "turn_local_v1"} and (
             self.progress_scale != 0.5
-            or self.truncation_multiplier != 0.75
+            or self.truncation_multiplier != (0 if self.truncation_policy else 0.75)
             or self.enable_mandatory_policy_gate == local_only
             or self.enable_task_safety_gate == local_only
             or (not local_only and self.process.cap != 0.20)
@@ -135,6 +140,7 @@ def build_reward_config(project_config: dict[str, Any]) -> RewardConfig:
     process_defaults = defaults.process
     return RewardConfig(
         mode=reward.get("mode", "legacy"),
+        truncation_policy=reward.get("truncation_policy"),
         transfer_validation_version=reward.get("transfer_validation_version", "transfer-policy-v1"),
         duplicate_query_version=reward.get("duplicate_query_version"),
         credit_version=project_config.get("credit", {}).get("version", "procredit-turn-v1"),
@@ -396,6 +402,18 @@ def score_trajectory(
 ) -> RewardResult:
     """Preserve strict/gate semantics and version only the training score."""
     config = config or RewardConfig()
+    from tau2_agentic_rl.reward.truncation import (
+        deterministic_zero_reward,
+        zero_truncated,
+    )
+
+    project = {"reward": {"mode": config.mode, "truncation_policy": config.truncation_policy,
+                          "truncation_multiplier": config.truncation_multiplier},
+               "credit": {"version": config.credit_version}}
+    reason = kwargs.get("termination_reason", "user_stop")
+    if zero_truncated(project, reason):
+        return deterministic_zero_reward(
+            termination_reason=reason, project=project, official=kwargs.get("official"))
     if config.duplicate_query_version:
         from tau2_agentic_rl.reward.duplicate_queries import detect_duplicate_queries
 

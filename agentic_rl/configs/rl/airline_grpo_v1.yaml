@@ -10,7 +10,7 @@ project:
   tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
   verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
   annotation_version: v3-areal-multitool-policy
-  reward_version: v4-multitool-policy
+  reward_version: v5-35turn-zero-truncation
 
 agent_policy:
   path: configs/prompts/areal_airline_sft.v1.json
@@ -36,8 +36,8 @@ rollout:
   tool_parser: hermes
   max_context_length: 16384
   initial_prompt_max_tokens: 8192
-  max_soft_turns: 15
-  max_hard_turns: 30
+  max_soft_turns: 35
+  max_hard_turns: 35
   reserved_observation_tokens: 1024
   reserved_template_tokens: 128
   min_final_response_tokens: 64
@@ -105,7 +105,8 @@ reward:
     transfer_semantic: 0.25
   progress_coefficient: 0.75
   strict_success_coefficient: 0.25
-  truncation_multiplier: 0.75
+  truncation_multiplier: 0.0
+  truncation_policy: zero-trajectory-v1
   mandatory_policy_gate: true
   task_safety_gate: true
   process_penalty_cap: 0.20
@@ -165,3 +166,8 @@ outputs:
   user_sim_judge_cache: ${USER_SIM_JUDGE_CACHE_DIR:-outputs/runs/unset/user_sim_judge_cache}
   metrics: ${METRICS_OUTPUT_DIR:-outputs/runs/unset/metrics}
   reports: ${REPORTS_OUTPUT_DIR:-outputs/runs/unset/reports}
+
+slot_recovery:
+  max_resamples: 0
+  max_scoring_retries: 0
+  max_truncation_resamples: 2

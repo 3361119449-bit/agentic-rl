@@ -108,12 +108,13 @@ def test_gate_zero_remains_zero_after_discount(transfer):
     assert result.strict_success == 0
 
 
-def test_yaml_wires_discount_into_both_runtime_profiles():
+def test_yaml_wires_zero_policy_into_both_current_runtime_profiles():
     root = Path(__file__).parents[1]
     for config in ["rl/airline_grpo_v1.yaml", "evaluation/airline_eval_v1.yaml"]:
         project = load_yaml(root / "configs" / config)
-        assert project["project"]["reward_version"] == "v4-multitool-policy"
-        assert build_reward_config(project).truncation_multiplier == 0.75
+        assert project["project"]["reward_version"] == "v5-35turn-zero-truncation"
+        assert build_reward_config(project).truncation_multiplier == 0
+        assert build_reward_config(project).truncation_policy == "zero-trajectory-v1"
     configured = score_trajectory(
         **reward_inputs(),
         termination_reason="hard_turn_limit",
@@ -189,7 +190,7 @@ def test_offline_rescore_uses_saved_termination_and_validates_evidence(
     from scripts import rescore_saved_trajectories as script
 
     root = Path(__file__).parents[1]
-    config_path = root / "configs/rl/airline_grpo_v1.yaml"
+    config_path = root / "configs/rl/airline_grpo_v1_v4.yaml"
     config = load_yaml(config_path)
     record = scoring_failure_record()
     record.termination_reason = "budget_exhausted"

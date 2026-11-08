@@ -9,7 +9,7 @@ from tau2_agentic_rl.schemas import ToolEvent
 
 def test_default_reward_v11_and_v10_snapshot_are_separate():
     root = Path(__file__).parents[1]
-    current = load_yaml(root / "configs/rl/airline_procredit_v4.yaml")
+    current = load_yaml(root / "configs/rl/airline_procredit_v4_v11.yaml")
     assert current["project"]["reward_version"] == "v11-procredit-transfer-query-req"
     assert current["reward"]["progress_version"] == "progress-v3"
     assert current["reward"]["transfer_validation_version"] == "transfer-policy-v2"

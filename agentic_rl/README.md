@@ -2,7 +2,8 @@
 
 这是本仓库的强化学习与冻结评估模块。项目使用固定版 Tau2 Airline 环境、选定的 Qwen3-4B SFT（或上一阶段 RL）合并模型和新挂载的 RL LoRA，在 veRL v0.9.0 上进行 GRPO / DAPO-style 训练。项目总览、数据版本与实验路线见 [根目录 README](../README.md)。
 
-默认奖励为 `v11-procredit-transfer-query-req`：转人工动态判定、确定性重复查询、
+默认奖励为 `v12-procredit-35turn-zero-truncation`：35轮上限、截断归零、训练最多2次截断重采，
+见 [35轮与截断策略](TRUNCATION_35.md)。保留v11的转人工动态判定、确定性重复查询、
 DB/COMM/REQ 加和进度，见 [v11 说明](REWARD_V11.md)。
 此前 v10 配置另存为 `configs/rl/airline_procredit_v4_v10.yaml`。
 
@@ -16,7 +17,7 @@ DB/COMM/REQ 加和进度，见 [v11 说明](REWARD_V11.md)。
 - `custom_reward.strict_success`：本项目严格成功；
 - `custom_reward.train_reward`：只用于 GRPO 的训练奖励。
 
-`R_tau2_official != S_custom_strict != R_train`，最终报告脚本只输出 Tau2 pass^1 和 pass^4，不把训练奖励冒充官方成功率。
+`R_tau2_official != S_custom_strict != R_train`，新测评主指标为截断计零的 evaluation_pass1/pass4，同时单列 raw_tau2_official_pass1/pass4；旧口径按manifest保留。
 
 最新复审修复、评估断点续跑、PPO 审计开关与尚未完成的 GPU 验收见
 [REVIEW_FOLLOWUP.md](REVIEW_FOLLOWUP.md)。CPU 测试通过不代表 GPU 端到端验收已完成。
@@ -32,7 +33,7 @@ DB/COMM/REQ 加和进度，见 [v11 说明](REWARD_V11.md)。
 - Qwen 原始生成 token ID、vLLM old log-prob 和 turn 边界原样保存；
 - 只有 Qwen 输出 token 的 `response_mask=1`，工具、用户、模板 token 均为 0；
 - 多轮 observation 包含 Qwen `turn_separator`，完整计入上下文预算；
-- 16,384 token 生成前预算检查，15 轮软阈值、训练与评估均为 30 个助手轮次硬上限；
+- 16,384 token 生成前预算检查，训练与评估均为 35 个助手轮次上限，截断归零，训练截断最多重采 2 次；
 - DeepSeek 用户模拟器与 Judge 使用独立 prompt、缓存和重试；
 - 原 Judge 每条完整轨迹执行一次评分流程；默认新模式额外逐轮检查实际可见前缀，二者均缓存结果并有界重试；
 - 官方 DB/COMMUNICATE、必须动作、语义与政策检查；strict 成功与训练奖励分别计算，默认 v4 将政策违规归因到对应轮次；

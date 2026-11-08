@@ -21,8 +21,8 @@ def snapshot_transcript(environment):
     return messages
 
 
-def audited_official_scores(reward, payload, termination_reason):
+def audited_official_scores(reward, payload, termination_reason, *, preserve_raw_reward=False):
     """Only override official success; preserve completed-state reward components."""
     return parse_official_reward_info(
-        0.0 if termination_reason in EXTERNAL_STOPS else reward, payload
+        0.0 if termination_reason in EXTERNAL_STOPS and not preserve_raw_reward else reward, payload
     )

@@ -3,7 +3,7 @@ project:
   tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
   verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
   annotation_version: v3-areal-multitool-policy-test-frozen
-  reward_version: v4-multitool-policy
+  reward_version: v5-35turn-zero-truncation
 
 agent_policy:
   path: configs/prompts/areal_airline_sft.v1.json
@@ -24,8 +24,8 @@ rollout:
   tool_parser: hermes
   max_context_length: 16384
   initial_prompt_max_tokens: 8192
-  max_soft_turns: 15
-  max_hard_turns: 30
+  max_soft_turns: 35
+  max_hard_turns: 35
   reserved_observation_tokens: 1024
   reserved_template_tokens: 128
   min_final_response_tokens: 64
@@ -81,7 +81,8 @@ annotations:
   policy_rules: data/annotations/airline_mandatory_policy_rules.test.v1.json
 
 reward:
-  truncation_multiplier: 0.75
+  truncation_multiplier: 0.0
+  truncation_policy: zero-trajectory-v1
 
 outputs:
   trajectories: ${TRAJECTORY_OUTPUT_DIR:-outputs/evaluation_trajectories}

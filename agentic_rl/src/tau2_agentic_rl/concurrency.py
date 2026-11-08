@@ -141,13 +141,13 @@ class BudgetState:
 
     def record_rollout_attempt(self, partition_id, kind):
         """Count starts, including attempts that later fail or are filtered out."""
-        if kind not in {"initial", "infrastructure", "user"}:
+        if kind not in {"initial", "infrastructure", "user", "truncation"}:
             raise ValueError("unknown rollout attempt kind")
         with self.lock:
             counts = self.rollout_attempts.setdefault(
                 partition_id, dict.fromkeys(("initial", "infrastructure", "user"), 0),
             )
-            counts[kind] += 1
+            counts[kind] = counts.get(kind, 0) + 1
 
     def rollout_counts(self, partition_id):
         with self.lock:

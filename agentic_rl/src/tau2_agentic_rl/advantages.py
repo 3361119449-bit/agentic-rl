@@ -160,8 +160,21 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             raise ValueError("success and gate must be binary")
         if not local_only and not row["valid"] and score != 0:
             raise ValueError("invalid trajectory must have zero score")
-        multiplier = _number(row["multiplier"], 0.75, 1, "multiplier")
-        if multiplier not in (0.75, 1):
+        multiplier = _number(row["multiplier"], 0, 1, "multiplier")
+        zero = multiplier == 0
+        if zero:
+            from tau2_agentic_rl.reward.truncation import (
+                TRUNCATED_TERMINATIONS,
+                ZERO_TRUNCATION,
+            )
+
+            if (score != 0 or row.get("truncation_policy") != ZERO_TRUNCATION
+                or row.get("truncation_zero_applied") is not True
+                or row.get("termination_reason") not in TRUNCATED_TERMINATIONS):
+                raise ValueError("zero credit needs explicit truncation evidence")
+        elif row.get("truncation_zero_applied"):
+            raise ValueError("truncation zero marker contradicts multiplier")
+        if multiplier not in (0, 0.75, 1):
             raise ValueError("unsupported truncation multiplier")
         phi = validate_phi(row["phi"])
         mapping = row["response_turn_ids"]
@@ -194,7 +207,7 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             bad, complete = _policy_attribution(row, turns)
             if not local_only and not row["valid"] and terminal != 0:
                 raise ValueError("policy-invalid terminal success must remain zero")
-            if local_only and not complete:
+            if local_only and not complete and not zero:
                 raise ValueError("v4 requires complete policy attribution")
             if local_only and bad - present:
                 raise ValueError("policy violation turn has no trainable tokens")
@@ -228,6 +241,20 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
     for row, (score, mapping, present, returns), (bad, complete), costs in zip(
         rows, validated, policies, process_costs, strict=True
     ):
+        if row["multiplier"] == 0:
+            result_row = {
+                "trajectory_id": row["trajectory_id"], "trajectory_advantage": 0.0,
+                "turn_returns": [0.0] * len(returns), "turn_advantages": [0.0] * len(returns),
+                "token_advantages": [0.0] * len(mapping), "truncation_zero_applied": True,
+            }
+            if config.final_turn_rule is not None:
+                result_row["simple_turn_audit"] = [
+                    {"turn_index": t, "a0": 0.0, "anew": 0.0,
+                     "truncation_zero_applied": True} for t in sorted(present)]
+            if config.version == "procredit-turn-v4":
+                result_row["policy_turn_rewards"] = [0.0] * len(returns)
+            results.append(result_row)
+            continue
         trajectory_advantage = (score - mean) / (std + config.epsilon)
         turn_advantages = [
             value - turn_mean if complete and t in present else 0.0

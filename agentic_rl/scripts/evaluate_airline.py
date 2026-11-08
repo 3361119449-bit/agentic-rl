@@ -283,6 +283,7 @@ def main() -> None:
         "user_model": project["user_simulator"]["model"],
         "judge_model": project["judge"].get("model"),
         "reward_judge_enabled": args.reward_judge,
+        "truncation_policy": project.get("reward", {}).get("truncation_policy"),
         "user_sim_filter_enabled": filter_enabled(project),
         "user_sim_filter": project.get("user_sim_filter", {}),
         "temperature": project["rollout"]["temperature"],
