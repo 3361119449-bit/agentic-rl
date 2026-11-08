@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from tau2_agentic_rl.environment.cached_user import build_cached_agent_gym_env
+from tau2_agentic_rl.reward.duplicate_queries import capture_query_evidence
 from tau2_agentic_rl.versions import sha256_json
 
 
@@ -38,6 +39,14 @@ class ToolStepResult:
     db_changed: bool | None
     result: str | None
     state_before: dict | None = None
+    db_hash_before: str | None = None
+    db_hash_after: str | None = None
+    query_state_before: str | None = None
+    query_state_after: str | None = None
+    query_state_scope: str | None = None
+    query_state_version: str | None = None
+    duplicate_query: bool = False
+    duplicate_of_event_id: str | None = None
     execution_status: Literal["termination_control"] | None = None
 
 
@@ -239,9 +248,17 @@ class Tau2GymAdapter:
             before = backend.get_db_hash()
             validation_error = rejected.get(str(tool_call.id))
             state_before = None
+            query_before = {}
+            query_after = {}
             if validation_error is None:
+                query_before = capture_query_evidence(
+                    backend, tool_call.name, tool_call.arguments,
+                )
                 state_before = snapshot_baggage_state(backend, tool_call.name, tool_call.arguments)
                 tool_message = original_get_response(tool_call)
+                query_after = capture_query_evidence(
+                    backend, tool_call.name, tool_call.arguments,
+                )
             else:
                 from tau2.data_model.message import ToolMessage
 
@@ -275,6 +292,12 @@ class Tau2GymAdapter:
                         else None
                     ),
                     state_before=state_before,
+                    db_hash_before=before_hash,
+                    db_hash_after=after_hash,
+                    query_state_before=query_before.get("query_state_before"),
+                    query_state_after=query_after.get("query_state_after"),
+                    query_state_scope=query_before.get("query_state_scope"),
+                    query_state_version=query_before.get("query_state_version"),
                 )
             )
             return tool_message

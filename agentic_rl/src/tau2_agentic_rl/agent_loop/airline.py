@@ -554,7 +554,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "initial_state_fingerprint": progress_inputs["initial_state_fingerprint"],
             }
         if progress_inputs is not None and self.project.get("credit", {}).get("version") in {"procredit-turn-v3", "procredit-turn-v4"}:
-            progress_inputs["version"] = "progress-v2"
+            progress_inputs["version"] = self.project.get("reward", {}).get("progress_version", "progress-v2")
         response_turn_ids: list[int] = []
         response_mask: list[int] = []
         aligned_log_probs: list[float] = []
@@ -855,6 +855,10 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                             execution_status=result.execution_status,
                             result=result.result,
                             state_before=result.state_before,
+                            **{key: getattr(result, key, None) for key in (
+                                "db_hash_before", "db_hash_after", "query_state_before", "query_state_after",
+                                "query_state_scope", "query_state_version",
+                            )},
                         )
                         _mark_repetition(event, tool_events)
                         tool_events.append(event)
@@ -908,6 +912,13 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 ValueError("trajectory has no generated weight version"),
             )
             termination_reason = "infrastructure_error"
+        if infrastructure_error is None and self.project.get("reward", {}).get("duplicate_query_version"):
+            from tau2_agentic_rl.reward.duplicate_queries import mark_duplicate_queries
+
+            try:
+                mark_duplicate_queries(tool_events, require_evidence=True)
+            except Exception as exc:
+                infrastructure_error = ("reward_scoring", exc)
         trajectory_for_judge = snapshot_transcript(environment)
         if progress_inputs is not None:
             progress_inputs["messages"] = deepcopy(environment.full_trajectory())
@@ -965,6 +976,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "semantic_checks": semantic_row.get("semantic_checks", []),
                 "mandatory_policy_checks": policy_row.get("judge_checks", []),
                 "transfer_rule": transfer_rule,
+                **({"transfer_validation_version": self.project["reward"]["transfer_validation_version"]}
+                   if self.project.get("reward", {}).get("transfer_validation_version") else {}),
             },
             "required_actions": self.required_actions[task_id],
             "official_scores": official.model_dump() if official is not None else None,
@@ -1034,6 +1047,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                         policy_row.get("judge_checks", []),
                         transfer_rule,
                         require_policy_attribution=self.project.get("credit", {}).get("version") == "procredit-turn-v4",
+                        **({"transfer_validation_version": self.project["reward"]["transfer_validation_version"]}
+                           if self.project.get("reward", {}).get("transfer_validation_version") else {}),
                     ),
                 },
             )
@@ -1196,6 +1211,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     policy_row.get("judge_checks", []),
                     transfer_rule,
                     require_policy_attribution=self.project.get("credit", {}).get("version") == "procredit-turn-v4",
+                        **({"transfer_validation_version": self.project["reward"]["transfer_validation_version"]}
+                           if self.project.get("reward", {}).get("transfer_validation_version") else {}),
                 ),
                 "user_prompt_hashes": environment.user_prompt_hashes(),
                 "tau2_commit": self.project["project"]["tau2_commit"],

@@ -48,12 +48,15 @@ leave the list empty if the violation cannot be localized. Do not guess a final
 turn for an omission. Passed checks have an empty violation list.
 """
 
-JUDGE_PROMPT_VERSION = "areal-airline-judge-prompt-v9-applicability"
-JUDGE_RUBRIC_VERSION = "areal-airline-rubric-v5-applicability"
+JUDGE_PROMPT_VERSION = "areal-airline-judge-prompt-v10-transfer-policy"
+JUDGE_RUBRIC_VERSION = "areal-airline-rubric-v6-transfer-policy"
 JUDGE_SCHEMA_VERSION = "1.0"
 
 
-def rubric_fingerprint(semantic_checks, mandatory_policy_checks, transfer_rule, *, require_policy_attribution=False):
+def rubric_fingerprint(
+    semantic_checks, mandatory_policy_checks, transfer_rule, *,
+    require_policy_attribution=False, transfer_validation_version="transfer-policy-v1",
+):
     return sha256_json(
         {
             "prompt_version": JUDGE_PROMPT_VERSION,
@@ -61,6 +64,7 @@ def rubric_fingerprint(semantic_checks, mandatory_policy_checks, transfer_rule, 
             "semantic_checks": semantic_checks,
             "mandatory_policy_checks": mandatory_policy_checks,
             "transfer_rule": transfer_rule,
+            "transfer_validation_version": transfer_validation_version,
             **({"require_policy_attribution": True} if require_policy_attribution else {}),
         }
     )
@@ -75,6 +79,7 @@ def build_judge_messages(
     mandatory_policy_checks: list[dict[str, Any]],
     transfer_rule: dict[str, Any],
     require_policy_attribution: bool = False,
+    transfer_validation_version: str = "transfer-policy-v1",
 ) -> list[dict[str, str]]:
     """Build an isolated, injection-resistant judge request."""
     transferred = any(
@@ -125,6 +130,75 @@ def build_judge_messages(
             },
         },
     }
+    if transfer_validation_version not in {"transfer-policy-v1", "transfer-policy-v2"}:
+        raise ValueError("unknown transfer validation version")
+    if transfer_validation_version == "transfer-policy-v2":
+        rubric["transfer_validation_version"] = transfer_validation_version
+        rubric["transfer_facts"].pop("applicable")
+        rubric["output_schema"]["transfer_check"].update({
+            "policy_required": "boolean",
+            "self_caused_only": "boolean",
+        })
+        rubric["dynamic_transfer_requirement"] = (
+            "Explicitly adjudicate transfer from the bound Airline Policy, actual user "
+            "requests, and observed tool outcomes. transfer_rule.allowed is advisory, "
+            "including when false: it neither prohibits a legal requested transfer nor "
+            "proves necessity or legality. Explicit required is binding. Explicit forbidden "
+            "prohibits optional transfer, except when a required annotation or a higher "
+            "priority bound Policy obligation mandates transfer. Return policy_required "
+            "as a boolean on EVERY trajectory, including no transfer: true only when "
+            "the bound Policy and actual user facts create an obligation to transfer. "
+            "A legal optional request alone need not be a completion objective. "
+            "Return self_caused_only=true only when the sole reason transfer became "
+            "necessary was the assistant's own avoidable errors; independent genuine "
+            "constraints or user requirements are not self-caused-only. Do not erase "
+            "earlier policy or process violations because the assistant later transfers. "
+            "Return applicable=true when a transfer succeeded, required is true, or "
+            "policy_required is true. With none of these, applicable=true is permitted "
+            "only for an announced/attempted transfer whose requested "
+            "transfer_scope_and_message check is explicitly applicable, failed, and "
+            "has violation_assistant_turn_ids. This does not imply execution or an "
+            "obligation. Return valid=true only for an actually successful "
+            "and legal transfer; missing execution always means valid=false and empty "
+            "transfer evidence. A legal transfer is distinct from completion and is "
+            "never by itself proof that the original user goal was achieved. Return "
+            "explicit applicable, valid, policy_required, self_caused_only, and a concrete "
+            "short_reason; no defaults or unresolved verdicts are accepted. For the "
+            "transfer_scope_and_message policy criterion apply the same legality facts: "
+            "never fail it merely because advisory allowed=false. Still fail and attribute "
+            "any actual missing mandatory transfer, illegal transfer, wrong transfer "
+            "message, disclosure, or other independent policy violation; legal execution "
+            "does not waive message requirements or unrelated violations."
+        )
+        rubric["transfer_fact_grounding"] = (
+            "Before judging transfer necessity/legality, independently compare the "
+            "actual tool results, available tool capabilities and the latest user request. "
+            "Assistant claims that a tool cannot do something, a flight number is "
+            "missing, a price is inconsistent, or a backend is broken are NOT evidence. "
+            "If the supplied result contains the needed flight ID, current price, or "
+            "actionable correction, do not treat the assistant's failure to use it as "
+            "an independent backend constraint. A normal policy-prohibited refund/change, "
+            "waiver request, user insistence, or inability to override policy is NOT "
+            "by itself an outside-scope obligation to transfer: correctly decline the "
+            "prohibited operation. Do not transfer merely to avoid a policy denial. "
+            "Recognize an explicit user prohibition against transfer in the actual "
+            "conversation even if transfer_rule.forbidden was omitted. Such a transfer "
+            "is invalid unless an independently supported higher-priority bound Policy "
+            "mandates transfer; a request for a waiver does not establish that exception. "
+            "A reasonable user escalation request may be legal when allowed by Policy; "
+            "it does not prove the original task completed. If transfer is solely needed "
+            "because of the assistant's avoidable mistakes, set self_caused_only=true. "
+            "Self-caused-only and legality are separate: a real already-executed "
+            "erroneous cancellation can require restoration beyond the available "
+            "tools. A user-requested transfer for that real restoration can be legal "
+            "(valid=true) AND self_caused_only=true. Do not make a needed recovery "
+            "transfer invalid solely because the assistant caused the problem; "
+            "self_caused_only separately blocks transfer completion credit and "
+            "all original errors remain penalized. "
+            "A real cancellation visible in a successful tool result differs from a "
+            "cancellation invented only in assistant text. Explain the concrete user/tool "
+            "fact establishing necessity or lack of necessity; retain all earlier errors."
+        )
     if require_policy_attribution:
         rubric["policy_attribution_requirement"] = (
             "This run uses turn-only penalties. Every failed policy check must cite "
@@ -144,7 +218,14 @@ def build_judge_messages(
         + "\n\nTRAJECTORY_DATA_UNTRUSTED:\n"
         + json.dumps(trajectory, ensure_ascii=False)
     )
+    system = JUDGE_SYSTEM_PROMPT
+    if transfer_validation_version == "transfer-policy-v2":
+        system = system.replace(
+            "and its evidence list empty; applicable is true only if the task requires transfer.",
+            "and its evidence list empty; adjudicate applicability and obligation using "
+            "dynamic_transfer_requirement, including the bound Policy and user facts.",
+        )
     return [
-        {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
+        {"role": "system", "content": system},
         {"role": "user", "content": content},
     ]

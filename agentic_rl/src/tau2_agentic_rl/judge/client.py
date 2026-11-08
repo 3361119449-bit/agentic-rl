@@ -22,6 +22,7 @@ from tau2_agentic_rl.judge.prompts import (
     build_judge_messages,
 )
 from tau2_agentic_rl.policy_rules import definitely_active_policy_rules
+from tau2_agentic_rl.reward.transfer_branch import validate_transfer_verdict
 from tau2_agentic_rl.schemas import JudgeResult, TransferCheck
 from tau2_agentic_rl.versions import sha256_json
 
@@ -41,7 +42,7 @@ class JudgeConfig:
     prompt_version: str = JUDGE_PROMPT_VERSION
     rubric_version: str = JUDGE_RUBRIC_VERSION
     schema_version: str = JUDGE_SCHEMA_VERSION
-    scorer_code_version: str = "tau2-agentic-rl-scorer-v5-policy-applicability"
+    scorer_code_version: str = "tau2-agentic-rl-scorer-v6-transfer-policy"
 
 
 class DeepSeekJudge:
@@ -153,7 +154,37 @@ class DeepSeekJudge:
             item.get("name") == "transfer_to_human_agents" and item.get("success")
             for item in tool_events
         )
+        dynamic_transfer = inputs.get("transfer_validation_version") == "transfer-policy-v2"
         transfer_required = bool(inputs.get("transfer_rule", {}).get("required", False))
+        if dynamic_transfer:
+            validate_transfer_verdict(result)
+            transfer_required = transfer_required or result.transfer_check.policy_required is True
+            check = result.transfer_check
+            # A failed announced/attempted transfer is still an applicable
+            # policy violation even though no transfer actually succeeded.
+            attributed_attempt = any(
+                verdict.criterion_id.endswith(":policy:transfer_scope_and_message")
+                and verdict.applicable and not verdict.passed
+                and verdict.violation_assistant_turn_ids
+                for verdict in result.mandatory_policy_checks
+            )
+            expected_applicable = transferred or transfer_required
+            if (expected_applicable and not check.applicable) or (
+                check.applicable and not expected_applicable and not attributed_attempt
+            ):
+                raise ValueError(
+                    "transfer applicability disagrees with execution, obligation, "
+                    "or an explicitly attributed failed transfer attempt"
+                )
+            if not transferred and (check.valid or check.evidence_turn_ids):
+                raise ValueError("unexecuted transfer must be explicitly invalid without execution evidence")
+            if transferred and check.valid and not check.evidence_turn_ids:
+                raise ValueError("valid transfer requires explicit execution evidence")
+            if (
+                transferred and inputs.get("transfer_rule", {}).get("forbidden")
+                and not transfer_required and check.valid
+            ):
+                raise ValueError("forbidden optional transfer cannot have a valid verdict")
         if inputs.get("require_policy_attribution") and transfer_required and not transferred:
             transfer_verdicts = [
                 check for check in result.mandatory_policy_checks
@@ -164,7 +195,11 @@ class DeepSeekJudge:
                 # response is cached, and frozen retries cannot repair it.
                 raise ValueError("missing required transfer needs an attributed policy failure")
         expected_transfer_applicable = transferred or transfer_required
-        if not transferred:
+        if dynamic_transfer:
+            # Preserve explicit fresh facts. No legacy normalization may fill in
+            # missing v2 decisions or overwrite dynamic obligation attribution.
+            pass
+        elif not transferred:
             # These are environment facts, not model decisions. Keep the raw
             # response for audit, but never discard an otherwise scoreable
             # rollout because the Judge imagined an executed transfer.

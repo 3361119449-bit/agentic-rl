@@ -186,6 +186,15 @@ def build_label_trace(inputs, decisions, events, policy_credit):
         evidence[t].append({"source": "policy_credit", "reason": "existing policy violation"})
     for event in events:
         event = event.model_dump() if hasattr(event, "model_dump") else event
+        if event.get("duplicate_query"):
+            turn_id = event.get("turn_id")
+            if type(turn_id) is not int or not 1 <= turn_id <= turns:
+                raise ValueError("duplicate query lacks an attributable generation")
+            evidence[turn_id - 1].append({
+                "source": "duplicate_query", "event_id": event["event_id"],
+                "duplicate_of_event_id": event.get("duplicate_of_event_id"),
+                "reason": "successful identical read against unchanged relevant state",
+            })
         if event.get("error_kind") not in TOOL_ERRORS:
             continue
         turn_id = event.get("turn_id")
@@ -244,6 +253,14 @@ def validate_labels(trace, turns):
 
 def validate_record_labels(record):
     inputs = record.scoring_inputs
+    if inputs.get("reward_project_config", {}).get("reward", {}).get("duplicate_query_version"):
+        from tau2_agentic_rl.reward.duplicate_queries import detect_duplicate_queries
+
+        audits = detect_duplicate_queries(record.tool_events, require_evidence=True)
+        if any(event.duplicate_query != audit["duplicate_query"]
+               or event.duplicate_of_event_id != audit["duplicate_of_event_id"]
+               for event, audit in zip(record.tool_events, audits, strict=True)):
+            raise ValueError("duplicate query labels differ from frozen native state evidence")
     if sha256_json(inputs) != record.metadata.get("scoring_inputs_sha256"):
         raise ValueError("frozen simple turn scoring inputs changed")
     expected = build_turn_inputs(record.messages, inputs["judge"]["policy"], record.assistant_turns)

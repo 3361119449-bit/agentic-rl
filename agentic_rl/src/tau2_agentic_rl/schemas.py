@@ -72,12 +72,26 @@ class ToolEvent(BaseModel):
     no_progress: bool = False
     result: str | None = None
     state_before: dict[str, Any] | None = None
+    db_hash_before: str | None = None
+    db_hash_after: str | None = None
+    query_state_before: str | None = None
+    query_state_after: str | None = None
+    query_state_scope: str | None = None
+    query_state_version: str | None = None
+    duplicate_query: bool = False
+    duplicate_of_event_id: str | None = None
 
     @model_serializer(mode="wrap")
     def serialize_state(self, handler):
         result = handler(self)
         if self.state_before is None:
             result.pop("state_before", None)
+        for name in ("db_hash_before", "db_hash_after", "query_state_before", "query_state_after",
+                     "query_state_scope", "query_state_version", "duplicate_of_event_id"):
+            if getattr(self, name) is None:
+                result.pop(name, None)
+        if not self.duplicate_query:
+            result.pop("duplicate_query", None)
         if self.execution_status is None:
             result.pop("execution_status", None)
         return result
@@ -117,8 +131,19 @@ class TransferCheck(BaseModel):
 
     applicable: bool = False
     valid: bool = False
+    # Explicit v2 facts: legality alone never establishes task completion.
+    policy_required: bool | None = Field(default=None, strict=True)
+    self_caused_only: bool | None = Field(default=None, strict=True)
     evidence_turn_ids: list[EvidenceTurnId] = Field(default_factory=list)
     short_reason: str = ""
+
+    @model_serializer(mode="wrap")
+    def serialize_versioned_facts(self, handler):
+        result = handler(self)
+        for name in ("policy_required", "self_caused_only"):
+            if name not in self.model_fields_set:
+                result.pop(name, None)
+        return result
 
 
 class JudgeResult(BaseModel):

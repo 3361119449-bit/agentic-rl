@@ -22,6 +22,7 @@ from tau2_agentic_rl.versions import sha256_json
 
 PROGRESS_VERSION = "progress-v1"
 PROGRESS_DEDUP_VERSION = "progress-v2"
+PROGRESS_ADDITIVE_VERSION = "progress-v3"
 
 
 def evaluate_tau2_prefix(task: dict, messages: list[dict]) -> dict:
@@ -79,7 +80,9 @@ def build_progress_trace(
     version: str = PROGRESS_VERSION,
 ) -> dict:
     """One initial prefix plus one prefix per generated assistant turn."""
-    if version not in {PROGRESS_VERSION, PROGRESS_DEDUP_VERSION}:
+    if version not in {
+        PROGRESS_VERSION, PROGRESS_DEDUP_VERSION, PROGRESS_ADDITIVE_VERSION
+    }:
         raise ValueError("unknown progress version")
     if (
         not prefix_lengths
@@ -90,10 +93,18 @@ def build_progress_trace(
         raise ValueError("invalid delivered progress prefix boundaries")
     if not initial_state_fingerprint:
         raise ValueError("missing initial state fingerprint")
-    if transfer_rule.get("allowed") and not transfer_rule.get("required"):
+    if (
+        version != PROGRESS_ADDITIVE_VERSION
+        and transfer_rule.get("allowed")
+        and not transfer_rule.get("required")
+    ):
         raise ValueError("ambiguous optional transfer progress target")
     transfer = bool(transfer_rule.get("required"))
-    if transfer and not transfer_rule.get("allowed"):
+    if (
+        version != PROGRESS_ADDITIVE_VERSION
+        and transfer
+        and not transfer_rule.get("allowed")
+    ):
         raise ValueError("required transfer must be allowed")
     turns = len(prefix_lengths) - 1
     if any(event.turn_id < 1 or event.turn_id > turns for event in events):
@@ -132,6 +143,8 @@ def build_progress_trace(
                 raise ValueError("official progress COMM checks are incomplete")
             for index, value in enumerate(official["communicate"]):
                 state[f"comm:{index}"] = value
+        # V3 retains the special transfer goals and checks annotated actions too.
+        if not transfer or version == PROGRESS_ADDITIVE_VERSION:
             completed = evaluate_required_actions(
                 required_actions, prefix_events, dependencies
             ).completed_action_ids
@@ -164,7 +177,7 @@ def build_progress_trace(
         "transfer_rule": sha256_json(transfer_rule),
         "checks": checks,
     }
-    if version == PROGRESS_DEDUP_VERSION:
+    if version in {PROGRESS_DEDUP_VERSION, PROGRESS_ADDITIVE_VERSION}:
         definition["matcher_version"] = MATCHER_VERSION
     result = {
         "version": version,
@@ -187,11 +200,14 @@ def validate_progress_trace(trace: dict, *, turns: int) -> list[float]:
     """Reject invented/misaligned progress, including offline tampering."""
     phi = validate_phi(trace.get("phi"), turns)
     version = trace.get("version")
-    if version not in {PROGRESS_VERSION, PROGRESS_DEDUP_VERSION}:
+    if version not in {
+        PROGRESS_VERSION, PROGRESS_DEDUP_VERSION, PROGRESS_ADDITIVE_VERSION
+    }:
         raise ValueError("unknown progress version")
     definition, checks = trace.get("definition", {}), trace.get("checks", [])
     if definition.get("version") != version or (
-        version == PROGRESS_DEDUP_VERSION and definition.get("matcher_version") != MATCHER_VERSION
+        version in {PROGRESS_DEDUP_VERSION, PROGRESS_ADDITIVE_VERSION}
+        and definition.get("matcher_version") != MATCHER_VERSION
     ):
         raise ValueError("progress definition version changed")
     if (
