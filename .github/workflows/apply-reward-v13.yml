@@ -1,0 +1,48 @@
+name: Apply verified reward v13 patch
+on:
+  push:
+    branches: [fix/immediate-credit-independent-refusal-20261110]
+    paths: [.github/workflows/apply-reward-v13.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/immediate-credit-independent-refusal-20261110
+      - name: Verify pinned source and patch before applying
+        run: |
+          python - <<'PY'
+          import base64, hashlib, lzma, pathlib, subprocess
+          base = 'd10a8e7622447b28df3021ae5ec80a7f6c855301'
+          permitted = {'.reward-v13-patch.0', '.reward-v13-patch.1', '.reward-v13-patch.2', '.github/workflows/apply-reward-v13.yml'}
+          diff = subprocess.check_output(['git','diff','--name-only',base,'HEAD']).decode().splitlines()
+          assert set(diff) == permitted, diff
+          parts = [pathlib.Path(f'.reward-v13-patch.{i}').read_text().strip() for i in range(3)]
+          data = lzma.decompress(base64.b64decode(''.join(parts), validate=True))
+          assert hashlib.sha256(data).hexdigest() == '59a3115f8c0ab261601df8a05561809eec0788b634e57686707168f0edc2abcb'
+          pathlib.Path('/tmp/reward-v13.patch').write_bytes(data)
+          PY
+          git apply --check /tmp/reward-v13.patch
+          git apply /tmp/reward-v13.patch
+          git diff --check
+      - name: Commit only on the isolated implementation branch
+        run: |
+          rm .reward-v13-patch.0 .reward-v13-patch.1 .reward-v13-patch.2 .github/workflows/apply-reward-v13.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'feat: immediate progress credit and independent per-turn refusals (v13)'
+          git push origin HEAD:refs/heads/fix/immediate-credit-independent-refusal-20261110
+          git archive --format=zip --output=/tmp/reward-v13-final-source.zip HEAD
+          git rev-parse HEAD > /tmp/reward-v13-commit.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reward-v13-final-source
+          path: |
+            /tmp/reward-v13-final-source.zip
+            /tmp/reward-v13-commit.txt
+          retention-days: 7
