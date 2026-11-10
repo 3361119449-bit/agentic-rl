@@ -1,0 +1,18 @@
+name: Export pinned offline linter
+on:
+  push:
+    branches: [audit/reward-v13-source-20261110]
+    paths: [.github/workflows/reward-v13-lint-export.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download pinned linter wheel
+        run: python -m pip download --only-binary=:all: --no-deps ruff==0.16.6 -d wheels
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reward-v13-ruff-wheel
+          path: wheels/*.whl
+          retention-days: 3
