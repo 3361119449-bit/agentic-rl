@@ -10,7 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download pinned linter wheel
-        run: python -m pip download --only-binary=:all: --no-deps ruff==0.16.6 -d wheels
+        run: |
+          python -m pip download --only-binary=:all: --no-deps ruff==0.16.6 -d wheels
       - uses: actions/upload-artifact@v4
         with:
           name: reward-v13-ruff-wheel
