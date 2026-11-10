@@ -58,7 +58,7 @@ def validate_procredit_config(config: dict) -> None:
 
     if not is_procredit(config):
         if any(config.get("credit", {}).get(k) is not None for k in (
-            "db_subgoal_credit", "post_completion_credit", "final_turn_rule",
+            "db_subgoal_credit", "post_completion_credit", "final_turn_rule", "progress_credit",
         )):
             raise ValueError("local goal credit requires ProCredit v4")
         return
@@ -71,6 +71,7 @@ def validate_procredit_config(config: dict) -> None:
         "version": credit.version,
         "gamma": 1.0,
         "turn_centering": (
+            "none" if credit.progress_credit == "immediate_delta_v1" else
             "policy_attributed_turn_mean" if credit.version != "procredit-turn-v1"
             else "valid_turn_mean"
         ),

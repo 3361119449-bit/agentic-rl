@@ -18,12 +18,18 @@ class CreditConfig:
     db_subgoal_credit: str | None = None
     post_completion_credit: str | None = None
     final_turn_rule: str | None = None
+    progress_credit: str | None = None
 
     def __post_init__(self):
+        if self.progress_credit is not None:
+            if self.progress_credit != "immediate_delta_v1" or self.version != "procredit-turn-v4":
+                raise ValueError("immediate_delta_v1 requires ProCredit v4")
+            if self.db_subgoal_credit is not None or self.post_completion_credit is not None:
+                raise ValueError("immediate progress cannot add separate subgoal/completion credit")
         if self.final_turn_rule is not None and (
-            self.final_turn_rule != "simple-turn-v1" or self.version != "procredit-turn-v4"
+            self.final_turn_rule not in {"simple-turn-v1", "simple-turn-v2"} or self.version != "procredit-turn-v4"
         ):
-            raise ValueError("simple-turn-v1 requires ProCredit v4")
+            raise ValueError("simple-turn rules require ProCredit v4")
         if self.post_completion_credit is not None and (
             self.post_completion_credit != "post_completion_regression_v1" or self.version != "procredit-turn-v4"
         ):
@@ -48,6 +54,7 @@ class CreditConfig:
         credit = project.get("credit", {})
         return cls(
             final_turn_rule=credit.get("final_turn_rule"),
+            progress_credit=credit.get("progress_credit"),
             post_completion_credit=credit.get("post_completion_credit"),
             db_subgoal_credit=credit.get("db_subgoal_credit"),
             version=credit.get("version", "procredit-turn-v1"),
@@ -62,6 +69,8 @@ class CreditConfig:
 
     def audit_config(self) -> dict:
         values = asdict(self)
+        if self.progress_credit is None:
+            values.pop("progress_credit")
         if self.final_turn_rule is None:
             values.pop("final_turn_rule")
         if self.post_completion_credit is None:
@@ -199,10 +208,16 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
         present = set(mapping) - {-1}
         if not present:
             raise ValueError("trajectory contains no policy tokens")
-        returns = [
-            multiplier * (terminal + config.progress_scale * (phi[-1] - before))
-            for before in phi[:-1]
-        ]
+        if config.progress_credit == "immediate_delta_v1":
+            # Signed progress for THIS generation, never a future return.
+            # Truncation is zeroed below after the unchanged trajectory baseline.
+            returns = [config.progress_scale * (after - before)
+                       for before, after in zip(phi[:-1], phi[1:], strict=True)]
+        else:
+            returns = [
+                multiplier * (terminal + config.progress_scale * (phi[-1] - before))
+                for before in phi[:-1]
+            ]
         if config.version != "procredit-turn-v1":
             bad, complete = _policy_attribution(row, turns)
             if not local_only and not row["valid"] and terminal != 0:
@@ -230,13 +245,20 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
     scores = [item[0] for item in validated]
     mean = math.fsum(scores) / len(scores)
     std = math.sqrt(math.fsum((score - mean) ** 2 for score in scores) / len(scores))
-    valid_returns = [
-        returns[t]
-        for (_, complete), (_, _, present, returns) in zip(policies, validated, strict=True)
-        if complete
-        for t in sorted(present)
-    ]
-    turn_mean = math.fsum(valid_returns) / len(valid_returns) if valid_returns else 0.0
+    if config.progress_credit == "immediate_delta_v1":
+        # No group turn-return mean or turn-level centering in this version.
+        turn_mean = 0.0
+        valid_turns = sum(len(present) for (_, complete), (_, _, present, _) in
+                          zip(policies, validated, strict=True) if complete)
+    else:
+        valid_returns = [
+            returns[t]
+            for (_, complete), (_, _, present, returns) in zip(policies, validated, strict=True)
+            if complete
+            for t in sorted(present)
+        ]
+        valid_turns = len(valid_returns)
+        turn_mean = math.fsum(valid_returns) / valid_turns if valid_turns else 0.0
     results = []
     for row, (score, mapping, present, returns), (bad, complete), costs in zip(
         rows, validated, policies, process_costs, strict=True
@@ -257,7 +279,8 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             continue
         trajectory_advantage = (score - mean) / (std + config.epsilon)
         turn_advantages = [
-            value - turn_mean if complete and t in present else 0.0
+            (value if config.progress_credit == "immediate_delta_v1" else value - turn_mean)
+            if complete and t in present else 0.0
             for t, value in enumerate(returns)
         ]
         regression_turns = set()
@@ -345,7 +368,8 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
                 validate_labels,
             )
 
-            labels = validate_labels(row.get("simple_turn_labels"), len(returns))
+            labels = validate_labels(row.get("simple_turn_labels"), len(returns),
+                                     version=config.final_turn_rule)
             if any(not labels[t]["bad_turn"] for t in bad):
                 raise ValueError("simple labels must retain every old policy violation")
             a0_by_turn = dict(zip(mapping, tokens, strict=True))
@@ -388,7 +412,7 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
         "score_mean": mean,
         "score_std": std,
         "turn_mean": turn_mean,
-        "valid_turns": len(valid_returns),
+        "valid_turns": valid_turns,
         "has_signal": any(
             abs(value) > config.signal_tolerance
             for item in results

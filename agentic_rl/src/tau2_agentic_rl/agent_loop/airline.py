@@ -1003,6 +1003,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         if simple_turn_enabled(self.project) and infrastructure_error is None and not zero_cutoff:
             scoring_inputs["simple_turn_inputs"] = build_turn_inputs(
                 messages, scoring_inputs["judge"]["policy"], assistant_turns,
+                version=self.project["credit"]["final_turn_rule"],
             )
         if db_subgoal_inputs is not None:
             scoring_inputs["db_subgoal_inputs"] = db_subgoal_inputs

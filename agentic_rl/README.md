@@ -1,5 +1,7 @@
 # Tau2 Airline Agentic RL
 
+> Current default: **v13-procredit-immediate-independent**. See [the current formula and compatibility notes](docs/reward_v13.md). Historical version descriptions below remain for audit.
+
 这是本仓库的强化学习与冻结评估模块。项目使用固定版 Tau2 Airline 环境、选定的 Qwen3-4B SFT（或上一阶段 RL）合并模型和新挂载的 RL LoRA，在 veRL v0.9.0 上进行 GRPO / DAPO-style 训练。项目总览、数据版本与实验路线见 [根目录 README](../README.md)。
 
 默认奖励为 `v12-procredit-35turn-zero-truncation`：35轮上限、截断归零、训练最多2次截断重采，
