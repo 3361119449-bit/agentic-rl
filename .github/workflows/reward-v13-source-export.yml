@@ -1,0 +1,20 @@
+name: Export pinned reward baseline
+on:
+  push:
+    branches: [audit/reward-v13-source-20261110]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: d10a8e7622447b28df3021ae5ec80a7f6c855301
+      - name: Archive exact tracked source without credentials
+        run: git archive --format=zip --output=reward-baseline-d10a8e7.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reward-baseline-d10a8e7
+          path: reward-baseline-d10a8e7.zip
+          retention-days: 3
