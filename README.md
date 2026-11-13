@@ -1,6 +1,6 @@
 # agentic-rl
 
-> Current default: **v13-procredit-immediate-independent**. See [the current formula and compatibility notes](agentic_rl/docs/reward_v13.md). Historical version descriptions below remain for audit.
+> Current default: **v13.1-procredit-immediate-independent**. See [the current formula and compatibility notes](agentic_rl/docs/reward_v13.md). Historical version descriptions below remain for audit.
 
 围绕 **Tau2 Airline** 的 **Qwen3-4B 智能体训练与评估实验项目**，覆盖 SFT 数据清洗、轨迹采集与转换、LoRA 监督微调、GRPO / DAPO-style 强化学习，以及冻结模型的官方 `pass^1` / `pass^4` 评估。
 

@@ -87,6 +87,7 @@ class RewardConfig:
     truncation_policy: str | None = None
     enable_mandatory_policy_gate: bool = True
     enable_task_safety_gate: bool = True
+    check_reference_write_scope: bool = True
     process: ProcessPenaltyConfig = field(default_factory=ProcessPenaltyConfig)
 
     def __post_init__(self) -> None:
@@ -171,6 +172,9 @@ def build_reward_config(project_config: dict[str, Any]) -> RewardConfig:
         ),
         enable_task_safety_gate=bool(
             reward.get("task_safety_gate", defaults.enable_task_safety_gate)
+        ),
+        check_reference_write_scope=bool(
+            reward.get("check_reference_write_scope", defaults.check_reference_write_scope)
         ),
         process=ProcessPenaltyConfig(
             penalties={
@@ -269,8 +273,12 @@ def _score_legacy(
             )
         )
     policy_gate = policy_gate_passed(policy_checks)
-    task_safety_check = evaluate_task_safety(events, required_actions)
-    task_safety_gate = not task_safety_check.applicable or task_safety_check.passed
+    task_safety_gate = True
+    task_safety_details = {}
+    if config.check_reference_write_scope:
+        task_safety_check = evaluate_task_safety(events, required_actions)
+        task_safety_gate = not task_safety_check.applicable or task_safety_check.passed
+        task_safety_details["task_safety_check"] = task_safety_check.model_dump()
     policy_blocks_reward = config.enable_mandatory_policy_gate and not policy_gate
     safety_blocks_reward = config.enable_task_safety_gate and not task_safety_gate
 
@@ -335,7 +343,7 @@ def _score_legacy(
                 "transfer_valid": valid,
                 **transfer_details,
                 "policy_checks": [item.model_dump() for item in policy_checks],
-                "task_safety_check": task_safety_check.model_dump(),
+                **task_safety_details,
                 "process_events": process.events,
             },
         )
@@ -389,7 +397,7 @@ def _score_legacy(
             **({"transfer_valid": transfer_valid} if local_only and transfer_event is not None else {}),
             **transfer_details,
             "policy_checks": [item.model_dump() for item in policy_checks],
-            "task_safety_check": task_safety_check.model_dump(),
+            **task_safety_details,
             "process_events": process.events,
             "tau2_official_reward": official.reward,
         },

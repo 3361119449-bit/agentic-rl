@@ -1,6 +1,6 @@
 # Tau2 Airline Agentic RL
 
-> Current default: **v13-procredit-immediate-independent**. See [the current formula and compatibility notes](docs/reward_v13.md). Historical version descriptions below remain for audit.
+> Current default: **v13.1-procredit-immediate-independent**. See [the current formula and compatibility notes](docs/reward_v13.md). Historical version descriptions below remain for audit.
 
 这是本仓库的强化学习与冻结评估模块。项目使用固定版 Tau2 Airline 环境、选定的 Qwen3-4B SFT（或上一阶段 RL）合并模型和新挂载的 RL LoRA，在 veRL v0.9.0 上进行 GRPO / DAPO-style 训练。项目总览、数据版本与实验路线见 [根目录 README](../README.md)。
 
@@ -398,7 +398,7 @@ python scripts/train_airline_grpo.py \
 
 ### 从 SFT v4 开始 GRPO
 
-将 `MERGED_SFT_MODEL` 指向 SFT v4 Step 334 的完整合并模型。选定奖励版本后，用新的 run 名称启动。v13 实验使用包含 PR #10 的代码，并核对实际配置中的 `reward_version: v13-procredit-immediate-independent`、`progress_credit: immediate_delta_v1` 与 `final_turn_rule: simple-turn-v2`。提示词和用户筛选以该 run 的记录为准。
+将 `MERGED_SFT_MODEL` 指向 SFT v4 Step 334 的完整合并模型。选定奖励版本后，用新的 run 名称启动。当前实验核对实际配置中的 `reward_version: v13.1-procredit-immediate-independent`、`progress_credit: immediate_delta_v1` 与 `final_turn_rule: simple-turn-v2`。提示词和用户筛选以该 run 的记录为准。
 
 `--stage internal_dev` 选择 24 个 RL train 任务和 6 个独立开发任务。按本次实验设置 `RL_EPOCHS` 和 `RL_UPDATES`，前者控制遍历上限，后者控制 optimizer 更新上限。正式运行前可加 `--dry-run` 检查命令。
 

@@ -14,7 +14,10 @@ from tau2_agentic_rl.advantages import CreditConfig, compute_group_credit
 from tau2_agentic_rl.config import load_yaml, validate_procredit_config
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
 from tau2_agentic_rl.procredit_runtime import build_credit_tensors, credit_from_record
+from tau2_agentic_rl.reward.progress import build_progress_trace
+from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
 from tau2_agentic_rl.reward.simple_turn import build_label_trace, turn_request
+from tau2_agentic_rl.schemas import JudgeCheck, JudgeResult, OfficialScores, ToolEvent, TransferCheck
 from tau2_agentic_rl.scoring_retry import retry_scoring
 
 ROOT = Path(__file__).parents[1]
@@ -78,7 +81,8 @@ def test_current_configuration_drives_increment_and_independent_refusal():
 def test_current_configuration_changes_only_approved_selectors():
     cfg = load_yaml(ROOT / DEFAULT_CONFIG)
     old = load_yaml(ROOT / 'configs/rl/airline_procredit_v4_v12.yaml')
-    assert cfg['project']['reward_version'] == 'v13-procredit-immediate-independent'
+    assert cfg['project']['reward_version'] == 'v13.1-procredit-immediate-independent'
+    assert cfg['reward'].pop('check_reference_write_scope') is False
     assert cfg['credit'].pop('progress_credit') == 'immediate_delta_v1'
     assert cfg['credit']['turn_centering'] == 'none'
     assert cfg['credit']['final_turn_rule'] == 'simple-turn-v2'
@@ -90,6 +94,50 @@ def test_current_configuration_changes_only_approved_selectors():
     for key in ('turn_centering', 'final_turn_rule'):
         cfg['credit'][key] = old['credit'][key]
     assert cfg == old
+
+
+def test_reference_write_scope_does_not_punish_authorized_baggage():
+    cfg = load_yaml(ROOT / DEFAULT_CONFIG)
+    required = [{"action_id": "rebook", "name": "book_reservation",
+                 "arguments": {"user_id": "traveler", "total_baggages": 1}}]
+    events = [
+        ToolEvent(event_id="change", sequence=0, turn_id=1,
+                  name="update_reservation_flights", arguments={"reservation_id": "R"},
+                  success=True, db_effect=True),
+        ToolEvent(event_id="baggage", sequence=1, turn_id=2,
+                  name="update_reservation_baggages",
+                  arguments={"reservation_id": "R", "total_baggages": 1,
+                             "nonfree_baggages": 0}, success=True, db_effect=True),
+        ToolEvent(event_id="partial", sequence=2, turn_id=3,
+                  name="update_reservation_baggages",
+                  arguments={"reservation_id": "R"}, success=False, db_effect=True),
+    ]
+    trace = build_progress_trace(
+        task={"id": "29"}, messages=[{}, {}, {}], prefix_lengths=[0, 1, 2, 3],
+        events=events, required_actions=required, dependencies=[], transfer_rule={},
+        initial_state_fingerprint="initial", version="progress-v3",
+        evaluator=lambda task, messages: {"db": False, "communicate": []},
+    )
+    judge = JudgeResult(
+        mandatory_policy_checks=[JudgeCheck(
+            criterion_id="29:policy:flight_change_eligibility", passed=False,
+            violation_assistant_turn_ids=[1], short_reason="Destination change on existing booking.",
+        )],
+        transfer_check=TransferCheck(applicable=False, valid=False, policy_required=False,
+                                     self_caused_only=False, short_reason="No transfer needed."),
+    )
+    inputs = dict(events=events, messages=[], assistant_turns=3, required_actions=required,
+                  official=OfficialScores(reward=0, db_applicable=True, db_score=0),
+                  judge=judge, progress_trace=trace)
+    reward = score_trajectory(config=build_reward_config(cfg), **inputs)
+    historical = deepcopy(cfg)
+    del historical["reward"]["check_reference_write_scope"]
+    before = score_trajectory(config=build_reward_config(historical), **inputs)
+    assert before.details["policy_credit"]["violating_turns"] == [0, 1, 2]
+    assert reward.details["policy_credit"]["violating_turns"] == [0, 2]
+    assert reward.details["policy_turn_rewards"] == [-1.0, 0.0, -1.0]
+    assert reward.details["task_completion"] == before.details["task_completion"] == 0
+    assert reward.train_reward == before.train_reward == 0
 
 
 def test_configuration_rejects_centering_and_extra_components_for_immediate_mode():
