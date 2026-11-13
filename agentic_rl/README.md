@@ -4,14 +4,9 @@
 
 这是本仓库的强化学习与冻结评估模块。项目使用固定版 Tau2 Airline 环境、选定的 Qwen3-4B SFT（或上一阶段 RL）合并模型和新挂载的 RL LoRA，在 veRL v0.9.0 上进行 GRPO / DAPO-style 训练。项目总览、数据版本与实验路线见 [根目录 README](../README.md)。
 
-默认奖励为 `v12-procredit-35turn-zero-truncation`：35轮上限、截断归零、训练最多2次截断重采，
-见 [35轮与截断策略](TRUNCATION_35.md)。保留v11的转人工动态判定、确定性重复查询、
-DB/COMM/REQ 加和进度，见 [v11 说明](REWARD_V11.md)。
-此前 v10 配置另存为 `configs/rl/airline_procredit_v4_v10.yaml`。
+现行实验从 Airline SFT v4 的 Step 334 合并模型开始。SFT 数据、冻结官方基线、v13 离线验证与后续 GRPO 的状态见 [当前实验主线](../README.md#当前实验主线)。旧的两阶段 RL 和早期 ProCredit 消融见 [历史实验归档](../docs/legacy-experiments.md)。
 
-默认奖励已启用简单逐轮规则：坏轮 `min(A0, -1)`，合格正确拒绝
-`max(A0 + 1, 1)`，其余保留原始 A0。旧 v4 配置、运行命令、额外 Judge 成本与
-证据审计见 [SIMPLE_TURN_REWARD.md](SIMPLE_TURN_REWARD.md)。
+`d10a8e7` 默认使用 `v12-procredit-35turn-zero-truncation`。PR #10 的 `70eee2e` 引入当轮进度增量及独立拒绝奖励 v13。两版均采用 [35 轮截断归零与训练重采](TRUNCATION_35.md)。转人工动态判断、确定性重复查询与 DB/COMM/REQ 进度见 [v11 改动](REWARD_V11.md)。
 
 三套数值始终分开保存：
 
@@ -31,7 +26,7 @@ DB/COMM/REQ 加和进度，见 [v11 说明](REWARD_V11.md)。
 - 每条 rollout 创建独立 `AgentGymEnv` 和 Airline DB；
 - Qwen3-4B-Instruct 的 JSON `<tool_call>` 固定使用 veRL `hermes` 解析器；
 - 同轮允许多个独立工具调用，逐个校验并按原顺序执行合法调用；未知工具和非法 Schema 只返回对应调用错误，非法 JSON 不进入 Tau2；
-- RL/评估逐字使用当前冻结的多工具系统提示词，不追加官方政策或 `action_proposal` 协议；写数据库前必须列出细节并取得用户明确确认，Agent Judge 按绑定政策检查；
+- RL/评估按实际配置逐字加载冻结系统提示词。写数据库前必须列出细节并取得用户明确确认，Agent Judge 按绑定政策检查。仓库默认绑定多工具版本；
 - Qwen 原始生成 token ID、vLLM old log-prob 和 turn 边界原样保存；
 - 只有 Qwen 输出 token 的 `response_mask=1`，工具、用户、模板 token 均为 0；
 - 多轮 observation 包含 Qwen `turn_separator`，完整计入上下文预算；
@@ -62,6 +57,8 @@ tests/                   CPU 单元测试
 
 ## SFT、RL 与评估的提示词和政策
 
+已完成的 SFT v4 和冻结 SFT 基线使用单工具政策 `54c8a8153c0f9fe4d2bc4d57a3698221d09388d84245afdcc253378ee4238cb2`。以下说明针对仓库默认的多工具配置。实际启动与复现时，从该次运行的配置和 manifest 核对绑定。
+
 `configs/prompts/areal_airline_sft.v1.json` 是当前冻结的系统提示词。
 该文件的来源元数据为用户提供的 **8 条多工具样本**，不是对历史
 10,649 条 AReaL 数据共有提示词的证明。当前绑定 SHA-256 为：
@@ -87,8 +84,7 @@ RL、冻结评估、初始长度预检和工具往返测试使用该文件，启
   `travel_certificate_new_booking_only` 检查不应冒充当前规则。
 
 同轮各工具分别处理错误，合法调用可继续执行；多工具本身不算错误。
-默认 `simple-turn-v1` 另在最终优势阶段应用坏轮规则，不能用“逐个执行”
-推断该轮不会受负向训练约束。详见 [简单逐轮奖励](SIMPLE_TURN_REWARD.md)。
+逐轮奖励在最终优势阶段应用坏轮规则。v10–v12 见 [逐轮奖励历史](SIMPLE_TURN_REWARD.md)，v13 见 [PR #10](https://github.com/3361119449-bit/agentic-rl/pull/10)。
 
 原始历史 SFT JSONL 未因提示词绑定而被重写。更换 SFT 数据时，先检查真实
 system 消息及数据哈希，再确认训练、RL 与评估的政策是否一致；不要把不同
@@ -168,8 +164,8 @@ set +a
 
 必须手工填写：
 
-- `MERGED_SFT_MODEL`：当前阶段的完整底座模型目录，第一阶段为 SFT 合并模型，第二阶段为上一阶段 RL 合并模型；
-- `DEEPSEEK_USER_MODEL`：服务商中 DeepSeek Pro 的精确模型 ID；
+- `MERGED_SFT_MODEL`：完整底座模型目录，当前实验选用 SFT v4 Step 334 合并模型；
+- `DEEPSEEK_USER_MODEL`：服务商中用户模拟器的精确模型 ID；
 - `DEEPSEEK_JUDGE_MODEL`：Agent 奖励 Judge 的精确模型 ID；训练与评估默认使用；评估显式传 `--no-reward-judge` 时不需要该奖励模型，但独立用户合规检查仍必填；
 - `DEEPSEEK_USER_SIM_JUDGE_MODEL`：独立用户模拟器合规检查模型的精确 ID；训练和评估必填，可与奖励 Judge 使用同一型号，但提示词、输入与缓存独立；
 - `DEEPSEEK_BASE_URL` 与 `DEEPSEEK_API_KEY`。
@@ -335,32 +331,11 @@ python scripts/check_initial_prompts.py \
 旧轨迹缺少初始测量时标记 `not_measured`，不会用整条轨迹长度冒充初始 prompt。
 报告输出不覆盖已有文件；任一测量失败、超限或请求的任务缺失时返回非零退出码。
 
-## 分阶段运行
+## 运行流程
 
-### M0 与 SFT 基线分别记录
+### 本地检查与小规模 RL
 
-M0 指未经本项目 SFT/RL 的原始 Qwen3-4B 模型；SFT 基线指完成监督微调后的
-模型。当前待整理的 M0 实验安排为 24 个 `rl_train` 任务 × 4 次采样，必须核对
-原始任务 ID、模型、提示词、seed、代码提交及轨迹清单。
-
-`evaluate_airline.py` 当前仅接受 `internal_dev`、`official_train`、
-`official_test`，没有 `rl_train` split 选项；不能将其 30 条官方训练任务的
-默认画像命令标为 24 条任务 M0 复现命令，也不要以命令示例代替缺失的历史记录。
-
-Stage -1 是保留的 **SFT 基线画像**（默认每个官方 train task 8 条，共 30 × 8）：
-
-```bash
-python scripts/profile_sft_baseline.py \
-  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
-```
-
-完成后会把组内方差、全 0/全 1、组件均值、工具错误、长度和逐任务统计写入 `outputs/reports/sft_baseline_profile.json`。该包装脚本使用当前评估默认值，默认开启 Agent 奖励 Judge。
-
-多组实验可传入 `--tag areal_then_tau2`；评估轨迹目录和画像报告使用同一个
-规范化后的 tag，避免误读默认目录的旧结果。传入 `--samples` 时画像分组大小
-同步变化；`--dry-run` 只展示评估命令，不读取或覆盖已有画像。
-
-Stage 0/1，先运行 CPU 不变量测试，再做真实 API/GPU 轨迹和人工 reward 审计：
+先运行 CPU 不变量测试，再做真实 API/GPU 轨迹和人工 reward 审计：
 
 ```bash
 python -m pytest
@@ -379,7 +354,7 @@ Tau2 的只读 `list_all_airports` 工具，必须得到恰好一个调用、执
 数据库哈希不变。
 该工具调用是人工构造再经模板渲染的，不是策略模型生成的，不能替代真实工具能力验收。
 
-Stage 2，小规模 smoke：
+首次 GPU 更新使用小规模 smoke：
 
 ```bash
 python scripts/train_airline_grpo.py \
@@ -421,76 +396,37 @@ python scripts/train_airline_grpo.py \
   --extra actor_rollout_ref.actor.optim.lr=1e-5
 ```
 
-### 两阶段 RL：固定 24/6 划分
+### 从 SFT v4 开始 GRPO
 
-默认 ProCredit 始终使用 24 个训练任务与 6 个独立 internal dev 任务。
-`--stage internal_dev` 指该训练/验证组合；`--stage full_train` 会被拒绝。
-旧的“15 epoch 后把全部 30 条任务并入正式训练”不再作为默认路线。
+将 `MERGED_SFT_MODEL` 指向 SFT v4 Step 334 的完整合并模型。选定奖励版本后，用新的 run 名称启动。v13 实验使用包含 PR #10 的代码，并核对实际配置中的 `reward_version: v13-procredit-immediate-independent`、`progress_credit: immediate_delta_v1` 与 `final_turn_rule: simple-turn-v2`。提示词和用户筛选以该 run 的记录为准。
 
-Stage 3，第一阶段从选定 SFT 合并模型新挂 LoRA。下面以最多 12 次 optimizer
-更新为例，明确写出配置和步数；`--epochs` 是数据遍历上限，不是更新次数：
+`--stage internal_dev` 选择 24 个 RL train 任务和 6 个独立开发任务。按本次实验设置 `RL_EPOCHS` 和 `RL_UPDATES`，前者控制遍历上限，后者控制 optimizer 更新上限。正式运行前可加 `--dry-run` 检查命令。
 
-~~~bash
+```bash
 python scripts/train_airline_grpo.py \
   --config configs/rl/airline_procredit_v4.yaml \
-  --stage internal_dev --epochs 2 --seed 42 \
-  --run-name rl_stage1_simple_turn_seed42 \
+  --stage internal_dev --epochs "${RL_EPOCHS:?set epoch limit}" --seed 42 \
+  --run-name sft_v4_grpo \
   --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT" \
-  --extra trainer.total_training_steps=12 \
+  --extra "trainer.total_training_steps=${RL_UPDATES:?set update count}" \
   --extra trainer.save_freq=1 --extra trainer.test_freq=1
-~~~
+```
 
-先加 `--dry-run` 检查命令。完成步数由实际 `optimizer_step` 与 checkpoint
-确认，不能凭预设步数声明训练完成。上例为当前奖励版本的新实验示例，不代表
-此前服务器上的 12 步训练采用相同奖励、数据和代码。
-
-Stage 4，从第一阶段 **实际已保存** 的 Step 12 导出 adapter，并合并到第一阶段
-训练时的同一底座；合并脚本虽然名为 `merge_sft_lora.py`，也接受已导出的
-标准 RL PEFT adapter，并验证其底座身份：
-
-~~~bash
-python scripts/export_verl_lora.py --stage rl --verl-root "$VERL_ROOT" \
-  --local-dir outputs/runs/rl_stage1_simple_turn_seed42/checkpoints/global_step_12/actor \
-  --target-dir /root/models/rl_stage1_step12_export
-
-python scripts/merge_sft_lora.py \
-  --sft-adapter /root/models/rl_stage1_step12_export/lora_adapter \
-  --output /root/models/qwen3_4b_airline_rl_stage1_step12_merged
-
-export MERGED_SFT_MODEL=/root/models/qwen3_4b_airline_rl_stage1_step12_merged
-~~~
-
-合并后按前述 adapter 等价性检查流程核对权重。第二阶段以此完整模型新挂 LoRA，
-使用独立 run；先明确该实验的 epoch 上限与更新数，再执行：
-
-~~~bash
-# 必须先设置 RL_STAGE2_EPOCHS 和 RL_STAGE2_UPDATES。
-python scripts/train_airline_grpo.py \
-  --config configs/rl/airline_procredit_v4.yaml \
-  --stage internal_dev --epochs "${RL_STAGE2_EPOCHS:?set stage-2 epoch limit}" --seed 42 \
-  --run-name rl_stage2_simple_turn_seed42 \
-  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT" \
-  --extra "trainer.total_training_steps=${RL_STAGE2_UPDATES:?set stage-2 update count}" \
-  --extra trainer.save_freq=1 --extra trainer.test_freq=1
-~~~
-
-新阶段不传 `--resume-from-path`，optimizer、scheduler 和训练计数重新开始。
-保留第一阶段来源、数据哈希、奖励版本、合并记录和每阶段实际更新数。服务器历史
-第二阶段的确切更新数尚需由对应 run 记录确认，不能据此示例补造结果。
+记录实际 `optimizer_step`、checkpoint、运行配置、模型身份和启动参数。v13 的 80 条离线重放复用了冻结轨迹和保存的判定，验证了优势计算；GPU 更新和训练后得分由后续 run 验证。
 
 ### 中断续训
 
 继续同一个实验时才使用 `--resume-from-path`。保留原阶段、seed、epochs、
-配置与全部训练 overrides。例如恢复上面的第一阶段：
+配置与全部训练 overrides。例如恢复上面的同一 run：
 
 ~~~bash
 python scripts/train_airline_grpo.py \
   --config configs/rl/airline_procredit_v4.yaml \
-  --stage internal_dev --epochs 2 --seed 42 \
-  --run-name rl_stage1_simple_turn_seed42 \
-  --resume-from-path outputs/runs/rl_stage1_simple_turn_seed42/checkpoints/global_step_N \
+  --stage internal_dev --epochs "${RL_EPOCHS:?set original epoch limit}" --seed 42 \
+  --run-name sft_v4_grpo \
+  --resume-from-path outputs/runs/sft_v4_grpo/checkpoints/global_step_N \
   --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT" \
-  --extra trainer.total_training_steps=12 \
+  --extra "trainer.total_training_steps=${RL_UPDATES:?set original update count}" \
   --extra trainer.save_freq=1 --extra trainer.test_freq=1
 ~~~
 
@@ -510,7 +446,7 @@ dataloader 状态，也不能从当前配置或 run 目录补造身份。已有�
 
 ### 冻结评估
 
-Stage 5 前，先选择冻结的阶段/checkpoint，再从其 `actor/` 子目录导出标准
+选择实际保存的 RL checkpoint，再从其 `actor/` 子目录导出标准
 PEFT adapter。将下面的 `RL_CHECKPOINT` 设置为真实已保存的检查点目录：
 
 ```bash
@@ -522,17 +458,16 @@ python scripts/export_verl_lora.py \
 
 评估 SFT 基线时，`SFT_BASELINE_MODEL` 必须指向原 SFT 完整模型；评估 RL
 adapter 时，`RL_ADAPTER_BASE_MODEL` 必须指向该 adapter 训练时的同一底座。
-第二阶段 adapter 的底座是第一阶段合并模型，两者不要混用。
-然后只在最终冻结后运行 test；不做动态采样或参数更新：
+正式对照先在运行 checkout 的 `configs/evaluation/airline_eval_v1.yaml` 中设置 `user_sim_filter.enabled: false`，并确认提示词路径和哈希已绑定到本次实验使用的版本。冻结两个模型后运行：
 
 ```bash
 python scripts/evaluate_airline.py \
-  --split official_test --samples 4 --tag sft_baseline \
+  --split official_test --samples 4 --no-reward-judge --tag sft_baseline \
   --model-path "${SFT_BASELINE_MODEL:?set original SFT model directory}" \
   --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
 
 python scripts/evaluate_airline.py \
-  --split official_test --samples 4 --tag sft_grpo \
+  --split official_test --samples 4 --no-reward-judge --tag sft_grpo \
   --model-path "${RL_ADAPTER_BASE_MODEL:?set adapter training base directory}" \
   --lora-adapter /root/models/qwen3_4b_airline_rl_export/lora_adapter \
   --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
@@ -550,11 +485,9 @@ python scripts/summarize_evaluation.py \
   --output outputs/reports/sft_grpo_pass1_pass4.json
 ```
 
-以上命令默认**开启 Agent 奖励 Judge**，同时报告 `official_pass1` / `official_pass4`
-和政策合规成功指标 `custom_strict_pass1` / `custom_strict_pass4`。
-只需要官方指标时显式传入 `--no-reward-judge`。切换指标选择时使用新的 `--tag`。
-所有独立评估 split 均显式使用 BF16 模型加载、参数和 rollout 精度；归约和缓冲使用 FP32。
-这不关闭下面的 **User Simulator 合规检查**，后者仍会调用独立的检查模型。
+仓库原生入口默认开启用户筛选和 Agent 奖励 Judge。`--no-reward-judge` 只关闭 Agent 奖励 Judge，用户筛选使用前述 YAML 开关。官方对照使用完整工具回执、16K 上下文、8 并发和 35 个助手轮次，并记录实际运行配置。已完成的 SFT v4 基线使用 30 轮。严格对照时，SFT 和 RL 都按同一份配置评估。
+
+评估使用 BF16 模型加载、参数和 rollout 精度，归约和缓冲使用 FP32。
 
 两条评估路径与 `training/tau2_rollout_sft/report_pass1_pass4.py` 使用相同的数学公式：
 每任务的 pass^k = `comb(成功次数, k) / comb(有效次数, k)`，最后对任务等权平均。
@@ -604,7 +537,7 @@ v4 训练中，临时错误或 invalid user 补采耗尽只排除对应 slot，�
 阻止后续采样、补采和 actor 更新，不再被 veRL 的通用 `failure` 状态吞掉。
 
 训练 GRPO / DAPO 与 `scripts/evaluate_airline.py` 共用 `user_sim_filter`，默认开启。
-它在一条完整交互收集结束后离线检查（包括因长度/轮数预算截断的已有完整记录），
+它在符合检查条件的完整交互结束后执行；按当前策略归零的截断轨迹跳过检查。
 不修改 Agent 的 SFT 系统提示词，不给 User Simulator 追加纠错提示。
 只因为 **User Simulator 本身实质破坏任务环境** 才丢弃整条 trajectory：
 
@@ -705,166 +638,11 @@ veRL v0.9.0 的内置 V1 ReplayBuffer 会忽略 `algorithm.filter_groups.max_num
 
 ## 离线重新打分
 
-### 可选官方完成后回退信用（2026-10-18）
-
-`credit.post_completion_credit` 默认 `null`，设为 `post_completion_regression_v1`
-后，依据原官方 DB/COMMUNICATE 前缀检查保留首次完成的正向信用，并将确认
-破坏官方 DB 目标的轮次限制为最终 Token Advantage ≤ −1（叠加独立 process cost）。
-同一错误已有 policy 惩罚时不再重复叠扣；与 DB 子目标局部正奖共享每条轨迹 0.5 上限。
-不改变标量奖励、最终官方成功、GRPO 均值或采样设置。
-
-对存在确认回退的轨迹，安全的首次完成轮在所有项合并后保底为
-`max(1e-6, 0.5 − 当轮 process cost)`，确保最终 Advantage 为正。保底取最大值，
-修正量单独审计，可超过局部奖励上限。policy 违规仍必须为负。
-指定的 Task 12 T6 为 −1.7088 → +0.5，T10 的原惩罚不变。详见
-[完成后回退规则与 738 条轨迹审计](POST_COMPLETION_REGRESSION_V1.md)。
-
-### 可选 DB 子目标局部信用（2026-10-18）
-
-v4 配置新增 `credit.db_subgoal_credit`，默认 `null`。设为
-`db_subgoal_local_v1` 后，为同一订单中独立、已验证的航班、乘客或行李目标
-增加当轮信用；`train_reward`、官方成功判定、policy/process、采样预算均保持原语义。
-同轮包含错误、目标外或无法验证的写入时不给新增正奖；状态回退在破坏该目标的
-轮次扣分，重复恢复不能刷分。不能确认独立性的取消/重订及 user-tool 任务不启用。
-
-在修改后的 v4 YAML 中启用，再通过现有 `--config` 参数选择该文件。
-切换信用条件需新 run，不绕过 optimizer resume 的配置/代码身份检查。
-实测 738 条 PPO 轨迹、96 个原组：关闭开关完全复现旧 Token Advantage；
-启用后 12 个正确轮次由非正变正，新增误奖励错误写入为 0。
-完整规则、离线命令、真实轨迹对比及验证边界见
-[DB 子目标局部信用与验收报告](DB_SUBGOAL_LOCAL_V1.md)。
-
-### ProCredit v4 逐轮政策惩罚（2026-09-29）
-
-本节描述原始 v4，现保留在 `configs/rl/airline_procredit_v4_legacy.yaml`。
-当前同名主配置已追加 `simple-turn-v1` 最终优势规则，见 [当前规则](SIMPLE_TURN_REWARD.md)。
-原始 v4 的训练奖励取消 policy/safety 整轨迹门控，
-违规 turn 的局部奖励固定为 -1，叠加 trajectory advantage 后仍保证该 turn 的
-最终 advantage ≤ -1。process 只在本轮按固定值扣分，取消整轨迹扣分与 cap，
-与同轮 policy 相加；task/progress 不受 policy clipping。交互异常只补采原槽位，
-Judge 异常只重评冻结轨迹；
-临时错误重试耗尽后利用同组已评分成员；致命错误立即停训。多余有效组及
-补采上限处的剩余有效组均用于当前更新。显式 BF16 延续 v3。
-v4 的训练任务选择使用 `task_or_local_credit`，保留已授权训练集中的任务，
-不再因为初始 progress 为零排除拒绝、政策推理等任务；实际无 advantage 信号的组仍过滤。
-训练内验证也只补采失败 slot，耗尽后保留成功样本并报告
-`val/coverage/{requested_slots,completed_slots,failed_slots,completion_rate}`；
-全部失败时只报告覆盖率，继续训练。Tau2 后台线程保留原始异常，Judge 检查按 ID 匹配，
-接受合法乱序，缺失、重复、额外 ID 和错误证据仍拒绝。
-同轮多工具调用逐个校验：schema 无效或未知工具只返回对应调用的错误，
-合法调用按原顺序执行，每个 call ID 都保留工具结果；不再整批阻断。
-进度和最终评分的严格回放识别适配器记录的拒绝调用，按未执行处理；
-其余调用继续严格核对，原始轨迹、Judge 证据和 token/log-prob 保留。
-详见 [公式、重试边界和启动方式](REWARD_TURN_LOCAL_V4.md)。
-
-### ProCredit v3 contract 修复（2026-09-28）
-
-新增 `configs/rl/airline_procredit_v3.yaml`：canonical matcher 与 safety 解耦、
-Judge applicability、DB/REQ progress 去重、零分轨迹局部过程惩罚、训练任务
-信号筛选，以及显式 BF16。须启动新 run；详见
-[行为、启动命令和验证边界](REWARD_CONTRACTS_V3.md)。
-
-### ProCredit 新奖励实验（2026-09-27）
-
-独立配置 `configs/rl/airline_procredit_v1.yaml` 启用 `strict_progress_v1`。
-终局分数为 `S = V × max(0, m × (R + 0.5 × Phi_T) - P)`，范围 `[0, 1.5]`；
-截断时 `m=0.75`，过程扣分在乘数之外。Phi 使用初始未满足的 DB、逐条 COMM、
-逐条 REQ 检查，DB 可以回退。每轮只使用当时已送达环境的前缀，清理消息、
-被拒绝的工具文本和未送达的截断输出不能贡献进度。
-
-新训练器把组内归一化的轨迹 advantage 与逐轮剩余任务回报的中心化值相加。
-逐轮中心只计算 gate 通过且有策略 token 的轮次；观测与 padding 的 advantage 为 0。
-动态采样按最终 token advantage 是否全零筛组，因此终局同分但逐轮仍有信号的组
-可以保留。每组 8 条、每次更新 4 组；最多 3 批、每批最多 4 组，
-最坏 96 个逻辑槽位，槽内实际替换另计。
-
-沿用前文依赖、模型和 API 环境变量设置，在 `agentic_rl` 目录运行：
-
-```bash
-python scripts/train_airline_grpo.py \
-  --config configs/rl/airline_procredit_v1.yaml \
-  --stage smoke --run-name procredit_smoke_seed42 \
-  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
-
-# 完成 smoke 验收后，用 24 条训练任务和 6 条独立开发任务：
-python scripts/train_airline_grpo.py \
-  --config configs/rl/airline_procredit_v1.yaml \
-  --stage internal_dev --epochs 15 --run-name procredit_v1_seed42 \
-  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
-```
-
-新模式要求 Agent Judge 开启，禁止会合并 30 条任务的 `full_train`。
-旧奖励配置及官方评估口径保持原有行为。新模式轨迹使用 schema `2.0`，记录
-`progress_trace`、`response_turn_ids` 和冻结前缀输入；run 下的 `group_audits/`
-保存真实采样 uid、原始 8 个成员、计算输入、advantage 与过滤决定。
-恢复身份绑定奖励/credit 配置、任务划分和项目 Python 代码内容；新旧奖励的
-checkpoint 不能作为同一实验精确续训，修改实现后也应开启新实验。
-
-仅比较逐轮消融时，可复制新 YAML，把 `credit.turn_coefficient` 改为 `0`，
-并从原始组审计重算，输出必须是另外一个空目录：
-
-```bash
-python scripts/rescore_procredit_groups.py \
-  outputs/runs/procredit_v1_seed42/group_audits outputs/procredit_ablation_groups \
-  --config /path/to/procredit_lambda0.yaml
-```
-
-下方单轨迹重评分脚本也支持新配置，但必须已有完整的新模式 progress trace。
-如果改动任务检查或动作依赖，旧进度会被拒绝，需先从冻结前缀重新验证。
-组重评分的 `--records-dir` 可读取同一批成员的新评分记录；缺失成员、成员身份
-变化或修改原始组审计都会报错。历史数据仅供离线分析，不会进入当前策略更新。
-
-无模型/无 API 的真实依赖验收命令为 `python -m pytest contract_tests -v`，
-需同时安装固定版本 veRL 和 Tau2，并设置 Tau2 数据路径；Tau2 未安装时其检查跳过。
-本次本地验证覆盖 CPU 算法、生产循环和真实 PyTorch/TensorDict 张量，
-完整固定依赖栈、真实 API 和 GPU optimizer 更新仍需在训练环境验收。
-
-AgentLoop 会累计各轮服务端返回的 `min_global_steps` / `max_global_steps`，
-并将整数范围传给 veRL 队列及 off-policy 指标。缺少范围时，仅使用服务端返回的
-实际权重版本 `global_steps`；不能使用 prompt 的调度步号或默认 `policy_version=0`
-替代。完全缺失版本时沿用 `policy_version_alignment` 致命错误通道，保留诊断，
-不触发补采，也不在 PPO 更新之后才由指标统计报错。
-
-可在无 GPU 环境用固定 veRL checkout 运行版本传递回归：
-
-```bash
-PYTHONPATH=src:tests:. VERL_VERSION_CONTRACT_SOURCE=/path/to/verl \
-  python -m pytest tests/test_rollout_versions.py tests/test_verl_version_metrics.py -v
-```
-
-该回归校验固定源码哈希，并执行上游完整的队列后处理与 `_compute_metrics()` 方法，
-覆盖权重版本 0、1 和服务端单版本字段的兼容路径；传输、张量运算和无关指标使用
-CPU 替身。因此它不代表完整训练器/GPU smoke 已通过。正式训练前仍需在训练环境
-完成短程 smoke，确认更新、指标、rollout 保存和日志全部完成。
-
-### ProCredit v2：保留违规轨迹中的局部信号（2026-09-28）
-
-`configs/rl/airline_procredit_v2.yaml` 保留终局 hard gate，新增对已定位违规 turn 的
-局部负 credit，并允许归因完整轨迹中已验证的早期进度参与逐轮回报。违规动作
-产生的正进度被屏蔽；旧 Judge 的支持性 `evidence_turn_ids` 不被猜作违规轮次。
-无法定位的 policy 失败暂不产生正进度 credit，但已定位的违规仍受惩罚。
-
-Judge 的 transfer 执行事实改由工具记录决定：没有成功 transfer 时强制
-`valid=false`，不因矛盾的 transfer 字段丢弃整条轨迹，原始响应仍保留用于审计。
-其他有效性检查继续执行。prompt/scorer 已更新，不能直接复用旧缓存身份。
-
-沿用上方环境设置，用新 run name 启动：
-
-```bash
-python scripts/train_airline_grpo.py \
-  --config configs/rl/airline_procredit_v2.yaml \
-  --stage smoke --run-name procredit_v2_smoke_seed42 \
-  --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT"
-```
-
-v1 的 credit 数学和组审计兼容性保留。v2 是新训练条件，不绕过旧 checkpoint 的
-恢复身份检查。提供的旧 smoke 完整组在离线诊断中由无信号变为有负信号，
-八条终局分数仍为零；这不代表真实 GPU smoke 已通过。数学定义、归因边界和
-诊断计数见 [v2 设计说明](../docs/superpowers/specs/2026-09-28-policy-local-credit.md)。
+早期 ProCredit 版本、可选 DB 子目标信用和完成后回退消融见 [历史实验归档](../docs/legacy-experiments.md)。
 
 ### 单轨迹重评分
 
-默认 `simple-turn-v1` 还要求匹配的逐轮语义标签。旧轨迹缺少标签时，纯离线脚本
+启用逐轮奖励时，离线评分要求与配置匹配的逐轮语义标签。旧轨迹缺少标签时，纯离线脚本
 会拒绝直接套用新模式，不会调用模型补标签；以下旧配置示例不代表新模式可无条件重放。
 
 当只调整 reward 权重、过程扣分或必须动作标注，而且 Judge rubric 未变时，
@@ -881,44 +659,9 @@ python scripts/rescore_saved_trajectories.py \
   --reward-version v2
 ```
 
-## 截断折扣与 Judge 证据校验（2026-09-12）
+## 截断与 Judge 证据
 
-本节记录历史 `v3-truncation-evidence` 更新。当前默认 RL 奖励版本为
-`v10-procredit-simple-turn`；各配置的具体公式以其 YAML 及对应版本文档为准。
-以下是原复合奖励路径的截断处理说明，不能替代默认 v4 的逐轮过程成本与最终优势规则。
-训练和评估配置均显式设置
-`reward.truncation_multiplier: 0.75`，普通任务、转人工两个分支一致：
-
-```text
-最终 train_reward = 原有加权、过程扣分、裁剪及政策/安全门控后的奖励 × 截断系数
-截断系数 = 0.75（轨迹被截断）或 1.0（其他终止情况）
-```
-
-判定依据是会话的 `termination_reason`，包含 `generation_truncated`、
-`budget_exhausted`、`hard_turn_limit`、`max_steps`、`context_window_exceeded`。
-单个 observation 被裁短但会话正常结束，不算整个轨迹截断；API 超时或其他
-基础设施错误沿用原失败处理，不用折扣代替重试。折扣只乘一次，不改各分项、
-`strict_success`、官方评分或 pass^k 公式。审计字段记录在 `custom_reward.details`
-中的 `trajectory_truncated`、`termination_reason`、`reward_before_truncation`
-和 `truncation_multiplier`。在线评分、冻结轨迹重试、离线重评分使用同一实现，
-重复离线计算不会把旧奖励再次乘 0.75。
-
-Judge 的 `semantic_checks`、`transfer_semantic_checks`、`mandatory_policy_checks`
-及 `transfer_check` 的所有 `evidence_turn_ids` 必须是严格非负整数，并出现在
-**实际传给 Judge 的** `messages.turn_idx` 或 `tool_events.turn_id` 中。
-前者是环境会话编号，后者是 assistant 生成轮编号，可能包含未送进环境的被拒绝
-工具尝试；这是两个证据视图，不强行当成同一消息编号。不会通过数组下标、数字
-字符串或布尔值补造合法引用。空列表不新增“必须有证据”的要求，但原有的
-“失败的 policy 条目必须有证据及具体理由”继续保留。
-
-这个检查只验证 ID 存在，**不证明证据在语义上支持判定**。模型响应引用不存在的
-ID 时按 Judge 格式错误有界重试，耗尽后保持评分失败待处理，不改成模型零分或
-重采用户会话。缓存读取和离线重评分也会拒绝无效引用，不自动删除或修补证据。
-Judge prompt / scorer 缓存版本已更新（v6 / v3）；旧 Judge rubric 指纹不兼容时
-离线重评分会要求重新 Judge，不能伪造新版指纹绕过检查。
-
-这次不改 SFT 数据、agent 系统提示词、工具规则或官方评分。新旧 reward / Judge
-版本应使用分开的实验与评估 tag，不绕过恢复身份校验。未自动启动 GPU 或 API 作业。
+采用 [35 轮截断归零](TRUNCATION_35.md)。训练与评估都保存实际终止原因和原始官方分。旧 `0.75` 折扣及当时的证据校验见 [历史实验归档](../docs/legacy-experiments.md#截断折扣与-judge-证据校验2026-09-12)。
 
 ## RL / 评估的 EOS 文本边界
 
@@ -946,8 +689,8 @@ response mask 保留原始 EOS，下一轮仍接续原始 token 流。不会全�
 
 ## 正式训练前仍必须人工完成
 
-- 填入 DeepSeek Pro 的精确、可复现模型 ID；
-- 在 A800 上完成一次端到端 Stage 0，核对 Qwen3 工具标签与 tokenizer/chat template；
+- 记录实际使用的用户模拟器及 Judge 模型 ID；
+- 在 A800 上完成一次端到端 工具交互验收，核对 Qwen3 工具标签与 tokenizer/chat template；
 - 用真实 Airline 工具结果统计重新确认 1,024 token observation 预留量；
 - 人工审计至少 50–100 条代表性轨迹及 Judge 结论；
 - smoke 中记录训练侧 actor 与 vLLM rollout 的 ratio 分布（允许训推差异，不要求接近 1），核对 PPO 始终使用保存的 rollout 行为策略 log-prob，验证两个 PPO epoch 的 old log-prob 不变、checkpoint 可恢复且无 OOM；

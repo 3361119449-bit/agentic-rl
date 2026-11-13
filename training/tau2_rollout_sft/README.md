@@ -1,5 +1,7 @@
 # Tau2 train rollout SFT and pass^1/pass^4 evaluation
 
+This is the historical four-condition SFT ablation runbook. See the [current experiment](../../README.md#当前实验主线) and the [legacy experiment archive](../../docs/legacy-experiments.md).
+
 This directory implements the second SFT data source and the four requested
 ablations:
 

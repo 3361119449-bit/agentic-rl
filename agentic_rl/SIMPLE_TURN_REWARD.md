@@ -4,8 +4,9 @@
 
 当前v12增加 [35轮截断归零与训练重采](TRUNCATION_35.md)。以下逐轮约束适用于非截断轨迹；旧v10/v11实验条件保留在对应配置快照。
 
-默认训练配置 `configs/rl/airline_procredit_v4.yaml` 启用
-`credit.final_turn_rule: simple-turn-v1`，奖励版本为 `v10-procredit-simple-turn`。
+本文记录 v10–v12 的 `simple-turn-v1` 规则和 Target v2 的演进。v13 的当轮进度与独立拒绝规则见 [PR #10](https://github.com/3361119449-bit/agentic-rl/pull/10)。
+
+历史 v10 的奖励标识是 `v10-procredit-simple-turn`，配置保存在 `configs/rl/airline_procredit_v4_v10.yaml`。
 以原 main `08cc07a` 的完整 ProCredit v4 最终优势为 A0：
 
 ```python

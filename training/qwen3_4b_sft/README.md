@@ -1,5 +1,7 @@
 # Qwen3-4B non-thinking LoRA SFT with verl
 
+The current experiment uses the reviewed Airline SFT v4 JSONL via `--data-jsonl`. The AReaL input examples below document the historical data path. See the [current experiment](../../README.md#当前实验主线).
+
 Use this training entry point (LoRA only; rank 0 is rejected):
 
 ```text
