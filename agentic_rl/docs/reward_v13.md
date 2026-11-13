@@ -9,7 +9,9 @@ This is the user-approved credit-assignment change, based on main
 
 ```yaml
 project:
-  reward_version: v13-procredit-immediate-independent
+  reward_version: v13.1-procredit-immediate-independent
+reward:
+  check_reference_write_scope: false
 credit:
   version: procredit-turn-v4
   progress_credit: immediate_delta_v1
@@ -22,6 +24,13 @@ The prior default is frozen in `airline_procredit_v4_v12.yaml`. Missing
 retains its old refusal deduplication/revocation semantics and audit identities.
 New and historical label versions cannot silently mix. Start a new run/tag rather
 than claiming exact continuation under the old reward identity.
+
+v13.1 disables the reference write-scope check in the active ProCredit profile.
+Required actions still contribute to task completion and progress. An authorized
+free-baggage update can receive normal turn credit when the reference lists the
+bag as part of a new booking. Explicit policy violations and failed tools with
+database effects still contribute to local penalties. Historical configs and
+frozen scoring inputs without this setting retain their original behavior.
 
 ## Trajectory completion checks
 
