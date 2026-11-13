@@ -66,6 +66,7 @@ JUDGE_SCHEMA_VERSION = "1.0"
 def rubric_fingerprint(
     semantic_checks, mandatory_policy_checks, transfer_rule, *,
     require_policy_attribution=False, transfer_validation_version="transfer-policy-v1",
+    semantic_checks_only=False,
 ):
     return sha256_json(
         {
@@ -75,6 +76,7 @@ def rubric_fingerprint(
             "mandatory_policy_checks": mandatory_policy_checks,
             "transfer_rule": transfer_rule,
             "transfer_validation_version": transfer_validation_version,
+            **({"semantic_checks_only": True} if semantic_checks_only else {}),
             **({"require_policy_attribution": True} if require_policy_attribution else {}),
         }
     )
@@ -90,8 +92,16 @@ def build_judge_messages(
     transfer_rule: dict[str, Any],
     require_policy_attribution: bool = False,
     transfer_validation_version: str = "transfer-policy-v1",
+    semantic_checks_only: bool = False,
 ) -> list[dict[str, str]]:
     """Build an isolated, injection-resistant judge request."""
+    criteria = task.get("evaluation_criteria")
+    if semantic_checks_only and isinstance(criteria, dict) and "nl_assertions" in criteria:
+        # The versioned rubric is authoritative for task semantics. Keep the
+        # original task intact for the environment, official scores and replay.
+        task = {**task, "evaluation_criteria": {
+            key: value for key, value in criteria.items() if key != "nl_assertions"
+        }}
     transferred = any(
         item.get("name") == "transfer_to_human_agents" and item.get("success")
         for item in trajectory.get("tool_events", [])
@@ -140,6 +150,12 @@ def build_judge_messages(
             },
         },
     }
+    if semantic_checks_only:
+        rubric["semantic_scope"] = (
+            "Return a decision only for each listed semantic_checks criterion. "
+            "Return an empty semantic_checks list if no criteria are listed. "
+            "Continue to evaluate the separate policy and transfer checks."
+        )
     if transfer_validation_version not in {"transfer-policy-v1", "transfer-policy-v2"}:
         raise ValueError("unknown transfer validation version")
     if transfer_validation_version == "transfer-policy-v2":

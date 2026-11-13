@@ -28,6 +28,7 @@ def test_offline_changed_cost_remains_replayable_with_new_frozen_config(scratch_
     record.metadata["agent_system_prompt_sha256"] = prompt_sha256(load_agent_system_prompt(cfg, root))
     record.metadata["judge_rubric_sha256"] = rubric_fingerprint(
         [], [], {}, require_policy_attribution=original_version == "v4",
+        transfer_validation_version=cfg['reward'].get('transfer_validation_version', 'transfer-policy-v1'),
     )
     monkeypatch.setattr(script, "load_required_actions", lambda path: {"0": []})
     monkeypatch.setattr(script, "load_action_dependencies", lambda path: {})

@@ -66,6 +66,8 @@ def main() -> None:
             policy[record.task_id].get("judge_checks", []),
             transfer[record.task_id],
             require_policy_attribution=reward_config.credit_version == "procredit-turn-v4",
+            transfer_validation_version=reward_config.transfer_validation_version,
+            semantic_checks_only=semantic[record.task_id].get("semantic_checks_only", False),
         )
         if record.metadata.get("judge_rubric_sha256") != expected_rubric:
             raise ValueError(

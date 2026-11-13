@@ -2,7 +2,7 @@ project:
   domain: airline
   tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
   verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
-  annotation_version: v3-areal-multitool-policy-test-frozen
+  annotation_version: v5-trajectory-semantic-dedup
   reward_version: v5-35turn-zero-truncation
 
 agent_policy:
@@ -76,7 +76,7 @@ user_sim_filter:
 annotations:
   required_actions: data/annotations/airline_required_actions.test.v1.json
   action_dependencies: data/annotations/airline_action_dependencies.test.v1.json
-  semantic_checks: data/annotations/airline_semantic_checks.test.v1.json
+  semantic_checks: data/annotations/airline_semantic_checks.test.v2.json
   transfer_rules: data/annotations/airline_transfer_rules.test.v1.json
   policy_rules: data/annotations/airline_mandatory_policy_rules.test.v1.json
 
