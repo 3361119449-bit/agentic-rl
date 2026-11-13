@@ -16,7 +16,8 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
                     credit_version=None, judge_failures=0, version_fields=None,
                     db_subgoal_credit=False, post_completion_credit=False,
                     final_turn_rule=None, turn_scorer=None, zero_truncation=False,
-                    hard_limit=None, natural_stop_at=None, judge_enabled=True):
+                    hard_limit=None, natural_stop_at=None, judge_enabled=True,
+                    semantic_row=None):
     loop, scope = minimal_loop(scratch_dir)
     cleaned, judge_calls = [], []
     loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
@@ -51,7 +52,7 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
         loop.hard_turn_limit = hard_limit
     loop.test_judge_calls = judge_calls
     loop.reward_config = build_reward_config(loop.project)
-    loop.semantic, loop.transfer, loop.policy_rules = {"0": {}}, {"0": {}}, {"0": {}}
+    loop.semantic, loop.transfer, loop.policy_rules = {"0": semantic_row or {}}, {"0": {}}, {"0": {}}
     loop.required_actions, loop.action_dependencies = {"0": []}, {}
 
     class Environment:

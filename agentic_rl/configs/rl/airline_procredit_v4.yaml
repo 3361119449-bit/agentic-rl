@@ -3,7 +3,7 @@ project:
   domain: airline
   tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
   verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
-  annotation_version: v4-policy-applicability
+  annotation_version: v5-trajectory-semantic-dedup
   reward_version: v13-procredit-immediate-independent
 agent_policy:
   path: configs/prompts/areal_airline_sft.v1.json
@@ -73,7 +73,7 @@ user_sim_filter:
 annotations:
   required_actions: data/annotations/airline_required_actions.train.v1.json
   action_dependencies: data/annotations/airline_action_dependencies.train.v1.json
-  semantic_checks: data/annotations/airline_semantic_checks.train.v1.json
+  semantic_checks: data/annotations/airline_semantic_checks.train.v2.json
   transfer_rules: data/annotations/airline_transfer_rules.train.v1.json
   policy_rules: data/annotations/airline_mandatory_policy_rules.train.v1.json
 reward:

@@ -1,0 +1,347 @@
+[
+  {
+    "task_id": "2",
+    "semantic_checks": [
+      {
+        "criterion_id": "2:nl:0",
+        "description": "Agent should not offer compensation unless the user asks for it."
+      },
+      {
+        "criterion_id": "2:nl:1",
+        "description": "Agent should check that the flight was indeed delayed."
+      },
+      {
+        "criterion_id": "2:nl:2",
+        "description": "Agent should detect that the number of passengers on the delayed flight mentioned by the user is incorrect."
+      },
+      {
+        "criterion_id": "2:nl:3",
+        "description": "Agent should not offer a certificate of $50 as the user does not want to change or cancel the reservation."
+      }
+    ],
+    "semantic_checks_only": true
+  },
+  {
+    "task_id": "6",
+    "semantic_checks": [
+      {
+        "criterion_id": "6:nl:0",
+        "description": "Agent should not allow user to add insurance."
+      }
+    ],
+    "semantic_checks_only": true
+  },
+  {
+    "task_id": "8",
+    "semantic_checks": [
+      {
+        "criterion_id": "8:nl:0",
+        "description": "Agent get sophia_silva_7557 user details."
+      },
+      {
+        "criterion_id": "8:nl:1",
+        "description": "Agent identifies reservation id as WUNA5K."
+      }
+    ],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "8:nl:2",
+        "covered_by": "req:8_3"
+      },
+      {
+        "criterion_id": "8:nl:3",
+        "covered_by": "req:8_3"
+      }
+    ]
+  },
+  {
+    "task_id": "13",
+    "semantic_checks": [
+      {
+        "criterion_id": "13:nl:0",
+        "description": "Agent correctly identified that the changes requested by the user cannot be done because the policy stipulates that modification of origin, destination or trip type of a flight is not allowed."
+      }
+    ],
+    "semantic_checks_only": true
+  },
+  {
+    "task_id": "16",
+    "semantic_checks": [],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "16:nl:0",
+        "covered_by": "req:16_0"
+      },
+      {
+        "criterion_id": "16:nl:1",
+        "covered_by": "req:16_0"
+      }
+    ]
+  },
+  {
+    "task_id": "18",
+    "semantic_checks": [
+      {
+        "criterion_id": "18:nl:5",
+        "description": "Agent communicates that user will save $23553 in total."
+      }
+    ],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "18:nl:0",
+        "covered_by": "req:18_0"
+      },
+      {
+        "criterion_id": "18:nl:1",
+        "covered_by": "req:18_1"
+      },
+      {
+        "criterion_id": "18:nl:2",
+        "covered_by": "req:18_2"
+      },
+      {
+        "criterion_id": "18:nl:3",
+        "covered_by": "req:18_4"
+      },
+      {
+        "criterion_id": "18:nl:4",
+        "covered_by": "req:18_3"
+      }
+    ]
+  },
+  {
+    "task_id": "19",
+    "semantic_checks": [],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "19:nl:0",
+        "covered_by": "req:19_0"
+      }
+    ]
+  },
+  {
+    "task_id": "22",
+    "semantic_checks": [],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "22:nl:0",
+        "covered_by": "req:22_0"
+      },
+      {
+        "criterion_id": "22:nl:1",
+        "covered_by": "req:22_1"
+      },
+      {
+        "criterion_id": "22:nl:2",
+        "covered_by": "req:22_2"
+      }
+    ]
+  },
+  {
+    "task_id": "24",
+    "semantic_checks": [
+      {
+        "criterion_id": "24:nl:0",
+        "description": "Agent does not cancel reservation H9ZU1C because it doesn't meet criteria set by policy."
+      }
+    ],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "24:nl:1",
+        "covered_by": "req:24_0"
+      },
+      {
+        "criterion_id": "24:nl:2",
+        "covered_by": "req:24_0"
+      }
+    ]
+  },
+  {
+    "task_id": "25",
+    "semantic_checks": [],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "25:nl:0",
+        "covered_by": "req:25_0"
+      },
+      {
+        "criterion_id": "25:nl:1",
+        "covered_by": "req:25_0"
+      }
+    ]
+  },
+  {
+    "task_id": "26",
+    "semantic_checks": [
+      {
+        "criterion_id": "26:nl:0",
+        "description": "Agent does not offer the refund because reservation doesn't meet policy criteria."
+      }
+    ],
+    "semantic_checks_only": true
+  },
+  {
+    "task_id": "29",
+    "semantic_checks": [
+      {
+        "criterion_id": "29:nl:0",
+        "description": "Agent informs the user that the reservation can't be changed and it can be cancelled instead."
+      }
+    ],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "29:nl:1",
+        "covered_by": "req:29_1"
+      },
+      {
+        "criterion_id": "29:nl:2",
+        "covered_by": "req:29_2"
+      }
+    ]
+  },
+  {
+    "task_id": "30",
+    "semantic_checks": [
+      {
+        "criterion_id": "30:nl:1",
+        "description": "Agent does not make modifications to checked bags since policy doesn't allow to remove bags."
+      }
+    ],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "30:nl:0",
+        "covered_by": "req:30_2"
+      }
+    ]
+  },
+  {
+    "task_id": "31",
+    "semantic_checks": [],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "31:nl:0",
+        "covered_by": "db"
+      }
+    ]
+  },
+  {
+    "task_id": "32",
+    "semantic_checks": [],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "32:nl:0",
+        "covered_by": "req:32_3"
+      },
+      {
+        "criterion_id": "32:nl:1",
+        "covered_by": "req:32_4"
+      }
+    ]
+  },
+  {
+    "task_id": "35",
+    "semantic_checks": [
+      {
+        "criterion_id": "35:nl:0",
+        "description": "Agent does not cancel the reservation since this is not allowed."
+      }
+    ],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "35:nl:1",
+        "covered_by": "req:35_0"
+      },
+      {
+        "criterion_id": "35:nl:2",
+        "covered_by": "req:35_0"
+      }
+    ]
+  },
+  {
+    "task_id": "37",
+    "semantic_checks": [
+      {
+        "criterion_id": "37:nl:0",
+        "description": "Agent does not cancel reservation NQNU5R since it is in the past."
+      },
+      {
+        "criterion_id": "37:nl:1",
+        "description": "Agent does not cancel reservation IFOYYZ since it doesn't meet criteria."
+      }
+    ],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "37:nl:2",
+        "covered_by": "req:37_4"
+      }
+    ]
+  },
+  {
+    "task_id": "44",
+    "semantic_checks": [
+      {
+        "criterion_id": "44:nl:0",
+        "description": "Agent does not cancel reservation S61CZX as the user is healthy."
+      },
+      {
+        "criterion_id": "44:nl:1",
+        "description": "The total cost that the agent mentions is between $1380 and $1390."
+      }
+    ],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "44:nl:2",
+        "covered_by": "req:44_17"
+      },
+      {
+        "criterion_id": "44:nl:3",
+        "covered_by": "req:44_18"
+      },
+      {
+        "criterion_id": "44:nl:4",
+        "covered_by": "req:44_19"
+      }
+    ]
+  },
+  {
+    "task_id": "45",
+    "semantic_checks": [
+      {
+        "criterion_id": "45:nl:1",
+        "description": "Agent should not change PEP4E0 flight."
+      }
+    ],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "45:nl:0",
+        "covered_by": "db"
+      }
+    ]
+  },
+  {
+    "task_id": "48",
+    "semantic_checks": [],
+    "semantic_checks_only": true,
+    "covered_checks": [
+      {
+        "criterion_id": "48:nl:0",
+        "covered_by": "db"
+      }
+    ]
+  }
+]

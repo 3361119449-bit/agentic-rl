@@ -12,6 +12,7 @@ from test_simple_turn_scoring import fake_score
 from scripts.train_airline_grpo import DEFAULT_CONFIG
 from tau2_agentic_rl.advantages import CreditConfig, compute_group_credit
 from tau2_agentic_rl.config import load_yaml, validate_procredit_config
+from tau2_agentic_rl.judge.prompts import rubric_fingerprint
 from tau2_agentic_rl.procredit_runtime import build_credit_tensors, credit_from_record
 from tau2_agentic_rl.reward.simple_turn import build_label_trace, turn_request
 from tau2_agentic_rl.scoring_retry import retry_scoring
@@ -24,7 +25,12 @@ def test_live_freeze_retry_runtime_preserve_v2_and_original_tokens(scratch_dir, 
         assert inputs['version'] == 'simple-turn-v2'
         return await fake_score(inputs, events, policy_credit, judge, **kwargs)
     loop, output, record = rollout_fixture(scratch_dir, credit_version='procredit-turn-v4',
-                                           final_turn_rule='simple-turn-v2', turn_scorer=scorer)
+                                           final_turn_rule='simple-turn-v2', turn_scorer=scorer,
+                                           semantic_row={'semantic_checks_only': True})
+    assert record.scoring_inputs['judge']['semantic_checks_only'] is True
+    assert record.metadata['judge_rubric_sha256'] == rubric_fingerprint(
+        [], [], {}, require_policy_attribution=True, semantic_checks_only=True,
+    )
     assert record.metadata['simple_turn_labels']['version'] == 'simple-turn-v2'
     assert output.extra_fields['procredit']['simple_turn_labels'] == record.metadata['simple_turn_labels']
     before = deepcopy(record.model_dump())
@@ -76,7 +82,11 @@ def test_current_configuration_changes_only_approved_selectors():
     assert cfg['credit'].pop('progress_credit') == 'immediate_delta_v1'
     assert cfg['credit']['turn_centering'] == 'none'
     assert cfg['credit']['final_turn_rule'] == 'simple-turn-v2'
+    assert cfg['project']['annotation_version'] == 'v5-trajectory-semantic-dedup'
+    assert cfg['annotations']['semantic_checks'].endswith('.train.v2.json')
     cfg['project']['reward_version'] = old['project']['reward_version']
+    cfg['project']['annotation_version'] = old['project']['annotation_version']
+    cfg['annotations']['semantic_checks'] = old['annotations']['semantic_checks']
     for key in ('turn_centering', 'final_turn_rule'):
         cfg['credit'][key] = old['credit'][key]
     assert cfg == old

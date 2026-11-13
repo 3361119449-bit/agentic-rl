@@ -23,6 +23,20 @@ retains its old refusal deduplication/revocation semantics and audit identities.
 New and historical label versions cannot silently mix. Start a new run/tag rather
 than claiming exact continuation under the old reward identity.
 
+## Trajectory completion checks
+
+The active training and official-test profiles use the reviewed `v2` semantic
+annotations. Each omitted criterion records its existing DB or required-action
+coverage in `covered_checks`. The train rubric goes from 73 to 40 criteria, and
+the test rubric from 50 to 19. The original `v1` files remain available for replay.
+
+Official COMMUNICATE checks find literal text. Residual checks still verify the
+meaning of an amount, a policy explanation, or any behavior DB and REQ do not
+establish. Where all semantic criteria are covered, Judge Semantic is inapplicable.
+The other applicable components still determine task completion. The global Judge
+receives only the residual semantic criteria and continues to score policy and
+transfer. The per-turn Judge still uses its own existing rubric.
+
 ## Formula and precedence
 
 For nontruncated trajectories, keep the score `R = T + 0.5 * phi_final` and the
@@ -89,8 +103,9 @@ PYTHONPATH=src python scripts/replay_immediate_credit.py \
   --review-labels /path/to/review_labels.json
 ```
 
-This diagnostic script is specifically for the frozen 80-trajectory/1227-turn
-bundle used in the conversation. It performs no API calls or training. It first
+This diagnostic script compares the original v13 credit assignment on the frozen
+80-trajectory/1227-turn bundle. It retains the complete archived semantic decisions
+for that comparison. It performs no API calls or training. It first
 reproduces archived v11 scores/advantages, then compares the current-main v12
 formula against v13 using identical saved decisions, task scores, progress,
 costs, groups and token mappings. New default 35-turn zero policy is applied to

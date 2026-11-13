@@ -984,6 +984,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     "termination_reason": interaction_termination_reason,
                 },
                 "semantic_checks": semantic_row.get("semantic_checks", []),
+                **({"semantic_checks_only": True} if semantic_row.get("semantic_checks_only") else {}),
                 "mandatory_policy_checks": policy_row.get("judge_checks", []),
                 "transfer_rule": transfer_rule,
                 **({"transfer_validation_version": self.project["reward"]["transfer_validation_version"]}
@@ -1009,6 +1010,15 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             scoring_inputs["db_subgoal_inputs"] = db_subgoal_inputs
         if self.project.get("credit", {}).get("version") == "procredit-turn-v4":
             scoring_inputs["judge"]["require_policy_attribution"] = True
+        judge_inputs = scoring_inputs["judge"]
+        judge_rubric_sha256 = rubric_fingerprint(
+            judge_inputs["semantic_checks"],
+            judge_inputs["mandatory_policy_checks"],
+            judge_inputs["transfer_rule"],
+            require_policy_attribution=judge_inputs.get("require_policy_attribution", False),
+            transfer_validation_version=judge_inputs.get("transfer_validation_version", "transfer-policy-v1"),
+            semantic_checks_only=judge_inputs.get("semantic_checks_only", False),
+        )
         quality_record = None
         if user_sim_inputs is not None and infrastructure_error is None:
             quality_record = TrajectoryRecord(
@@ -1053,14 +1063,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     "agent_system_prompt_sha256": prompt_sha256(
                         self.agent_system_prompt
                     ),
-                    "judge_rubric_sha256": rubric_fingerprint(
-                        semantic_row.get("semantic_checks", []),
-                        policy_row.get("judge_checks", []),
-                        transfer_rule,
-                        require_policy_attribution=self.project.get("credit", {}).get("version") == "procredit-turn-v4",
-                        **({"transfer_validation_version": self.project["reward"]["transfer_validation_version"]}
-                           if self.project.get("reward", {}).get("transfer_validation_version") else {}),
-                    ),
+                    "judge_rubric_sha256": judge_rubric_sha256,
                 },
             )
             screen_retries = (
@@ -1229,14 +1232,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 **({"simple_turn_labels": simple_turn_labels} if simple_turn_enabled(self.project) else {}),
                 "judge_prompt_hash": judge_prompt_hash,
                 "judge_cache_key": judge_cache_key,
-                "judge_rubric_sha256": rubric_fingerprint(
-                    semantic_row.get("semantic_checks", []),
-                    policy_row.get("judge_checks", []),
-                    transfer_rule,
-                    require_policy_attribution=self.project.get("credit", {}).get("version") == "procredit-turn-v4",
-                        **({"transfer_validation_version": self.project["reward"]["transfer_validation_version"]}
-                           if self.project.get("reward", {}).get("transfer_validation_version") else {}),
-                ),
+                "judge_rubric_sha256": judge_rubric_sha256,
                 "user_prompt_hashes": environment.user_prompt_hashes(),
                 "tau2_commit": self.project["project"]["tau2_commit"],
                 "verl_commit": self.project["project"]["verl_commit"],
