@@ -2,15 +2,14 @@ from pathlib import Path
 
 import pytest
 
-from scripts.train_airline_grpo import DEFAULT_CONFIG
 from tau2_agentic_rl.advantages import CreditConfig
 from tau2_agentic_rl.config import load_yaml, validate_procredit_config
 
 ROOT = Path(__file__).parents[1]
 
 
-def test_default_enables_final_rule_and_legacy_keeps_original_config():
-    cfg = load_yaml(ROOT / DEFAULT_CONFIG)
+def test_v12_snapshot_preserves_prior_final_rule_and_legacy_config():
+    cfg = load_yaml(ROOT / 'configs/rl/airline_procredit_v4_v12.yaml')
     legacy = load_yaml(ROOT / 'configs/rl/airline_procredit_v4_legacy.yaml')
     assert CreditConfig.from_project(cfg).final_turn_rule == 'simple-turn-v1'
     assert CreditConfig.from_project(legacy).final_turn_rule is None
@@ -27,7 +26,7 @@ def test_default_enables_final_rule_and_legacy_keeps_original_config():
                 'user_api_max_inflight', 'judge_api_max_inflight', 'vllm_max_num_seqs'):
         assert cfg['rollout'].pop(key) == 8
         assert legacy['rollout'].pop(key) == 2
-    # Current training/evaluation use30 assistant turns; legacy stays frozen.
+    # Frozen v12 uses 35 turns; the older legacy config stays frozen.
     assert cfg['rollout']['max_hard_turns'] == 35
     assert cfg['rollout']['max_soft_turns'] == 35
     cfg['rollout']['max_soft_turns'] = legacy['rollout']['max_soft_turns']
@@ -43,7 +42,7 @@ def test_default_enables_final_rule_and_legacy_keeps_original_config():
 @pytest.mark.parametrize('mode,version', [('official', 'procredit-turn-v4'),
                                         ('strict_progress_v1', 'procredit-turn-v2')])
 def test_rule_cannot_be_enabled_without_v4(mode, version):
-    cfg = load_yaml(ROOT / 'configs/rl/airline_procredit_v4.yaml')
+    cfg = load_yaml(ROOT / 'configs/rl/airline_procredit_v4_v12.yaml')
     cfg['reward']['mode'] = mode
     cfg['credit'].update(version=version, final_turn_rule='simple-turn-v1')
     with pytest.raises(ValueError):

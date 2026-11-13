@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt
 from tau2_agentic_rl.versions import sha256_json
 
 VERSION = "simple-turn-v1"
+INDEPENDENT_VERSION = "simple-turn-v2"
+VERSIONS = (VERSION, INDEPENDENT_VERSION)
 JUDGE_VERSION = "simple-turn-target-v2"
 TOOL_ERRORS = frozenset({
     "parse_error", "unknown_tool", "schema_invalid",
@@ -50,9 +52,9 @@ def request_key(request):
 
 def enabled(project):
     rule = project.get("credit", {}).get("final_turn_rule")
-    if rule not in (None, VERSION):
+    if rule is not None and rule not in VERSIONS:
         raise ValueError("unknown final turn rule")
-    return rule == VERSION
+    return rule in VERSIONS
 
 
 def transform_advantage(a0, bad_turn, eligible_correct_refusal):
@@ -63,10 +65,12 @@ def transform_advantage(a0, bad_turn, eligible_correct_refusal):
     return a0
 
 
-def build_turn_inputs(messages, policy, turns):
+def build_turn_inputs(messages, policy, turns, *, version=VERSION):
     """Freeze exactly the bounded messages, never the environment transcript."""
     if type(turns) is not int or turns < 1 or not isinstance(policy, str) or not policy.strip():
         raise ValueError("simple turn labels require turns and bound policy")
+    if version not in VERSIONS:
+        raise ValueError("unknown final turn rule")
     indices = []
     for index, message in enumerate(messages):
         if message.get("role") == "assistant" and "turn_idx" in message:
@@ -75,7 +79,7 @@ def build_turn_inputs(messages, policy, turns):
             indices.append(index)
     if len(indices) != turns:
         raise ValueError("bounded messages differ from assistant turns")
-    return {"version": VERSION, "messages": deepcopy(messages), "policy": policy,
+    return {"version": version, "messages": deepcopy(messages), "policy": policy,
             "turn_message_indices": indices}
 
 
@@ -105,6 +109,10 @@ def _target_hash(current):
 
 
 def validate_target_request(request):
+    if request.get("final_turn_rule") not in (None, INDEPENDENT_VERSION):
+        raise ValueError("unknown refusal request rule")
+    if request.get("final_turn_rule") == INDEPENDENT_VERSION and request.get("previous_refusals"):
+        raise ValueError("independent refusal request cannot carry previous decisions")
     target = request.get("target_message_index")
     current = request.get("current_generation")
     history = request.get("history")
@@ -126,8 +134,10 @@ def validate_target_request(request):
 
 def turn_request(inputs, turn_index, previous_decisions):
     end = inputs["turn_message_indices"][turn_index]
-    prior = [{"turn_index": d["turn_index"], "refusal_requests": deepcopy(d["refusal_requests"])}
-             for d in previous_decisions if d["correct_refusal"] and not d["bad_turn"]]
+    independent = inputs.get("version") == INDEPENDENT_VERSION
+    prior = [] if independent else [
+        {"turn_index": d["turn_index"], "refusal_requests": deepcopy(d["refusal_requests"])}
+        for d in previous_decisions if d["correct_refusal"] and not d["bad_turn"]]
     current = {"message_index": end, "message": _judge_message(inputs["messages"][end])}
     request = {"request_version": JUDGE_VERSION, "turn_index": turn_index,
                "target_message_index": end, "current_generation": current,
@@ -136,6 +146,8 @@ def turn_request(inputs, turn_index, previous_decisions):
                "history": [{"message_index": i, "message": _judge_message(m)}
                            for i, m in enumerate(inputs["messages"][:end])],
                "policy": inputs["policy"], "previous_refusals": prior}
+    if independent:
+        request["final_turn_rule"] = INDEPENDENT_VERSION
     validate_target_request(request)
     return request
 
@@ -159,6 +171,8 @@ def validate_decision(decision, request):
     keys = [request_key(r) for r in d["refusal_requests"]]
     if bool(keys) != d["correct_refusal"] or len(set(keys)) != len(keys):
         raise ValueError("refusal requests must be distinct and match correct_refusal")
+    if request.get("final_turn_rule") == INDEPENDENT_VERSION and d["revoked_refusals"]:
+        raise ValueError("independent refusal credit forbids retrospective revocation")
     revoked = [(r["turn_index"], request_key(r)) for r in d["revoked_refusals"]]
     prior = {(p["turn_index"], request_key(r)) for p in request["previous_refusals"]
              for r in p["refusal_requests"]}
@@ -172,7 +186,9 @@ def validate_decision(decision, request):
 
 def build_label_trace(inputs, decisions, events, policy_credit):
     turns = len(inputs["turn_message_indices"])
-    if inputs != build_turn_inputs(inputs["messages"], inputs["policy"], turns):
+    version = inputs.get("version")
+    independent = version == INDEPENDENT_VERSION
+    if inputs != build_turn_inputs(inputs["messages"], inputs["policy"], turns, version=version):
         raise ValueError("invalid frozen turn label inputs")
     if len(decisions) != turns:
         raise ValueError("missing turn labels")
@@ -210,6 +226,14 @@ def build_label_trace(inputs, decisions, events, policy_credit):
         evidence[t].append({"source": "semantic", "reason": d["reason"],
                             "message_indices": d["evidence_message_indices"]})
         keys = [request_key(r) for r in d["refusal_requests"]]
+        if independent:
+            labels.append({"turn_index": t, "bad_turn": bad,
+                           "request_keys": [list(key) for key in keys],
+                           "eligible_refusal_keys": [] if bad else [list(key) for key in keys],
+                           "eligible_correct_refusal": bool(keys) and not bad,
+                           "refusal_bonus": int(bool(keys) and not bad),
+                           "evidence": evidence[t]})
+            continue
         award_keys = [key for key in keys if key not in seen and not bad]
         if not bad:
             seen.update(keys)
@@ -221,6 +245,9 @@ def build_label_trace(inputs, decisions, events, policy_credit):
                        "dedup_keys": [list(key) for key in keys],
                        "eligible_refusal_keys": [list(key) for key in award_keys],
                        "evidence": evidence[t]})
+    if independent:
+        return {"version": version, "judge_version": JUDGE_VERSION,
+                "inputs_sha256": sha256_json(inputs), "decisions": parsed, "turns": labels}
     for label in labels:
         revoked_keys = [key for key in label["dedup_keys"]
                         if tuple(key) in revoked_by and revoked_by[tuple(key)] > label["turn_index"]]
@@ -234,8 +261,8 @@ def build_label_trace(inputs, decisions, events, policy_credit):
             "decisions": parsed, "turns": labels}
 
 
-def validate_labels(trace, turns):
-    if not isinstance(trace, dict) or trace.get("version") != VERSION:
+def validate_labels(trace, turns, *, version=VERSION):
+    if version not in VERSIONS or not isinstance(trace, dict) or trace.get("version") != version:
         raise ValueError("missing simple turn labels")
     if trace.get("judge_version") != JUDGE_VERSION:
         raise ValueError("legacy target-unbound Judge labels require frozen rescoring")
@@ -263,11 +290,13 @@ def validate_record_labels(record):
             raise ValueError("duplicate query labels differ from frozen native state evidence")
     if sha256_json(inputs) != record.metadata.get("scoring_inputs_sha256"):
         raise ValueError("frozen simple turn scoring inputs changed")
-    expected = build_turn_inputs(record.messages, inputs["judge"]["policy"], record.assistant_turns)
+    version = inputs.get("reward_project_config", {}).get("credit", {}).get("final_turn_rule", VERSION)
+    expected = build_turn_inputs(record.messages, inputs["judge"]["policy"], record.assistant_turns,
+                                 version=version)
     if inputs.get("simple_turn_inputs") != expected:
         raise ValueError("bounded record messages differ from frozen simple turn inputs")
     trace = record.metadata.get("simple_turn_labels")
-    validate_labels(trace, record.assistant_turns)
+    validate_labels(trace, record.assistant_turns, version=version)
     rebuilt = build_label_trace(expected, trace["decisions"], record.tool_events,
                                 record.custom_reward.details["policy_credit"])
     if any(trace.get(k) != v for k, v in rebuilt.items()):

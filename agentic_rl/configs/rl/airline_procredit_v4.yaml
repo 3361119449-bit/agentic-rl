@@ -1,10 +1,10 @@
-# ProCredit v4 + final binary simple-turn-v1 advantage rule.
+# ProCredit v4: immediate progress and independent refusal credit.
 project:
   domain: airline
   tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
   verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
   annotation_version: v4-policy-applicability
-  reward_version: v12-procredit-35turn-zero-truncation
+  reward_version: v13-procredit-immediate-independent
 agent_policy:
   path: configs/prompts/areal_airline_sft.v1.json
   system_prompt_sha256: e490e0859e1357ed6dd777fdbddab15b11d6de96ff7161328a6babcab77348ab
@@ -142,12 +142,13 @@ outputs:
 credit:
   mode: procredit_turn
   version: procredit-turn-v4
-  final_turn_rule: simple-turn-v1
+  final_turn_rule: simple-turn-v2
+  progress_credit: immediate_delta_v1
   db_subgoal_credit: null  # Opt in with db_subgoal_local_v1; scalar reward stays unchanged.
   post_completion_credit: null  # Opt in with post_completion_regression_v1.
   gamma: 1.0
   turn_coefficient: 1.0
-  turn_centering: policy_attributed_turn_mean
+  turn_centering: none
   trajectory_std: population
   epsilon: 1.0e-06
   process_penalty_in_turn_return: false

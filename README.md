@@ -1,5 +1,7 @@
 # agentic-rl
 
+> Current default: **v13-procredit-immediate-independent**. See [the current formula and compatibility notes](agentic_rl/docs/reward_v13.md). Historical version descriptions below remain for audit.
+
 围绕 **Tau2 Airline** 的 **Qwen3-4B 智能体训练与评估实验项目**，覆盖 SFT 数据清洗、轨迹采集与转换、LoRA 监督微调、GRPO / DAPO-style 强化学习，以及冻结模型的官方 `pass^1` / `pass^4` 评估。
 
 项目重点是多轮工具交互、政策遵循和可追溯的训练信号：保存原始生成 token、行为策略 log-prob、工具执行记录、奖励证据与模型身份，使训练和评估可以审计。RL 运行基于固定版本的 Tau2 和 veRL；完整环境与命令见 [RL 使用说明](agentic_rl/README.md)。

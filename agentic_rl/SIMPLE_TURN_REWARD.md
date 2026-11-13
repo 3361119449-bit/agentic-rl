@@ -1,5 +1,7 @@
 # 简单逐轮奖励（2026-11-02）
 
+> Current default: **v13-procredit-immediate-independent**. See [the current formula and compatibility notes](docs/reward_v13.md). Historical version descriptions below remain for audit.
+
 当前v12增加 [35轮截断归零与训练重采](TRUNCATION_35.md)。以下逐轮约束适用于非截断轨迹；旧v10/v11实验条件保留在对应配置快照。
 
 默认训练配置 `configs/rl/airline_procredit_v4.yaml` 启用

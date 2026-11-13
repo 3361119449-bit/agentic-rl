@@ -87,7 +87,10 @@ async def retry_scoring(record, judge, store):
         raise ValueError("interaction differs from frozen scoring inputs")
     attempts = record.metadata.setdefault("scoring_retries", [])
     if enabled(inputs.get("reward_project_config", {})) and not zero_cutoff:
-        expected = build_turn_inputs(record.messages, inputs["judge"]["policy"], record.assistant_turns)
+        expected = build_turn_inputs(
+            record.messages, inputs["judge"]["policy"], record.assistant_turns,
+            version=inputs["reward_project_config"]["credit"]["final_turn_rule"],
+        )
         if inputs.get("simple_turn_inputs") != expected:
             raise ValueError("bounded messages differ from frozen turn scoring inputs")
     if zero_cutoff:
