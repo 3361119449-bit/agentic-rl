@@ -17,7 +17,13 @@ from tau2_agentic_rl.procredit_runtime import build_credit_tensors, credit_from_
 from tau2_agentic_rl.reward.progress import build_progress_trace
 from tau2_agentic_rl.reward.score import build_reward_config, score_trajectory
 from tau2_agentic_rl.reward.simple_turn import build_label_trace, turn_request
-from tau2_agentic_rl.schemas import JudgeCheck, JudgeResult, OfficialScores, ToolEvent, TransferCheck
+from tau2_agentic_rl.schemas import (
+    JudgeCheck,
+    JudgeResult,
+    OfficialScores,
+    ToolEvent,
+    TransferCheck,
+)
 from tau2_agentic_rl.scoring_retry import retry_scoring
 
 ROOT = Path(__file__).parents[1]
