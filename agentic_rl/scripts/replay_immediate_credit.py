@@ -60,7 +60,8 @@ def migrated(record, project, review=None):
     new.custom_reward = score(new, project)
     rule = project['credit']['final_turn_rule']
     x = build_turn_inputs(new.messages, new.scoring_inputs['judge']['policy'],
-                          new.assistant_turns, version=rule)
+                          new.assistant_turns, version=rule,
+                          task_guidance=new.scoring_inputs['judge'].get('task_guidance'))
     new.scoring_inputs['simple_turn_inputs'] = x
     decisions = deepcopy(record.metadata['simple_turn_labels']['decisions'])
     if rule == 'simple-turn-v2':

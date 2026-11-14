@@ -5,6 +5,14 @@ whose trigger is absent passes with a short 'not applicable' explanation.
 """
 
 POLICY_RUBRIC_VERSION = "areal-airline-policy-atomic-v5-applicability"
+POLICY_APPLICABILITY = (
+    "True when the situation described by this rule occurs, including relevant "
+    "requests, advice, attempts or executions; otherwise false."
+)
+POLICY_VERDICT_SUFFIX = (
+    " If this situation is absent, return applicable=false and passed=true without "
+    "violation blame. Judge compliance, not whether the task was completed."
+)
 POLICY_RULES = {
     "information_grounding": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations.",
     "user_identity": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools.",
@@ -35,9 +43,8 @@ def policy_checks(task_id: str) -> list[dict[str, str]]:
     return [
         {
             "criterion_id": f"{task_id}:policy:{rule_id}",
-            "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-            "description": description
-            + " If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed.",
+            "applicability": POLICY_APPLICABILITY,
+            "description": description + POLICY_VERDICT_SUFFIX,
         }
         for rule_id, description in POLICY_RULES.items()
     ]
@@ -52,9 +59,11 @@ def definitely_active_policy_rules(trajectory: dict, transfer_rule: dict) -> set
     # Tool execution errors are real attempts. Pre-call policy requirements
     # still apply; parse/schema rejections that never called the tool are not
     # evidence of execution. Outcome facts (refund/transfer) remain separate.
-    attempted = executed | {
-        e.get("name") for e in events if e.get("error_kind") == "model_caused_execution_error"
-    }
+    attempted_events = [
+        e for e in events if e.get("success") or e.get("db_effect") is True
+        or e.get("error_kind") == "model_caused_execution_error"
+    ]
+    attempted = {e.get("name") for e in attempted_events}
     active = set()
     if events or any(m.get("role") == "assistant" for m in trajectory.get("messages", [])):
         active.update({"information_grounding", "single_action_turn"})
@@ -64,7 +73,13 @@ def definitely_active_policy_rules(trajectory: dict, transfer_rule: dict) -> set
         active.add("user_identity")
     if "book_reservation" in attempted:
         active.update({"booking_cabin", "booking_passengers", "booking_payment_limits",
-                       "insurance_timing", "baggage_pricing"})
+                       "baggage_pricing"})
+    if any(
+        e.get("name") == "book_reservation"
+        and (e.get("arguments") or {}).get("insurance") == "yes"
+        for e in attempted_events
+    ):
+        active.add("insurance_timing")
     if "update_reservation_baggages" in attempted:
         active.update({"baggage_pricing", "baggage_removal"})
     if "update_reservation_passengers" in attempted:

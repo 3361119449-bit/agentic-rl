@@ -17,7 +17,7 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
                     db_subgoal_credit=False, post_completion_credit=False,
                     final_turn_rule=None, turn_scorer=None, zero_truncation=False,
                     hard_limit=None, natural_stop_at=None, judge_enabled=True,
-                    semantic_row=None):
+                    semantic_row=None, task_guidance=None):
     loop, scope = minimal_loop(scratch_dir)
     cleaned, judge_calls = [], []
     loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
@@ -53,6 +53,8 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
     loop.test_judge_calls = judge_calls
     loop.reward_config = build_reward_config(loop.project)
     loop.semantic, loop.transfer, loop.policy_rules = {"0": semantic_row or {}}, {"0": {}}, {"0": {}}
+    if task_guidance:
+        loop.task_judge_guidance["0"] = task_guidance
     loop.required_actions, loop.action_dependencies = {"0": []}, {}
 
     class Environment:
@@ -139,6 +141,7 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
     class Judge:
         async def evaluate(self, **kwargs):
             judge_calls.append(True)
+            assert kwargs.get("task_guidance") == task_guidance
             if len(judge_calls) <= judge_failures:
                 raise ConnectionError("temporary Judge error")
             text = str(kwargs["trajectory"]["messages"])

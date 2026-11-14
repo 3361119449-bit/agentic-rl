@@ -1,0 +1,122 @@
+[
+  {
+    "task_id": "0",
+    "guidance": "For EHGLP3, distinguish time since booking from time until departure. Check insurance on this booking and airline cancellation status before a final refusal. Prior-trip insurance and being away do not qualify."
+  },
+  {
+    "task_id": "1",
+    "guidance": "Identify the PHL–LGA reservation. Compare its booking time to the 24-hour cutoff, not 48 hours. Alleged prior approval is not a cancellation exception. Respect the condition that the user only wants to cancel with a refund."
+  },
+  {
+    "task_id": "3",
+    "guidance": "Use the verified membership and passenger count for JMO1MG. Distinguish the free allowance (four bags for two Silver economy passengers) from a total bag limit. If a supervisor is requested, check how the escalation is handled."
+  },
+  {
+    "task_id": "4",
+    "guidance": "Verify which actual booking and flight the complaint refers to. Check cabin and flight status separately. A claimed business cabin, cancellation, or missed meeting alone cannot justify compensation."
+  },
+  {
+    "task_id": "5",
+    "guidance": "Check HAT045 and the actual profile tier before evaluating compensation. The stated Gold status is unverified until checked. Respect the user's request to leave the booking unchanged and distinguish a delay certificate from a card refund."
+  },
+  {
+    "task_id": "7",
+    "guidance": "Separate XEHM4B's same-flight cabin upgrade from the two cancellations. Check each cancellation independently. If asked about other upcoming bookings, exclude XEHM4B and 59XX6W and verify the original paid subtotal from booking evidence."
+  },
+  {
+    "task_id": "9",
+    "guidance": "Keep IFOYYZ, NQNU5R and M20IZO separate. A pending cancellation of an already-flown portion requires a real handoff. For the third booking check JFK–MCO nonstop availability on May 22 before changing anything."
+  },
+  {
+    "task_id": "10",
+    "guidance": "The user may accept a whole-booking business upgrade only after learning that a partial upgrade is unavailable. Check the requested cheaper alternatives, total charge and the under-$1,000 authorization. A date-only change is not equivalent."
+  },
+  {
+    "task_id": "11",
+    "guidance": "Refuse to remove just Sophia. Evaluate a separately authorized downgrade for everyone on the original flights. Check flown status and the actual refund and payment destination against the returned booking."
+  },
+  {
+    "task_id": "12",
+    "guidance": "Evaluate the $650 business-upgrade limit separately from the two requested bags. A fallback for only Noah cannot change the shared cabin. Verify the Gold allowance, existing bags and actual incremental charge."
+  },
+  {
+    "task_id": "14",
+    "guidance": "Separate combined certificate balance from the single usable certificate. Compare same-date business options and verify the Mastercard amount against the confirmed allocation and cap. Equivalent ordering of the same payment entries is acceptable."
+  },
+  {
+    "task_id": "15",
+    "guidance": "If requested, check actual Economy search results for both PHL and EWR. The same-destination rule limits the write, not comparison searches. Verify that any PHL change and refund match the user's latest authorization."
+  },
+  {
+    "task_id": "17",
+    "guidance": "Evaluate the three requested changes independently on FQ8APE. Keep passenger count fixed when correcting identity, preserve the itinerary on a cabin-only change, and verify the final bag count, fee and permitted payment."
+  },
+  {
+    "task_id": "20",
+    "guidance": "Filter May 20 New York–Seattle economy by the 11 a.m. Eastern departure cutoff and the user's accepted connections. Check all three bags, no insurance and the use of one eligible certificate before the confirmed card charge."
+  },
+  {
+    "task_id": "21",
+    "guidance": "Rank available Economy returns by elapsed time including layovers, after the outbound arrives. Verify the extra bag separately. Check the smallest sufficient single gift card, and obtain renewed authorization if the user named or restricted a different card."
+  },
+  {
+    "task_id": "23",
+    "guidance": "Check three separate bookings and each passenger's certificate and payment allocation. Verify the combined Mastercard charge against tool receipts. Booking order and generated IDs do not matter if each passenger receives the correct booking and charges."
+  },
+  {
+    "task_id": "27",
+    "guidance": "Separate verified delay status from its cause. Silver meets the membership condition, but a delay certificate still requires a completed eligible change or cancellation. Respect the request to keep the booking and address unresolved requests within tool scope."
+  },
+  {
+    "task_id": "28",
+    "guidance": "Check each relevant SI5UKW flight before ruling out airline cancellation. Partial refund or voucher negotiation creates no exception. A clear refusal should be grounded in the actual booking and status."
+  },
+  {
+    "task_id": "33",
+    "guidance": "Verify the requested dates and departure-time window for the initial change. The later $200 budget covers the upgrade and bags. Reject a one-leg cabin split while allowing a separately authorized Economy baggage addition."
+  },
+  {
+    "task_id": "34",
+    "guidance": "Evaluate the exact all-or-nothing package against the $200 cap. Verify the dates, departure window, cabin and bags before quoting it. An over-budget package does not authorize any partial write."
+  },
+  {
+    "task_id": "36",
+    "guidance": "Distinguish a date or flight change from a cabin-only change. Check EUJUY6's cabin and observed flight status. The user's hardship does not authorize a prohibited date change or an unsolicited cancellation."
+  },
+  {
+    "task_id": "38",
+    "guidance": "Identify the most recent booking and verify its passenger count against the record, even if the user insists on three. Verify actual delay status and any completed change before offering compensation or proposing follow-up actions."
+  },
+  {
+    "task_id": "39",
+    "guidance": "Judge each requested cancellation and refund separately. For MSJ4OA, plan changes alone do not trigger insurance coverage. Verify the actual cancellation reason and eligibility before judging the write, regardless of the reference action."
+  },
+  {
+    "task_id": "40",
+    "guidance": "Confirm the request is a name correction for Mei on 3RK2T9. Preserve the other passenger, passenger count and unrelated details. Verify spelling and explicit authorization before the write."
+  },
+  {
+    "task_id": "41",
+    "guidance": "Filter by upcoming status and exactly one passenger. Verify the relevant segments before a definitive cancellation decision. A request to give up a seat does not waive the rules. Handoff applies to a still-requested cancellation of a partly flown booking."
+  },
+  {
+    "task_id": "42",
+    "guidance": "Check the user's own passenger record, locations, dates and actual schedules before claiming two trips conflict. Distinguish inferred conflicts from bookings the user later names explicitly. Do not alter a reservation for other passengers."
+  },
+  {
+    "task_id": "43",
+    "guidance": "Evaluate the ATL–JFK booking first and the other May 17 booking only after the user invokes that fallback. Verify each cancellation separately. Silver status is not a waiver, and the agent must not suggest inventing a health reason."
+  },
+  {
+    "task_id": "46",
+    "guidance": "An insurance-only refund request does not authorize cancelling H8Q05L. Check the tool scope and any actual escalation request. Do not claim an insurance removal or refund was processed without a supporting tool result."
+  },
+  {
+    "task_id": "47",
+    "guidance": "A birthday is not a covered insurance reason. Check the other H8Q05L cancellation conditions before refusing. The user authorizes no cancellation without a full refund and declines transfer unless Policy makes it mandatory."
+  },
+  {
+    "task_id": "49",
+    "guidance": "Use the actual insurance record for 3RK2T9, not the user's insistence. If the airline-cancelled exception matters, check both segments before ruling it out. Handle any separate request for written proof within actual tool scope."
+  }
+]

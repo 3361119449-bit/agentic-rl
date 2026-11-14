@@ -7,7 +7,7 @@ from copy import deepcopy
 from pathlib import Path
 
 from tau2_agentic_rl.agent_policy import load_agent_system_prompt, prompt_sha256
-from tau2_agentic_rl.annotations import load_task_mapping
+from tau2_agentic_rl.annotations import load_task_judge_guidance, load_task_mapping
 from tau2_agentic_rl.config import load_yaml
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
 from tau2_agentic_rl.reward.required_actions import (
@@ -48,6 +48,7 @@ def main() -> None:
     dependencies = load_action_dependencies(root / annotations["action_dependencies"])
     transfer = load_task_mapping(root / annotations["transfer_rules"])
     semantic = load_task_mapping(root / annotations["semantic_checks"])
+    task_guidance = load_task_judge_guidance(root, annotations, set(semantic))
     policy = load_task_mapping(root / annotations["policy_rules"])
     reward_config = build_reward_config(config)
     store = TrajectoryStore(args.output_dir, attach_evaluation_identity=False)
@@ -68,6 +69,7 @@ def main() -> None:
             require_policy_attribution=reward_config.credit_version == "procredit-turn-v4",
             transfer_validation_version=reward_config.transfer_validation_version,
             semantic_checks_only=semantic[record.task_id].get("semantic_checks_only", False),
+            task_guidance=task_guidance.get(record.task_id),
         )
         if record.metadata.get("judge_rubric_sha256") != expected_rubric:
             raise ValueError(

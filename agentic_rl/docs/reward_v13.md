@@ -5,7 +5,9 @@ This is the user-approved credit-assignment change, based on main
 
 ## Current default and compatibility
 
-`configs/rl/airline_procredit_v4.yaml` now selects:
+The formal default is `configs/rl/airline_procredit_v4_train30.yaml`;
+`airline_procredit_v4.yaml` preserves the explicit legacy development split.
+Both select:
 
 ```yaml
 project:
@@ -34,7 +36,9 @@ frozen scoring inputs without this setting retain their original behavior.
 
 ## Trajectory completion checks
 
-The active training and official-test profiles use the reviewed `v2` semantic
+The formal 30-task profile uses `airline_semantic_checks.train.repaired.v1.json`,
+derived from the reviewed `v2` annotations with Task 7 and 39 repairs. The legacy
+training and official-test profiles use the reviewed `v2` semantic
 annotations. Each omitted criterion records its existing DB or required-action
 coverage in `covered_checks`. The train rubric goes from 73 to 40 criteria, and
 the test rubric from 50 to 19. The original `v1` files remain available for replay.
@@ -75,6 +79,15 @@ bounded training cutoff resampling (at most two), and official evaluation accoun
 are unchanged. See [TRUNCATION_35.md](../TRUNCATION_35.md).
 
 ## Refusal eligibility and Judge
+
+The current RL profile attaches the matching task note from
+[`airline_task_judge_guidance.train.v1.json`](../data/annotations/airline_task_judge_guidance.train.v1.json)
+to each existing trajectory and turn Judge request. The 30 notes cover the
+24 RL training tasks and six internal development tasks. They focus the
+existing checks and carry no independent verdict, weight or authority to
+change policy. Turn checks still use the causal prefix and current generation.
+Retries reuse the frozen note. Changing the note invalidates cached verdicts
+for that task. The official-test profile has its own annotations.
 
 Every clean, correctly grounded policy refusal is independently eligible, even
 if the same request was refused before. A later violation never revokes a past

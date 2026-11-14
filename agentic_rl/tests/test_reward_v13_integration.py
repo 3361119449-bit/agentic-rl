@@ -30,15 +30,21 @@ ROOT = Path(__file__).parents[1]
 
 
 def test_live_freeze_retry_runtime_preserve_v2_and_original_tokens(scratch_dir, monkeypatch):
+    guidance = "Check each reservation independently."
+
     async def scorer(inputs, events, policy_credit, judge, **kwargs):
         assert inputs['version'] == 'simple-turn-v2'
+        assert inputs['task_guidance'] == guidance
         return await fake_score(inputs, events, policy_credit, judge, **kwargs)
     loop, output, record = rollout_fixture(scratch_dir, credit_version='procredit-turn-v4',
                                            final_turn_rule='simple-turn-v2', turn_scorer=scorer,
-                                           semantic_row={'semantic_checks_only': True})
+                                           semantic_row={'semantic_checks_only': True},
+                                           task_guidance=guidance)
     assert record.scoring_inputs['judge']['semantic_checks_only'] is True
+    assert record.scoring_inputs['judge']['task_guidance'] == guidance
     assert record.metadata['judge_rubric_sha256'] == rubric_fingerprint(
         [], [], {}, require_policy_attribution=True, semantic_checks_only=True,
+        task_guidance=guidance,
     )
     assert record.metadata['simple_turn_labels']['version'] == 'simple-turn-v2'
     assert output.extra_fields['procredit']['simple_turn_labels'] == record.metadata['simple_turn_labels']
@@ -92,8 +98,9 @@ def test_current_configuration_changes_only_approved_selectors():
     assert cfg['credit'].pop('progress_credit') == 'immediate_delta_v1'
     assert cfg['credit']['turn_centering'] == 'none'
     assert cfg['credit']['final_turn_rule'] == 'simple-turn-v2'
-    assert cfg['project']['annotation_version'] == 'v5-trajectory-semantic-dedup'
+    assert cfg['project']['annotation_version'] == 'v6-task-judge-guidance'
     assert cfg['annotations']['semantic_checks'].endswith('.train.v2.json')
+    assert cfg['annotations'].pop('task_judge_guidance').endswith('.train.v1.json')
     cfg['project']['reward_version'] = old['project']['reward_version']
     cfg['project']['annotation_version'] = old['project']['annotation_version']
     cfg['annotations']['semantic_checks'] = old['annotations']['semantic_checks']

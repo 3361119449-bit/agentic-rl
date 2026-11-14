@@ -6,6 +6,7 @@ import pytest
 from tau2_agentic_rl.annotations import load_task_mapping
 from tau2_agentic_rl.config import load_yaml
 from tau2_agentic_rl.judge.prompts import build_judge_messages
+from tau2_agentic_rl.policy_rules import POLICY_RULES, policy_checks
 
 ROOT = Path(__file__).parents[1]
 
@@ -49,3 +50,23 @@ def test_trajectory_judge_does_not_receive_dropped_assertions_in_task_context():
     assert payload['rubric']['mandatory_policy_checks'] == policy_checks
     assert len(task['evaluation_criteria']['nl_assertions']) == 2
     assert 'Reservation is updated to economy.' in build_judge_messages(**args)[1]['content']
+
+
+def test_trajectory_wire_uses_shared_policy_guidance_without_mutating_rubric():
+    checks = policy_checks("29")
+    custom = {"criterion_id": "custom", "applicability": "Only on a refund.",
+              "description": "Custom policy criterion."}
+    messages = build_judge_messages(
+        task={}, policy="Policy", trajectory={}, semantic_checks=[],
+        mandatory_policy_checks=[*checks, custom], transfer_rule={},
+    )
+    fixed = messages[1]["content"].split("FIXED_TASK_AND_RUBRIC:\n", 1)[1].split(
+        "\n\nTRAJECTORY_DATA_UNTRUSTED:", 1
+    )[0]
+    sent = json.loads(fixed)["rubric"]["mandatory_policy_checks"]
+    assert sent == [
+        {"criterion_id": check["criterion_id"], "description": description}
+        for check, description in zip(checks, POLICY_RULES.values(), strict=True)
+    ] + [custom]
+    assert all("applicability" in check for check in checks)
+    assert "applicable=false, passed=true" in messages[0]["content"]

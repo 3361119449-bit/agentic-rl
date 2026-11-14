@@ -32,6 +32,7 @@ from tau2_agentic_rl.user_simulation import reward_judge_enabled
 TAU2_COMMIT = "a2c024725189473d2d7cea3a5cfdbcc67478e41f"
 VERL_COMMIT = "483b8a009ba3a97563edee3a19887e4862b8094a"
 DEFAULT_CONFIG = "configs/rl/airline_procredit_v4.yaml"
+FULL_TRAIN_CONFIG = "configs/rl/airline_procredit_v4_train30.yaml"
 
 
 def _git_commit(root: Path) -> str:
@@ -86,6 +87,7 @@ def build_command(
         extra,
     )
     mapped = training_overrides(project)
+    repaired_training = bool(project.get("training_selection", {}).get("task_repairs"))
     if resume_from_path is not None:
         resume_from_path = resolve_resume_path(project_root, resume_from_path)
     resume_overrides = (
@@ -132,7 +134,7 @@ def build_command(
         "trainer.n_gpus_per_node=1",
         "trainer.nnodes=1",
         "trainer.critic_warmup=0",
-        "trainer.val_before_train=true",
+        f"trainer.val_before_train={'false' if repaired_training else 'true'}",
         "trainer.logger=[console,wandb]",
         "trainer.project_name=tau2_airline_agentic_rl",
         f"trainer.experiment_name={run_name}",
@@ -141,7 +143,7 @@ def build_command(
         "+trainer.max_attempts_without_update=50",
         *resume_overrides,
         "trainer.save_freq=10",
-        "trainer.test_freq=10",
+        f"trainer.test_freq={-1 if repaired_training else 10}",
         f"trainer.total_epochs={total_epochs}",
         *[f"{key}={value}" for key, value in mapped.items()],
         *[item for item in extra if item.split("=", 1)[0].lstrip("+") not in mapped],
@@ -214,7 +216,7 @@ def main() -> None:
     parser.add_argument(
         "--stage",
         choices=("smoke", "internal_dev", "full_train"),
-        default="internal_dev",
+        help="Defaults to full_train with the corrected task set, internal_dev otherwise.",
     )
     parser.add_argument("--epochs", type=int, default=15)
     parser.add_argument("--seed", type=int, default=42)
@@ -242,6 +244,19 @@ def main() -> None:
     _require_env("DEEPSEEK_API_KEY")
     _require_env("DEEPSEEK_BASE_URL")
 
+    default_config = DEFAULT_CONFIG if args.stage in {"smoke", "internal_dev"} else FULL_TRAIN_CONFIG
+    config_path = (args.config or project_root / default_config).resolve()
+    project = effective_project_config(load_yaml(config_path), args.extra)
+    if args.reward_judge is not None:
+        project["judge"]["enabled"] = args.reward_judge
+    validate_procredit_config(project)
+    repaired_training = bool(project.get("training_selection", {}).get("task_repairs"))
+    args.stage = args.stage or ("full_train" if repaired_training else "internal_dev")
+    if repaired_training and args.stage != "full_train":
+        raise ValueError("the corrected training config requires --stage full_train")
+    if is_procredit(project) and args.stage == "full_train" and not repaired_training:
+        raise ValueError("full_train with ProCredit requires the corrected task config")
+
     parquet = project_root / "data" / "parquet"
     train_name = {
         "smoke": "airline_smoke.parquet",
@@ -253,16 +268,6 @@ def main() -> None:
     if not train_file.exists() or not val_file.exists():
         raise FileNotFoundError("run scripts/prepare_tau2_dataset.py first")
 
-    config_path = project_root / DEFAULT_CONFIG
-    config_path = (args.config or config_path).resolve()
-    project = effective_project_config(load_yaml(config_path), args.extra)
-    if args.reward_judge is not None:
-        project["judge"]["enabled"] = args.reward_judge
-    validate_procredit_config(project)
-    if is_procredit(project) and args.stage == "full_train":
-        raise ValueError(
-            "ProCredit preserves the 24/6 split; use --stage internal_dev or smoke"
-        )
     if reward_judge_enabled(project):
         _require_env("DEEPSEEK_JUDGE_MODEL")
     else:

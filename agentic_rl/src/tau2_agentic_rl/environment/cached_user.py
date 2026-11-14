@@ -119,22 +119,38 @@ def build_cached_agent_gym_env(**kwargs: Any) -> Any:
 
     cache_dir = kwargs.pop("user_cache_dir")
     max_retries = int(kwargs.pop("user_max_retries", 2))
+    task_override = kwargs.pop("task_override", None)
+    db_comparison = kwargs.pop("db_comparison", None)
+    if task_override is not None:
+        from tau2.data_model.tasks import Task
+
+        task_override = Task.model_validate(task_override)
+        if task_override.id != str(kwargs["task_id"]):
+            raise ValueError("task repair ID does not match requested task")
 
     class CachedUserSimulator(CachedUserSimulatorMixin, UserSimulator):
         pass
 
     class CachedAgentGymEnv(AgentGymEnv):
+        def _get_task(self):
+            if task_override is not None:
+                return task_override.model_copy(deep=True)
+            return super()._get_task()
+
         def _get_reward(self):
             from tau2_agentic_rl.environment.replay import (
                 evaluate_simulation_with_rejections,
                 has_rejected_calls,
             )
 
-            if self._simulation_run is None or not has_rejected_calls(self._simulation_run.messages):
+            if self._simulation_run is None or (
+                db_comparison is None and not has_rejected_calls(self._simulation_run.messages)
+            ):
                 return super()._get_reward()
             from tau2.evaluator.evaluator import EvaluationType
 
             result = evaluate_simulation_with_rejections(
+                db_comparison=db_comparison,
                 simulation=self._simulation_run, task=self._get_task(),
                 evaluation_type=EvaluationType.ALL,
                 solo_mode=self.solo_mode, domain=self.domain,

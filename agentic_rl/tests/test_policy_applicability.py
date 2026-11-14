@@ -79,6 +79,30 @@ def test_failed_attempt_does_not_invent_completed_refund_or_transfer():
     assert not result.transfer_check.applicable and not result.transfer_check.valid
 
 
+@pytest.mark.parametrize("insurance", ["no", "yes"])
+@pytest.mark.parametrize("success", [True, False])
+def test_booking_without_insurance_allows_inactive_insurance_check(insurance, success):
+    criterion = "12:policy:insurance_timing"
+    result = JudgeResult(mandatory_policy_checks=[JudgeCheck(
+        criterion_id=criterion, applicable=False, passed=True,
+        short_reason="No travel insurance was purchased or added.",
+    )])
+    event = ToolEvent(
+        event_id="booking", sequence=0, turn_id=1, name="book_reservation",
+        arguments={"insurance": insurance}, success=success, db_effect=False,
+        error_kind=None if success else "model_caused_execution_error",
+    )
+    inputs = {
+        "mandatory_policy_checks": [{"criterion_id": criterion}],
+        "trajectory": {"messages": [], "tool_events": [event.model_dump()]},
+    }
+    if insurance == "yes":
+        with pytest.raises(ValueError, match="active policy"):
+            DeepSeekJudge._validate_requested_criteria(result, inputs)
+    else:
+        DeepSeekJudge._validate_requested_criteria(result, inputs)
+
+
 def test_v4_requires_specific_blame_in_judge_response():
     criterion = "0:policy:information_grounding"
     result = JudgeResult(mandatory_policy_checks=[

@@ -173,6 +173,7 @@ def test_truncated_output_not_delivered_or_judged_and_full_observation_preserved
         scratch_dir / "records", attach_evaluation_identity=False
     )
     loop.semantic = {"0": {"semantic_checks": [{"criterion_id": "explain"}]}}
+    loop.task_judge_guidance = {}
     loop.transfer, loop.policy_rules = {"0": {}}, {"0": {}}
     loop.required_actions, loop.action_dependencies = {"0": []}, {}
     scope["Tau2GymAdapter"] = Environment
@@ -207,6 +208,7 @@ def minimal_loop(scratch_dir):
     cls, scope = production_loop_class()
     loop = cls.__new__(cls)
     loop.agent_system_prompt = sft_prompt()
+    loop.task_judge_guidance = {}
     loop.root, loop.hard_turn_limit = scratch_dir, 24
     loop.project = {
         "user_simulator": {"model": "fake", "temperature": 0},

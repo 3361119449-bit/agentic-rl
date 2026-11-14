@@ -3,6 +3,9 @@
 from copy import deepcopy
 from types import FunctionType
 
+from tau2_agentic_rl.environment.booking_comparison import (
+    booking_comparison_constructor,
+)
 from tau2_agentic_rl.versions import sha256_json
 
 
@@ -94,7 +97,7 @@ def rejection_aware_constructor(constructor):
     return construct
 
 
-def evaluate_simulation_with_rejections(**kwargs):
+def evaluate_simulation_with_rejections(*, db_comparison=None, **kwargs):
     """Run the unchanged pinned evaluator with a private constructor registry.
 
     Tau2's evaluator has no constructor argument. A per-call globals copy keeps
@@ -108,7 +111,8 @@ def evaluate_simulation_with_rejections(**kwargs):
 
     class ReplayRegistry:
         def get_env_constructor(self, domain):
-            return rejection_aware_constructor(original_registry.get_env_constructor(domain))
+            constructor = original_registry.get_env_constructor(domain)
+            return rejection_aware_constructor(booking_comparison_constructor(constructor, db_comparison))
 
         def __getattr__(self, name):
             return getattr(original_registry, name)

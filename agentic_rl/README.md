@@ -1,12 +1,12 @@
 # Tau2 Airline Agentic RL
 
-> Current default: **v13.1-procredit-immediate-independent**. See [the current formula and compatibility notes](docs/reward_v13.md). Historical version descriptions below remain for audit.
+> 正式主线配置：[`airline_procredit_v4_train30.yaml`](configs/rl/airline_procredit_v4_train30.yaml)，使用修复后的全部 30 个训练任务和 **v13.1-procredit-immediate-independent**。见 [当前实验配置](docs/current_experiment.md) 与 [奖励公式](docs/reward_v13.md)。
 
 这是本仓库的强化学习与冻结评估模块。项目使用固定版 Tau2 Airline 环境、选定的 Qwen3-4B SFT（或上一阶段 RL）合并模型和新挂载的 RL LoRA，在 veRL v0.9.0 上进行 GRPO / DAPO-style 训练。项目总览、数据版本与实验路线见 [根目录 README](../README.md)。
 
 现行实验从 Airline SFT v4 的 Step 334 合并模型开始。SFT 数据、冻结官方基线、v13 离线验证与后续 GRPO 的状态见 [当前实验主线](../README.md#当前实验主线)。旧的两阶段 RL 和早期 ProCredit 消融见 [历史实验归档](../docs/legacy-experiments.md)。
 
-`d10a8e7` 默认使用 `v12-procredit-35turn-zero-truncation`。PR #10 的 `70eee2e` 引入当轮进度增量及独立拒绝奖励 v13。两版均采用 [35 轮截断归零与训练重采](TRUNCATION_35.md)。转人工动态判断、确定性重复查询与 DB/COMM/REQ 进度见 [v11 改动](REWARD_V11.md)。
+默认入口及 `--stage full_train` 使用全部 30 个任务，关闭原 6 个内部验证任务的训练内验证，启用整轨迹 Judge 与各任务指导，保留 `simple-turn-v2` 逐轮评分。[35 轮截断归零与训练重采](TRUNCATION_35.md)、转人工、重复查询和进度规则保持现有配置。旧 v12 与 24/6 流程见 [历史归档](../docs/legacy-experiments.md)。
 
 三套数值始终分开保存：
 
@@ -38,7 +38,7 @@
 - PPO epoch=2、old policy 固定为 vLLM rollout log-prob、token-mean、无 KL、无 Critic；
 - RL LoRA `r=32, alpha=64, dropout=0, all-linear`；
 - 自定义有界动态采样：首轮 4 个任务组、每组 8 个逻辑槽位（32 条），过滤后只补缺少的组，最多 3 轮（最坏 96 槽位，槽内实际补采另计）；每次更新最多使用 4 组，默认 ProCredit v4 保留异常耗尽组中的成功成员，上限处不足 4 组也继续更新；
-- train/internal-dev/test 物理分离，test 标注与训练配置分开；
+- 正式主线使用 30 train / 20 test，原 internal dev 已并入训练且关闭内部验证；旧 24/6 划分仅用于显式选择的历史配置，test 标注与训练配置分开；
 - 每条轨迹原子化保存，可离线重新打分。
 - 每个实验使用独立 run 目录且默认禁用自动续训；
 - 基础设施失败单独落盘，不计作模型失败或 pass^k 样本。
@@ -49,7 +49,8 @@
 ```text
 configs/                 RL、AgentLoop、冻结测试配置
 data/annotations/        train/test 分开的动作、语义、Policy、转接标注
-data/splits/             固定 24 train + 6 internal dev + 20 test
+data/splits/             当前 30 train / 20 test；保留历史 24/6 划分
+task_repairs/            Task 7、14、21、23、39 的任务与 DB 比较修复
 src/tau2_agentic_rl/     AgentLoop、Tau2 适配、奖励、Judge、动态采样
 scripts/                 数据准备、训练、评估、审计、LoRA 合并
 tests/                   CPU 单元测试
@@ -102,7 +103,7 @@ python -m pytest tests/test_sft_agent_policy.py tests/test_rollout_integration.p
 
 提示词、奖励或 Judge rubric 变化均需新的实验身份与缓存。旧 checkpoint
 仅在完整恢复身份一致时才能续训；用旧权重开启新条件时应先导出/合并并新建 run。
-Tau2 官方任务、工具、数据库和评分算法不因这些项目政策检查改写。
+项目政策检查不改写 Tau2 上游文件。当前 30 任务配置另行加载五项任务修复；Task 14、23 仅在本次训练的终局/进度比较中消除等价顺序和生成 ID 的影响，实际工具及数据库写入保持原样。
 
 ## AutoDL 安装
 
@@ -184,12 +185,12 @@ python scripts/prepare_tau2_dataset.py
 python scripts/capture_versions.py \
   --tau2-root "$TAU2_ROOT" \
   --verl-root "$VERL_ROOT" \
-  --project-config configs/rl/airline_procredit_v4.yaml \
+  --project-config configs/rl/airline_procredit_v4_train30.yaml \
   --model-path "$MERGED_SFT_MODEL" \
   --output outputs/metadata/versions.json
 ```
 
-固定划分为：官方 train 30 条，其中 RL train 24 条、internal dev 6 条；官方 test 20 条。`prepare_tau2_dataset.py` 生成 veRL 所需的 Parquet，生成物不提交 Git。
+正式划分为 30 个 RL train、0 个 internal dev、20 个 official test，见 `airline_repaired_train30.v1.json`。`prepare_tau2_dataset.py` 同时生成正式 30 任务及旧 24/6 配置所需的 Parquet，生成物不提交 Git。正式入口按新配置核验并保留全部 30 个任务。
 
 ## SFT LoRA 合并
 
@@ -239,7 +240,7 @@ python -m pytest contract_tests -v
 两个真实 Ray worker 的共享并发额度。GitHub Actions 单独运行此层；CPU 单元测试
 不能替代它，也不能替代 GPU/API smoke。
 
-当前默认训练配置 `configs/rl/airline_procredit_v4.yaml`、internal-dev/官方训练集
+当前正式训练配置 `configs/rl/airline_procredit_v4_train30.yaml`、internal-dev/官方训练集
 评估使用的 `configs/rl/airline_grpo_v1.yaml`，以及 official-test 配置
 `configs/evaluation/airline_eval_v1.yaml`，其 `rollout` 中以下五项默认均为 **8**：
 
@@ -400,16 +401,17 @@ python scripts/train_airline_grpo.py \
 
 将 `MERGED_SFT_MODEL` 指向 SFT v4 Step 334 的完整合并模型。选定奖励版本后，用新的 run 名称启动。当前实验核对实际配置中的 `reward_version: v13.1-procredit-immediate-independent`、`progress_credit: immediate_delta_v1` 与 `final_turn_rule: simple-turn-v2`。提示词和用户筛选以该 run 的记录为准。
 
-`--stage internal_dev` 选择 24 个 RL train 任务和 6 个独立开发任务。按本次实验设置 `RL_EPOCHS` 和 `RL_UPDATES`，前者控制遍历上限，后者控制 optimizer 更新上限。正式运行前可加 `--dry-run` 检查命令。
+`--stage full_train` 训练全部 30 个任务，并加载 Task 7、14、21、23、39 的修复。整轨 Judge 使用对应任务指导，逐轮 Judge 延续 v13.1 配置。原有的 6 个内部验证任务已编入训练，本阶段默认关闭训练内验证。按本次实验设置 `RL_EPOCHS` 和 `RL_UPDATES`，前者控制遍历上限，后者控制 optimizer 更新上限。正式运行前可加 `--dry-run` 检查实际任务与命令。
 
 ```bash
+python scripts/prepare_tau2_dataset.py
 python scripts/train_airline_grpo.py \
-  --config configs/rl/airline_procredit_v4.yaml \
-  --stage internal_dev --epochs "${RL_EPOCHS:?set epoch limit}" --seed 42 \
+  --config configs/rl/airline_procredit_v4_train30.yaml \
+  --stage full_train --reward-judge --epochs "${RL_EPOCHS:?set epoch limit}" --seed 42 \
   --run-name sft_v4_grpo \
   --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT" \
   --extra "trainer.total_training_steps=${RL_UPDATES:?set update count}" \
-  --extra trainer.save_freq=1 --extra trainer.test_freq=1
+  --extra trainer.save_freq=1
 ```
 
 记录实际 `optimizer_step`、checkpoint、运行配置、模型身份和启动参数。v13 的 80 条离线重放复用了冻结轨迹和保存的判定，验证了优势计算；GPU 更新和训练后得分由后续 run 验证。
@@ -421,13 +423,13 @@ python scripts/train_airline_grpo.py \
 
 ~~~bash
 python scripts/train_airline_grpo.py \
-  --config configs/rl/airline_procredit_v4.yaml \
-  --stage internal_dev --epochs "${RL_EPOCHS:?set original epoch limit}" --seed 42 \
+  --config configs/rl/airline_procredit_v4_train30.yaml \
+  --stage full_train --reward-judge --epochs "${RL_EPOCHS:?set original epoch limit}" --seed 42 \
   --run-name sft_v4_grpo \
   --resume-from-path outputs/runs/sft_v4_grpo/checkpoints/global_step_N \
   --tau2-root "$TAU2_ROOT" --verl-root "$VERL_ROOT" \
   --extra "trainer.total_training_steps=${RL_UPDATES:?set original update count}" \
-  --extra trainer.save_freq=1 --extra trainer.test_freq=1
+  --extra trainer.save_freq=1
 ~~~
 
 恢复也允许保存到另一个原本为空（或尚不存在）的新 run 目录；目标目录、底座
@@ -517,7 +519,7 @@ RL 汇总文件使用 pass@4，**不能直接与修复后的 pass^4 比较**。�
 
 **训练和评估都支持独立 Agent Judge 开关**：`--reward-judge` / `--no-reward-judge`。
 训练未传开关时遵循 YAML `judge.enabled`（默认 true），评估默认 true。
-训练默认配置为 `configs/rl/airline_procredit_v4.yaml`。GRPO 不使用 critic，
+正式训练默认配置为 `configs/rl/airline_procredit_v4_train30.yaml`，要求开启整轨迹 Judge。下述关闭 Judge 的实验仅适用于另行选择的消融配置。GRPO 不使用 critic，
 因此非零 `trainer.critic_warmup` 会在启动时拒绝，避免虚假的 optimizer step 和 checkpoint。
 训练关闭时 `reward_score` 与 DAPO 使用的 `train_reward` 都取审计后的官方奖励，
 不计算原 Agent Judge 驱动的自定义复合奖励，也不伪造 `custom_reward` 或 strict 指标。

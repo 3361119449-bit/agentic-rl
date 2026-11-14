@@ -71,9 +71,15 @@ def build_resume_identity(
             str(path.relative_to(project_root)).replace("\\", "/"): sha256_file(path)
             for path in source_paths
         }
-        files["procredit_split"] = sha256_file(
-            project_root / "data/splits/airline_internal_dev.v1.json"
+        selection = runtime.get("training_selection", {})
+        files["procredit_split"] = fingerprint(
+            selection.get("split_file", "data/splits/airline_internal_dev.v1.json")
         )
+        for name in ("split_file", "task_repairs"):
+            if name in selection:
+                digest = fingerprint(selection[name])
+                files[f"training_selection.{name}"] = digest
+                selection[name] = {"sha256": digest}
     return {
         "schema_version": 1,
         "stage": stage,

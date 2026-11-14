@@ -22,6 +22,7 @@ def test_offline_changed_cost_remains_replayable_with_new_frozen_config(scratch_
     loop, _, record = rollout_fixture(scratch_dir, credit_version=f"procredit-turn-{original_version}")
     config_name = {"v3": "v3", "v4": "v4_legacy", "v4_simple": "v4"}[version]
     cfg = load_yaml(root / f"configs/rl/airline_procredit_{config_name}.yaml")
+    cfg["annotations"].pop("task_judge_guidance", None)
     cfg["reward"]["process_penalties"]["mixed_content_and_tool_call"] = .05
     config_path = scratch_dir / "changed.yaml"
     config_path.write_text(yaml.safe_dump(cfg), encoding="utf-8")

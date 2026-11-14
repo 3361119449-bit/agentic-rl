@@ -39,11 +39,12 @@ def _row(task_id: str, split: str, index: int) -> dict[str, Any]:
 
 def _write_parquet(rows: list[dict[str, Any]], path: Path) -> None:
     try:
-        from datasets import Dataset
+        import pyarrow as pa
+        import pyarrow.parquet as pq
     except ImportError as exc:
         raise RuntimeError("install the project with the 'data' extra") from exc
     path.parent.mkdir(parents=True, exist_ok=True)
-    Dataset.from_list(rows).to_parquet(str(path))
+    pq.write_table(pa.Table.from_pylist(rows), path)
 
 
 def prepare(split_file: Path, output_dir: Path) -> dict[str, int]:

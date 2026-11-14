@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import math
 from copy import deepcopy
+from functools import partial
 from typing import Callable
 
 from tau2_agentic_rl.advantages import validate_phi
+from tau2_agentic_rl.environment.booking_comparison import (
+    booking_comparison_constructor,
+)
 from tau2_agentic_rl.environment.replay import rejection_aware_constructor
 from tau2_agentic_rl.reward.required_actions import (
     MATCHER_VERSION,
@@ -25,7 +29,7 @@ PROGRESS_DEDUP_VERSION = "progress-v2"
 PROGRESS_ADDITIVE_VERSION = "progress-v3"
 
 
-def evaluate_tau2_prefix(task: dict, messages: list[dict]) -> dict:
+def evaluate_tau2_prefix(task: dict, messages: list[dict], *, db_comparison=None) -> dict:
     """Run the pinned official verifiers on newly constructed environments.
 
     Imports are lazy so scoring math and saved trace replay do not require Tau2.
@@ -46,7 +50,9 @@ def evaluate_tau2_prefix(task: dict, messages: list[dict]) -> dict:
     db = None
     if "DB" in basis:
         result = EnvironmentEvaluator.calculate_reward(
-            environment_constructor=rejection_aware_constructor(registry.get_env_constructor("airline")),
+            environment_constructor=rejection_aware_constructor(booking_comparison_constructor(
+                registry.get_env_constructor("airline"), db_comparison,
+            )),
             task=parsed_task,
             full_trajectory=parsed_messages,
             solo_mode=False,
@@ -78,6 +84,7 @@ def build_progress_trace(
     initial_state_fingerprint: str,
     evaluator: Callable[[dict, list[dict]], dict] | None = None,
     version: str = PROGRESS_VERSION,
+    db_comparison: str | None = None,
 ) -> dict:
     """One initial prefix plus one prefix per generated assistant turn."""
     if version not in {
@@ -109,7 +116,10 @@ def build_progress_trace(
     turns = len(prefix_lengths) - 1
     if any(event.turn_id < 1 or event.turn_id > turns for event in events):
         raise ValueError("tool event lies outside recorded assistant turns")
-    evaluator = evaluator or evaluate_tau2_prefix
+    evaluator = evaluator or (
+        evaluate_tau2_prefix if db_comparison is None
+        else partial(evaluate_tau2_prefix, db_comparison=db_comparison)
+    )
     cached, states, ids = {}, [], None
     communication = (task.get("evaluation_criteria") or {}).get(
         "communicate_info"
@@ -179,6 +189,8 @@ def build_progress_trace(
     }
     if version in {PROGRESS_DEDUP_VERSION, PROGRESS_ADDITIVE_VERSION}:
         definition["matcher_version"] = MATCHER_VERSION
+    if db_comparison is not None:
+        definition["db_comparison"] = db_comparison
     result = {
         "version": version,
         "definition": definition,

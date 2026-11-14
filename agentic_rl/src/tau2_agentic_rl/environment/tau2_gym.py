@@ -77,6 +77,8 @@ class Tau2GymAdapter:
         user_cache_dir: str | Path = "outputs/user_cache",
         user_max_retries: int = 2,
         max_steps: int = 100,
+        task_override: dict | None = None,
+        db_comparison: str | None = None,
     ):
         self.task_id = str(task_id)
         self.user_model = user_model
@@ -85,6 +87,8 @@ class Tau2GymAdapter:
         self.user_cache_dir = Path(user_cache_dir)
         self.user_max_retries = user_max_retries
         self.max_steps = max_steps
+        self.task_override = task_override
+        self.db_comparison = db_comparison
         self.env: Any = None
         self.info: dict[str, Any] = {}
         self.last_reward = 0.0
@@ -104,6 +108,8 @@ class Tau2GymAdapter:
             user_cache_dir=self.user_cache_dir,
             user_max_retries=self.user_max_retries,
             all_messages_as_observation=False,
+            task_override=self.task_override,
+            db_comparison=self.db_comparison,
         )
         _, self.info = await asyncio.to_thread(self.env.reset, seed=seed)
         self._raise_orchestrator_error()

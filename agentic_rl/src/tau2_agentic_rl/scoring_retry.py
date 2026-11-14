@@ -90,6 +90,7 @@ async def retry_scoring(record, judge, store):
         expected = build_turn_inputs(
             record.messages, inputs["judge"]["policy"], record.assistant_turns,
             version=inputs["reward_project_config"]["credit"]["final_turn_rule"],
+            task_guidance=inputs["judge"].get("task_guidance"),
         )
         if inputs.get("simple_turn_inputs") != expected:
             raise ValueError("bounded messages differ from frozen turn scoring inputs")

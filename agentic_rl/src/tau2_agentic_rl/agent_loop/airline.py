@@ -24,7 +24,7 @@ from tau2_agentic_rl.agent_policy import (
     load_agent_system_prompt,
     prompt_sha256,
 )
-from tau2_agentic_rl.annotations import load_task_mapping
+from tau2_agentic_rl.annotations import load_task_judge_guidance, load_task_mapping
 from tau2_agentic_rl.budget import ContextBudget
 from tau2_agentic_rl.chat_stream import render_environment_turn
 from tau2_agentic_rl.concurrency import (
@@ -35,6 +35,7 @@ from tau2_agentic_rl.concurrency import (
     queue_options_from_project,
 )
 from tau2_agentic_rl.config import load_runtime_config
+from tau2_agentic_rl.environment.booking_comparison import repaired_db_mode
 from tau2_agentic_rl.environment.tau2_gym import GymStep, Tau2GymAdapter
 from tau2_agentic_rl.failures import scoring_retryable
 from tau2_agentic_rl.initial_prompt import (
@@ -196,6 +197,9 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "AGENTIC_RL_PROJECT_ROOT", str(config_path.parent.parent.parent)
             )
         )
+        from tau2_agentic_rl.training_tasks import load_training_task_repairs
+
+        self.task_repairs = load_training_task_repairs(self.root, self.project)
         annotations = self.project["annotations"]
         self.agent_system_prompt = load_agent_system_prompt(self.project, self.root)
         self.required_actions = load_required_actions(
@@ -205,6 +209,9 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             self.root / annotations["action_dependencies"]
         )
         self.semantic = load_task_mapping(self.root / annotations["semantic_checks"])
+        self.task_judge_guidance = load_task_judge_guidance(
+            self.root, annotations, set(self.semantic)
+        )
         self.transfer = load_task_mapping(self.root / annotations["transfer_rules"])
         self.policy_rules = load_task_mapping(self.root / annotations["policy_rules"])
         validate_policy_rows(self.policy_rules)
@@ -436,6 +443,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 lease.progress()
 
         seed = kwargs.get("extra_info", {}).get("environment_seed")
+        task_override = getattr(self, "task_repairs", {}).get(task_id) if split == "train" else None
+        db_comparison = repaired_db_mode(task_id) if task_override is not None else None
         user = self.project["user_simulator"]
         environment = Tau2GymAdapter(
             task_id=task_id,
@@ -449,6 +458,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             ),
             user_max_retries=int(user.get("max_retries", 2)),
             max_steps=self.hard_turn_limit * 3,
+            **({"task_override": task_override, "db_comparison": db_comparison}
+               if task_override is not None else {}),
         )
         try:
             incoming = await environment.reset(seed=seed)
@@ -542,6 +553,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "task": deepcopy(environment.task),
                 "initial_state_fingerprint": environment.progress_initial_state(),
                 "prefix_lengths": [len(environment.full_trajectory())],
+                **({"db_comparison": db_comparison} if db_comparison is not None else {}),
             }
             if procredit else None
         )
@@ -966,6 +978,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 termination_reason = "infrastructure_error"
 
         semantic_row = self.semantic[task_id]
+        task_guidance = self.task_judge_guidance.get(task_id)
         transfer_rule = self.transfer[task_id]
         policy_row = self.policy_rules[task_id]
         judge_result = None
@@ -984,6 +997,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     "termination_reason": interaction_termination_reason,
                 },
                 "semantic_checks": semantic_row.get("semantic_checks", []),
+                **({"task_guidance": task_guidance} if task_guidance else {}),
                 **({"semantic_checks_only": True} if semantic_row.get("semantic_checks_only") else {}),
                 "mandatory_policy_checks": policy_row.get("judge_checks", []),
                 "transfer_rule": transfer_rule,
@@ -1005,6 +1019,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             scoring_inputs["simple_turn_inputs"] = build_turn_inputs(
                 messages, scoring_inputs["judge"]["policy"], assistant_turns,
                 version=self.project["credit"]["final_turn_rule"],
+                task_guidance=task_guidance,
             )
         if db_subgoal_inputs is not None:
             scoring_inputs["db_subgoal_inputs"] = db_subgoal_inputs
@@ -1018,6 +1033,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             require_policy_attribution=judge_inputs.get("require_policy_attribution", False),
             transfer_validation_version=judge_inputs.get("transfer_validation_version", "transfer-policy-v1"),
             semantic_checks_only=judge_inputs.get("semantic_checks_only", False),
+            task_guidance=task_guidance,
         )
         quality_record = None
         if user_sim_inputs is not None and infrastructure_error is None:

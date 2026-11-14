@@ -65,7 +65,7 @@ def transform_advantage(a0, bad_turn, eligible_correct_refusal):
     return a0
 
 
-def build_turn_inputs(messages, policy, turns, *, version=VERSION):
+def build_turn_inputs(messages, policy, turns, *, version=VERSION, task_guidance=None):
     """Freeze exactly the bounded messages, never the environment transcript."""
     if type(turns) is not int or turns < 1 or not isinstance(policy, str) or not policy.strip():
         raise ValueError("simple turn labels require turns and bound policy")
@@ -79,8 +79,13 @@ def build_turn_inputs(messages, policy, turns, *, version=VERSION):
             indices.append(index)
     if len(indices) != turns:
         raise ValueError("bounded messages differ from assistant turns")
+    if task_guidance is not None and (
+        not isinstance(task_guidance, str) or not task_guidance.strip()
+    ):
+        raise ValueError("invalid task Judge guidance")
     return {"version": version, "messages": deepcopy(messages), "policy": policy,
-            "turn_message_indices": indices}
+            "turn_message_indices": indices,
+            **({"task_guidance": task_guidance} if task_guidance else {})}
 
 
 def _judge_message(message):
@@ -148,6 +153,8 @@ def turn_request(inputs, turn_index, previous_decisions):
                "policy": inputs["policy"], "previous_refusals": prior}
     if independent:
         request["final_turn_rule"] = INDEPENDENT_VERSION
+    if "task_guidance" in inputs:
+        request["task_guidance"] = inputs["task_guidance"]
     validate_target_request(request)
     return request
 
@@ -188,7 +195,10 @@ def build_label_trace(inputs, decisions, events, policy_credit):
     turns = len(inputs["turn_message_indices"])
     version = inputs.get("version")
     independent = version == INDEPENDENT_VERSION
-    if inputs != build_turn_inputs(inputs["messages"], inputs["policy"], turns, version=version):
+    if inputs != build_turn_inputs(
+        inputs["messages"], inputs["policy"], turns, version=version,
+        task_guidance=inputs.get("task_guidance"),
+    ):
         raise ValueError("invalid frozen turn label inputs")
     if len(decisions) != turns:
         raise ValueError("missing turn labels")
@@ -291,8 +301,10 @@ def validate_record_labels(record):
     if sha256_json(inputs) != record.metadata.get("scoring_inputs_sha256"):
         raise ValueError("frozen simple turn scoring inputs changed")
     version = inputs.get("reward_project_config", {}).get("credit", {}).get("final_turn_rule", VERSION)
-    expected = build_turn_inputs(record.messages, inputs["judge"]["policy"], record.assistant_turns,
-                                 version=version)
+    expected = build_turn_inputs(
+        record.messages, inputs["judge"]["policy"], record.assistant_turns,
+        version=version, task_guidance=inputs["judge"].get("task_guidance"),
+    )
     if inputs.get("simple_turn_inputs") != expected:
         raise ValueError("bounded record messages differ from frozen simple turn inputs")
     trace = record.metadata.get("simple_turn_labels")
