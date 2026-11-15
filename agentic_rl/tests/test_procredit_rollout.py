@@ -17,12 +17,14 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
                     db_subgoal_credit=False, post_completion_credit=False,
                     final_turn_rule=None, turn_scorer=None, zero_truncation=False,
                     hard_limit=None, natural_stop_at=None, judge_enabled=True,
-                    semantic_row=None, task_guidance=None):
+                    semantic_row=None, task_guidance=None, judge_mode=None, actual_judge=None):
     loop, scope = minimal_loop(scratch_dir)
     cleaned, judge_calls = [], []
     loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
     loop.project["reward"] = {"mode": "strict_progress_v1"}
     loop.project["judge"] = {"enabled": judge_enabled}
+    if judge_mode is not None:
+        loop.project["judge"]["mode"] = judge_mode
     if credit_version:
         policy_credit_v2 = True
     if policy_credit_v2:
@@ -167,7 +169,7 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
     loop.tool_parser = SimpleNamespace(extract_tool_calls=parse)
     loop.server_manager = SimpleNamespace(generate=generate)
     loop.shared_budget = SimpleNamespace(acall=snapshot)
-    loop.judge = Judge()
+    loop.judge = actual_judge if actual_judge is not None else Judge()
     scope["Tau2GymAdapter"] = Environment
 
     def local_verifier(**kwargs):

@@ -32,7 +32,7 @@
 - 多轮 observation 包含 Qwen `turn_separator`，完整计入上下文预算；
 - 16,384 token 生成前预算检查，训练与评估均为 35 个助手轮次上限，截断归零，训练截断最多重采 2 次；
 - DeepSeek 用户模拟器与 Judge 使用独立 prompt、缓存和重试；
-- 原 Judge 每条完整轨迹执行一次评分流程；默认新模式额外逐轮检查实际可见前缀，二者均缓存结果并有界重试；
+- 正式 train30 使用 `trajectory_once_v1`：完整轨迹一次请求返回整轨结论和全部轮次标签，缓存命中不发请求；失败有界重试，不回退到逐轮 API 调用；
 - 官方 DB/COMMUNICATE、必须动作、语义与政策检查；strict 成功与训练奖励分别计算，默认 v4 将政策违规归因到对应轮次；
 - GRPO 组大小 8、组内标准差归一化、Clip-Higher 0.20/0.28、dual clip 10；
 - PPO epoch=2、old policy 固定为 vLLM rollout log-prob、token-mean、无 KL、无 Critic；
@@ -295,15 +295,15 @@ Parquet 的 `Initialize isolated Tau2 Airline task ...` 只是占位符，不能
 保留所有 token，并在第一次生成前检查：
 
 ```text
-initial_prompt_tokens <= rollout.initial_prompt_max_tokens（默认 8192）
-initial_prompt_tokens + 1024 observation + 128 template + 64 generation <= 16384
+initial_prompt_tokens < rollout.max_context_length（默认 16384）
+本次可生成 tokens = rollout.max_context_length - 当前完整上下文 tokens
 ```
 
 超限不左截断，也不请求策略模型；轨迹 JSON 的 `metadata.initial_prompt` 保存
-任务 ID、真实长度、预留量和失败原因。成功轨迹同样保存测量值。
-`initial_prompt_max_tokens` 是训练/评估的数据 prompt 上限来源，训练时
-`--extra data.max_prompt_length=...` 会同步到实际配置；不要先盲目提高上限。
-后续 observation 仍按原预算截断内容，但不会再调用 veRL 的左截断辅助函数。
+任务 ID、真实长度和失败原因。成功轨迹同样保存测量值。
+`initial_prompt_max_tokens` 与总上下文上限一致；不设置独立的单轮输出上限或固定预留。
+用户消息与工具回执完整保留。完整回执连同模板无法放进剩余上下文时，记录
+`context_window_exceeded` 并按既有上下文耗尽规则处理，不截短回执后继续生成。
 
 准备好固定 Tau2 环境、本地 tokenizer 和 RL 环境变量后，可先测 smoke 的初始化
 （不加载 4B 权重、不生成 agent 回复、不调用 Judge；**会请求用户模拟器 API**）：
@@ -401,7 +401,7 @@ python scripts/train_airline_grpo.py \
 
 将 `MERGED_SFT_MODEL` 指向 SFT v4 Step 334 的完整合并模型。选定奖励版本后，用新的 run 名称启动。当前实验核对实际配置中的 `reward_version: v13.1-procredit-immediate-independent`、`progress_credit: immediate_delta_v1` 与 `final_turn_rule: simple-turn-v2`。提示词和用户筛选以该 run 的记录为准。
 
-`--stage full_train` 训练全部 30 个任务，并加载 Task 7、14、21、23、39 的修复。整轨 Judge 使用对应任务指导，逐轮 Judge 延续 v13.1 配置。原有的 6 个内部验证任务已编入训练，本阶段默认关闭训练内验证。按本次实验设置 `RL_EPOCHS` 和 `RL_UPDATES`，前者控制遍历上限，后者控制 optimizer 更新上限。正式运行前可加 `--dry-run` 检查实际任务与命令。
+`--stage full_train` 训练全部 30 个任务，并加载 Task 7、14、21、23、39 的修复。整轨一次 Judge 使用对应任务指导，同时返回逐轮标签，奖励公式延续 v13.1。原有的 6 个内部验证任务已编入训练，本阶段默认关闭训练内验证。按本次实验设置 `RL_EPOCHS` 和 `RL_UPDATES`，前者控制遍历上限，后者控制 optimizer 更新上限。正式运行前可加 `--dry-run` 检查实际任务与命令。
 
 ```bash
 python scripts/prepare_tau2_dataset.py
@@ -538,7 +538,7 @@ v4 训练中，临时错误或 invalid user 补采耗尽只排除对应 slot，�
 配置、断言、token alignment 和未知代码错误通过 Ray job 共享的 fatal 标记传到 trainer，
 阻止后续采样、补采和 actor 更新，不再被 veRL 的通用 `failure` 状态吞掉。
 
-训练 GRPO / DAPO 与 `scripts/evaluate_airline.py` 共用 `user_sim_filter`，默认开启。
+训练 GRPO / DAPO 与 `scripts/evaluate_airline.py` 共用 `user_sim_filter`。当前正式 `airline_procredit_v4_train30.yaml` 关闭该筛选；旧配置仍保留原开关，以实际运行配置为准。关闭合规筛选不关闭对话所需的用户模拟器。
 它在符合检查条件的完整交互结束后执行；按当前策略归零的截断轨迹跳过检查。
 不修改 Agent 的 SFT 系统提示词，不给 User Simulator 追加纠错提示。
 只因为 **User Simulator 本身实质破坏任务环境** 才丢弃整条 trajectory：
@@ -693,7 +693,7 @@ response mask 保留原始 EOS，下一轮仍接续原始 token 流。不会全�
 
 - 记录实际使用的用户模拟器及 Judge 模型 ID；
 - 在 A800 上完成一次端到端 工具交互验收，核对 Qwen3 工具标签与 tokenizer/chat template；
-- 用真实 Airline 工具结果统计重新确认 1,024 token observation 预留量；
+- 核对完整 Airline 工具回执进入下一轮输入，确认没有独立单轮上限或回执截短；
 - 人工审计至少 50–100 条代表性轨迹及 Judge 结论；
 - smoke 中记录训练侧 actor 与 vLLM rollout 的 ratio 分布（允许训推差异，不要求接近 1），核对 PPO 始终使用保存的 rollout 行为策略 log-prob，验证两个 PPO epoch 的 old log-prob 不变、checkpoint 可恢复且无 OOM；
 - 在看任何 test reward 前冻结 reward、标注、prompt、训练步数和评估参数。

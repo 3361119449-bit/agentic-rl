@@ -109,7 +109,17 @@ class SimpleTurnJudge(DeepSeekJudge):
         check_label_consistency(result)
 
 
-async def score_simple_turns(inputs, events, policy_credit, judge, *, progress=None):
+async def score_simple_turns(inputs, events, policy_credit, judge, *, progress=None,
+                             mode="per_turn", batch_response=None):
+    if mode == "trajectory_once_v1":
+        from tau2_agentic_rl.judge.trajectory_once import label_trace_from_response
+
+        trace = label_trace_from_response(inputs, events, policy_credit, batch_response)
+        if progress is not None:
+            progress()
+        return trace
+    if mode != "per_turn":
+        raise ValueError(f"unknown judge.mode: {mode}")
     prompt_version = (INDEPENDENT_PROMPT_VERSION if inputs.get("version") == "simple-turn-v2"
                       else PROMPT_VERSION)
     config = replace(judge.config, cache_dir=str(judge.cache_dir / "simple_turn_target_v2"),

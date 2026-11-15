@@ -1,11 +1,20 @@
-"""Budgeted environment turns shared by the live loop and tokenizer acceptance."""
+"""Complete environment turns; never clip user messages or tool receipts."""
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from typing import Any
 
-from tau2_agentic_rl.tooling import truncate_message_contents
+
+class ContextWindowExceeded(OverflowError):
+    def __init__(self, required_tokens, available_tokens):
+        self.required_tokens = required_tokens
+        self.available_tokens = available_tokens
+        super().__init__(
+            f"complete environment turn and separator need {required_tokens} tokens; "
+            f"only {available_tokens} remain in the context"
+        )
 
 
 async def render_environment_turn(
@@ -15,21 +24,11 @@ async def render_environment_turn(
     render: Callable[..., Awaitable[list[int]]],
     turn_separator: list[int],
     allowed_tokens: int,
-    content_limit: int,
 ) -> tuple[list[dict[str, Any]], list[int], bool]:
-    """Include separator tokens in every candidate's budget and zero-loss span."""
-    low, high = 0, content_limit
-    best = None
-    while low <= high:
-        middle = (low + high) // 2
-        bounded, truncated = truncate_message_contents(messages, tokenizer, middle)
-        rendered = await render(bounded, remove_system_prompt=True)
-        ids = list(turn_separator) + rendered
-        if len(ids) <= allowed_tokens:
-            best = bounded, ids, truncated
-            low = middle + 1
-        else:
-            high = middle - 1
-    if best is None:
-        raise RuntimeError("environment template and separator exceed token budget")
-    return best
+    """Append all content, including separators, or report context exhaustion."""
+    complete = deepcopy(messages)
+    rendered = await render(complete, remove_system_prompt=True)
+    ids = list(turn_separator) + rendered
+    if len(ids) > allowed_tokens:
+        raise ContextWindowExceeded(len(ids), allowed_tokens)
+    return complete, ids, False

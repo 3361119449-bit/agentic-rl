@@ -214,34 +214,3 @@ class ConfirmationTracker:
         if self.pending is None or self.pending.proposal_hash != proposal_hash:
             raise ValueError("cannot consume a different confirmation proposal")
         self.pending.consumed = True
-
-
-def truncate_message_contents(
-    messages: list[dict[str, Any]], tokenizer: Any, max_content_tokens: int
-) -> tuple[list[dict[str, Any]], bool]:
-    """Deterministically cap environment content before it enters the prompt."""
-    if max_content_tokens < 0:
-        raise ValueError("max_content_tokens must be non-negative")
-    result = copy.deepcopy(messages)
-    tokenized = [
-        tokenizer.encode(str(item.get("content", "")), add_special_tokens=False)
-        for item in result
-    ]
-    total = sum(map(len, tokenized))
-    if total <= max_content_tokens:
-        return result, False
-
-    remaining = max_content_tokens
-    marker = " [OBSERVATION_TRUNCATED]"
-    marker_ids = tokenizer.encode(marker, add_special_tokens=False)
-    for item, content_ids in zip(result, tokenized, strict=True):
-        keep = min(len(content_ids), remaining)
-        if keep < len(content_ids) and keep > len(marker_ids):
-            kept_ids = content_ids[: keep - len(marker_ids)] + marker_ids
-        else:
-            kept_ids = content_ids[:keep]
-        item["content"] = tokenizer.decode(kept_ids, skip_special_tokens=True)
-        if keep < len(content_ids):
-            item["observation_truncated"] = True
-        remaining -= keep
-    return result, True

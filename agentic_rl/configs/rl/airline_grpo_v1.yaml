@@ -35,13 +35,9 @@ hardware:
 rollout:
   tool_parser: hermes
   max_context_length: 16384
-  initial_prompt_max_tokens: 8192
+  initial_prompt_max_tokens: 16384
   max_soft_turns: 35
   max_hard_turns: 35
-  reserved_observation_tokens: 1024
-  reserved_template_tokens: 128
-  min_final_response_tokens: 64
-  per_turn_max_new_tokens: 1024
   temperature: 1.0
   top_p: 1.0
   top_k: -1

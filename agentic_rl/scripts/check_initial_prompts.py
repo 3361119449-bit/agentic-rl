@@ -62,13 +62,7 @@ def recorded_measurements(root, task_ids):
 async def measure_live(args, task_ids, project, tokenizer):
     system_prompt = load_agent_system_prompt(project, ROOT)
     rollout, user = project["rollout"], project["user_simulator"]
-    budget = ContextBudget(
-        max_context_tokens=int(rollout["max_context_length"]),
-        reserved_observation_tokens=int(rollout["reserved_observation_tokens"]),
-        reserved_template_tokens=int(rollout["reserved_template_tokens"]),
-        min_final_response_tokens=int(rollout["min_final_response_tokens"]),
-        per_turn_max_new_tokens=int(rollout["per_turn_max_new_tokens"]),
-    )
+    budget = ContextBudget.from_rollout(rollout)
     rows = []
     for index, task_id in enumerate(task_ids):
         environment = Tau2GymAdapter(

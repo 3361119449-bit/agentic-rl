@@ -24,13 +24,9 @@ hardware:
 rollout:
   tool_parser: hermes
   max_context_length: 16384
-  initial_prompt_max_tokens: 8192
+  initial_prompt_max_tokens: 16384
   max_soft_turns: 35
   max_hard_turns: 35
-  reserved_observation_tokens: 1024
-  reserved_template_tokens: 128
-  min_final_response_tokens: 64
-  per_turn_max_new_tokens: 1024
   temperature: 1.0
   top_p: 1.0
   top_k: -1
@@ -56,14 +52,15 @@ user_simulator:
         type: disabled
 judge:
   enabled: true
+  mode: trajectory_once_v1
   provider: DeepSeek
   model: ${DEEPSEEK_JUDGE_MODEL}
   base_url: ${DEEPSEEK_BASE_URL}
-  calls_per_trajectory: 1  # Original trajectory Judge; simple-turn-v1 adds one cached call per actor turn.
+  calls_per_trajectory: 1  # One response contains trajectory checks and all turn labels; bounded failure retries only.
   output_schema_version: '1.0'
   max_retries: 2
 user_sim_filter:
-  enabled: true
+  enabled: false
   provider: DeepSeek
   model: ${DEEPSEEK_USER_SIM_JUDGE_MODEL}
   base_url: ${DEEPSEEK_BASE_URL}

@@ -1,0 +1,208 @@
+"""No network: exercise the actual cached HTTP transport and label consumers."""
+
+import asyncio
+import json
+from copy import deepcopy
+from pathlib import Path
+
+import httpx
+import pytest
+
+from tau2_agentic_rl.config import load_yaml, validate_procredit_config
+from tau2_agentic_rl.failures import JudgeServiceFailure
+from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
+from tau2_agentic_rl.judge.simple_turn import score_simple_turns
+from tau2_agentic_rl.judge.trajectory_once import (
+    MODE,
+    TrajectoryOnceJudge,
+    evaluate_scoring_inputs,
+)
+from tau2_agentic_rl.reward.simple_turn import build_turn_inputs, turn_request
+
+
+def frozen_inputs():
+    messages = [
+        {"role": "system", "content": "Bound policy."},
+        {"role": "user", "content": "Please look up my booking."},
+        {"role": "assistant", "content": "I will check your booking now.", "turn_idx": 1},
+        {"role": "tool", "content": "Booking A costs $120."},
+        {"role": "assistant", "content": "The booking price is $120.", "turn_idx": 2},
+    ]
+    native = deepcopy(messages[1:])
+    for i, m in enumerate(native):
+        if m["role"] == "assistant":
+            m["assistant_turn_id"] = m["turn_idx"]
+        m["turn_idx"] = i
+    return {
+        "reward_project_config": {"judge": {"mode": MODE}},
+        "judge": {
+            "task": {}, "policy": "Bound policy.",
+            "trajectory": {"messages": native, "tool_events": []},
+            "semantic_checks": [], "mandatory_policy_checks": [], "transfer_rule": {},
+        },
+        "simple_turn_inputs": build_turn_inputs(messages, "Bound policy.", 2, version="simple-turn-v2"),
+    }
+
+
+def response_for(inputs):
+    turns = []
+    for t in range(len(inputs["simple_turn_inputs"]["turn_message_indices"])):
+        req = turn_request(inputs["simple_turn_inputs"], t, [])
+        turns.append({
+            "turn_index": t, "message_index": req["target_message_index"],
+            "target_quote": req["target_generation_text"][:60], "verdict": "neutral",
+            "reason": "The current claim is supported by the visible prefix.",
+            "evidence_message_indices": [req["target_message_index"]], "refusal_requests": [],
+        })
+    return {"trajectory_result": {"semantic_checks": [], "transfer_semantic_checks": [],
+                                  "mandatory_policy_checks": [], "transfer_check": {}},
+            "turns": turns}
+
+
+def mock_client(monkeypatch, scratch_dir, responder):
+    monkeypatch.setenv("TEST_JUDGE_KEY", "offline-dummy-key")
+    original = httpx.AsyncClient
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(
+        transport=httpx.MockTransport(responder), **kw))
+    return DeepSeekJudge(JudgeConfig(model="fixture", api_key_env="TEST_JUDGE_KEY",
+                                    cache_dir=str(scratch_dir), max_retries=0))
+
+
+def test_one_http_request_returns_global_and_all_turns_and_cache_reuses(monkeypatch, scratch_dir):
+    inputs = frozen_inputs()
+    calls = []
+
+    def respond(request):
+        payload = json.loads(request.content)
+        calls.append(payload)
+        text = json.dumps(payload["messages"])
+        assert text.count("Bound policy.") == 1
+        assert text.count("I will check your booking now.") == 1
+        assert payload["thinking"] == {"type": "enabled"}
+        assert payload["reasoning_effort"] == "high"
+        assert "max_tokens" not in payload
+        return httpx.Response(200, json={"choices": [{"message": {
+            "content": json.dumps(response_for(inputs))}}]})
+
+    judge = mock_client(monkeypatch, scratch_dir, respond)
+
+    async def run():
+        result, raw, prompt_hash, cache_key = await evaluate_scoring_inputs(judge, inputs)
+        trace = await score_simple_turns(
+            inputs["simple_turn_inputs"], [], {"violating_turns": [0], "attribution_complete": True},
+            judge, mode=MODE, batch_response=(raw, prompt_hash, cache_key))
+        assert result.semantic_checks == []
+        assert len(trace["turns"]) == 2 and len(trace["judge_calls"]) == 1
+        assert trace["turns"][0]["bad_turn"]  # Global policy priority is unchanged.
+        return trace
+
+    first = asyncio.run(run())
+    assert len(calls) == 1
+    assert asyncio.run(run()) == first
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("fault", ["future_receipt", "missing", "duplicate", "wrong_target", "contradiction", "bad_refusal"])
+def test_reject_bad_bulk_outputs_without_fallback(monkeypatch, scratch_dir, fault):
+    inputs = frozen_inputs()
+    answer = response_for(inputs)
+    row = answer["turns"][0]
+    if fault == "future_receipt":
+        row["evidence_message_indices"].append(3)
+    elif fault == "missing":
+        answer["turns"].pop()
+    elif fault == "duplicate":
+        answer["turns"][1] = deepcopy(row)
+    elif fault == "wrong_target":
+        row["target_quote"] = "This text is not in the target."
+    elif fault == "contradiction":
+        row["reason"] = "This is a bad turn."
+    else:
+        row.update(verdict="bad", refusal_requests=[{"target": "A", "operation": "cancel"}])
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(answer)}}]})
+
+    judge = mock_client(monkeypatch, scratch_dir, respond)
+    with pytest.raises(JudgeServiceFailure):
+        asyncio.run(evaluate_scoring_inputs(judge, inputs))
+    assert len(calls) == 1
+    assert not list(scratch_dir.rglob("*.json"))
+
+
+def test_missing_bulk_response_never_calls_per_turn(monkeypatch, scratch_dir):
+    def forbidden(request):
+        pytest.fail("Must not fall back to per-turn HTTP requests")
+
+    judge = mock_client(monkeypatch, scratch_dir, forbidden)
+    with pytest.raises(ValueError, match="response"):
+        asyncio.run(score_simple_turns(
+            frozen_inputs()["simple_turn_inputs"], [], {}, judge, mode=MODE))
+
+
+def test_formal_profile_enforces_single_request_and_disables_user_filter():
+    root = Path(__file__).parents[1]
+    project = load_yaml(root / "configs/rl/airline_procredit_v4_train30.yaml")
+    validate_procredit_config(project)
+    assert project["judge"]["mode"] == MODE
+    assert project["user_sim_filter"]["enabled"] is False
+    assert project["rollout"]["max_hard_turns"] == 35
+    for key, bad_value in [("mode", "unknown"), ("calls_per_trajectory", 2)]:
+        invalid = deepcopy(project)
+        invalid["judge"][key] = bad_value
+        with pytest.raises(ValueError, match="judge"):
+            validate_procredit_config(invalid)
+
+
+def test_combined_validator_retains_global_rubric_checks():
+    inputs = frozen_inputs()
+    inputs["judge"]["semantic_checks"] = [{"criterion_id": "must-answer"}]
+    parsed = TrajectoryOnceJudge.result_model.model_validate(response_for(inputs))
+    with pytest.raises(ValueError, match="criterion IDs"):
+        TrajectoryOnceJudge._validate_requested_criteria(parsed, {
+            **inputs["judge"], "turn_inputs": inputs["simple_turn_inputs"]})
+
+
+def test_live_rollout_and_frozen_retry_share_one_request(monkeypatch, scratch_dir):
+    from test_procredit_rollout import rollout_fixture
+
+    from tau2_agentic_rl.scoring_retry import retry_scoring
+
+    calls = []
+
+    def respond(request):
+        payload = json.loads(request.content)
+        calls.append(payload)
+        timeline = json.loads(payload["messages"][1]["content"].split(
+            "ACTOR_VISIBLE_TIMELINE_AND_TARGETS:\n")[1])
+        turns = []
+        for target in timeline["targets"]:
+            message = timeline["visible_messages"][target["message_index"]]["message"]
+            quote = message.get("raw_generated_text") or message["content"]
+            turns.append({**target, "target_quote": quote[:60], "verdict": "neutral",
+                          "evidence_message_indices": [target["message_index"]],
+                          "reason": "The reply reports the supported refund.", "refusal_requests": []})
+        answer = {"trajectory_result": {"semantic_checks": [], "transfer_semantic_checks": [],
+                                        "mandatory_policy_checks": [], "transfer_check": {}},
+                  "turns": turns}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(answer)}}]})
+
+    judge = mock_client(monkeypatch, scratch_dir / "cache", respond)
+    loop, output, record = rollout_fixture(
+        scratch_dir / "run", credit_version="procredit-turn-v4", final_turn_rule="simple-turn-v2",
+        hard_limit=2, natural_stop_at=2, judge_mode=MODE, actual_judge=judge)
+    assert output.reward_score == record.custom_reward.train_reward
+    assert record.assistant_turns == 2
+    assert record.user_sim_inputs is None and record.user_sim_result is None
+    assert record.metadata["simple_turn_labels"]["judge_mode"] == MODE
+    assert len(calls) == 1
+    before = deepcopy(record.model_dump())
+    record.custom_reward = None
+    record.metadata["failure_phase"] = "turn_labels"
+    assert asyncio.run(retry_scoring(record, judge, loop.store))
+    assert len(calls) == 1
+    for field in ("messages", "environment_transcript", "token_turns", "scoring_inputs", "custom_reward"):
+        assert record.model_dump()[field] == before[field]
+    assert record.metadata["simple_turn_labels"] == before["metadata"]["simple_turn_labels"]

@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 from test_rollout_integration import minimal_loop
 
-from tau2_agentic_rl.chat_stream import render_environment_turn
+from tau2_agentic_rl.chat_stream import ContextWindowExceeded, render_environment_turn
 from tau2_agentic_rl.environment.tau2_gym import Tau2GymAdapter
 from tau2_agentic_rl.initial_prompt import encode_full_chat
 from tau2_agentic_rl.judge.prompts import build_judge_messages
@@ -64,7 +64,7 @@ def boundary(tokenizer):
 
 
 async def append_observation(
-    tokenizer, history, stream, assistant, observation, budget=4096, limit=4096
+    tokenizer, history, stream, assistant, observation, budget=16384
 ):
     separator = boundary(tokenizer)
     completed = encode(tokenizer, history + [assistant], False)
@@ -85,7 +85,6 @@ async def append_observation(
         render=render,
         turn_separator=separator,
         allowed_tokens=budget,
-        content_limit=limit,
     )
     result = stream + generated + observation_ids
     history = history + [assistant] + bounded
@@ -95,7 +94,7 @@ async def append_observation(
 
 
 @pytest.mark.parametrize(
-    "kind", ["tool", "user", "synthetic_error", "two_tools", "truncated"]
+    "kind", ["tool", "user", "synthetic_error", "two_tools", "long_receipt"]
 )
 def test_incremental_tokens_equal_full_qwen_history(tokenizer, kind):
     history = [
@@ -114,8 +113,8 @@ def test_incremental_tokens_equal_full_qwen_history(tokenizer, kind):
     if kind == "synthetic_error":
         assistant["content"] = "<tool_call>{bad JSON}</tool_call>"
         observation["content"] = '{"error":true,"type":"parse_error"}'
-    if kind == "truncated":
-        observation["content"] = "large observation " * 4000
+    if kind == "long_receipt":
+        observation["content"] = "large observation " * 1500
     history, stream, truncated = asyncio.run(
         append_observation(
             tokenizer,
@@ -123,10 +122,10 @@ def test_incremental_tokens_equal_full_qwen_history(tokenizer, kind):
             stream,
             assistant,
             observation,
-            budget=40 if kind == "truncated" else 4096,
         )
     )
-    assert truncated == (kind == "truncated")
+    assert not truncated
+    assert history[-1]["content"] == observation["content"]
     if kind == "two_tools":
         asyncio.run(
             append_observation(tokenizer, history, stream, assistant, observation)
@@ -138,7 +137,7 @@ def test_separator_cannot_overflow_the_budget(tokenizer):
         return encode(tokenizer, messages)
 
     empty = [{"role": "tool", "content": ""}]
-    with pytest.raises(RuntimeError, match="separator"):
+    with pytest.raises(ContextWindowExceeded, match="separator"):
         asyncio.run(
             render_environment_turn(
                 empty,
@@ -146,7 +145,6 @@ def test_separator_cannot_overflow_the_budget(tokenizer):
                 render=render,
                 turn_separator=boundary(tokenizer),
                 allowed_tokens=len(encode(tokenizer, empty)),
-                content_limit=0,
             )
         )
 
@@ -259,6 +257,72 @@ def text_loop(tokenizer, scratch_dir):
     loop.semantic, loop.transfer, loop.policy_rules = {"0": {}}, {"0": {}}, {"0": {}}
     loop.required_actions, loop.action_dependencies = {"0": []}, {}
     return loop, backend, captured
+
+
+@pytest.mark.parametrize("evaluation", [False, True], ids=["rl", "evaluation"])
+def test_live_reply_can_exceed_1024_without_an_independent_cap(
+    tokenizer, text_loop, monkeypatch, evaluation
+):
+    loop, backend, captured = text_loop
+    if evaluation:
+        monkeypatch.setenv("EVALUATION_MANIFEST_ID", "offline-fixture")
+    else:
+        monkeypatch.delenv("EVALUATION_MANIFEST_ID", raising=False)
+    long_reply = "Flight details are available. " * 250
+    generated = [
+        tokenizer.encode(text, add_special_tokens=False) + [tokenizer.eos_token_id]
+        for text in [long_reply, "Done."]
+    ]
+    assert len(generated[0]) > 1024
+    actual_limits = []
+
+    async def generate(**kwargs):
+        limit = kwargs["sampling_params"]["max_tokens"]
+        assert limit == 16384 - len(kwargs["prompt_ids"])
+        tokens = generated[len(actual_limits)]
+        assert len(tokens) <= limit
+        actual_limits.append(limit)
+        return SimpleNamespace(token_ids=tokens, log_probs=[-1.0] * len(tokens),
+                               extra_fields={"global_steps": 0})
+
+    loop.server_manager = SimpleNamespace(generate=generate)
+    asyncio.run(loop._run_trajectory({}, extra_info={"task_id": "0"}))
+    record = next(loop.store.records())
+    assert captured["actions"][0] == long_reply
+    assert record.termination_reason == "user_stop"
+    assert len(record.token_turns[0].output_token_ids) > 1024
+    assert len(actual_limits) == 2
+
+
+def test_live_observation_overflow_is_context_exhaustion_not_infrastructure(
+    tokenizer, text_loop
+):
+    loop, backend, captured = text_loop
+    step = backend.step
+    full_receipt = "complete observation " * 10000
+
+    def step_with_large_observation(action):
+        result = step(action)
+        if action != "###STOP###" and not backend.done:
+            backend.messages[-1].content = full_receipt
+        return result
+
+    backend.step = step_with_large_observation
+
+    async def generate(**kwargs):
+        assert not captured["actions"], "must stop instead of sending a clipped history"
+        tokens = tokenizer.encode("Let me check.", add_special_tokens=False)
+        tokens.append(tokenizer.eos_token_id)
+        return SimpleNamespace(token_ids=tokens, log_probs=[-1.0] * len(tokens),
+                               extra_fields={"global_steps": 0})
+
+    loop.server_manager = SimpleNamespace(generate=generate)
+    asyncio.run(loop._run_trajectory({}, extra_info={"task_id": "0"}))
+    record = next(loop.store.records())
+    assert record.termination_reason == "context_window_exceeded"
+    assert record.metadata["failure_phase"] is None
+    assert record.metadata["context_overflow"]["unappended_messages"][0]["content"] == full_receipt
+    assert record.trajectory_tokens <= 16384
 
 
 @pytest.mark.parametrize("evaluation", [False, True], ids=["rl", "evaluation"])

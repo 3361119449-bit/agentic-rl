@@ -96,8 +96,8 @@ def test_queue_options_reject_unbounded_stall_or_invalid_time(key, value):
     [
         (8192, 8192, []),
         (8193, 8192, ["initial_prompt_limit_exceeded"]),
-        (15168, 16000, []),
-        (15169, 16000, ["total_context_reserve_exceeded"]),
+        (16383, 16384, []),
+        (16384, 16384, ["total_context_reserve_exceeded"]),
         (
             17000,
             8192,
@@ -108,7 +108,7 @@ def test_queue_options_reject_unbounded_stall_or_invalid_time(key, value):
 def test_initial_prompt_boundaries_include_all_reserves(count, limit, expected):
     measurement = inspect_initial_prompt("task-7", count, limit, ContextBudget())
     assert measurement["violations"] == expected
-    assert measurement["prompt_plus_reserve_tokens"] == count + 1216
+    assert measurement["prompt_plus_reserve_tokens"] == count + 1
     if expected:
         with pytest.raises(ValueError, match=f"task-7.*{count}"):
             require_initial_prompt_fits(measurement)
@@ -181,7 +181,7 @@ def test_preflight_uses_same_real_reset_inputs_and_cleans_up(monkeypatch, scratc
             SimpleNamespace(apply_chat_template=encode),
         )
     )
-    assert rows[0]["initial_prompt_tokens"] == 8193 and rows[0]["status"] == "rejected"
+    assert rows[0]["initial_prompt_tokens"] == 8193 and rows[0]["status"] == "ok"
     assert rows[1]["status"] == "initialization_error"
     assert calls == [("0", 0), ("0", "cleanup"), ("4", 1), ("4", "cleanup")]
 

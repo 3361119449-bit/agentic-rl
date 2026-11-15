@@ -26,7 +26,7 @@ from tau2_agentic_rl.agent_policy import (
 )
 from tau2_agentic_rl.annotations import load_task_judge_guidance, load_task_mapping
 from tau2_agentic_rl.budget import ContextBudget
-from tau2_agentic_rl.chat_stream import render_environment_turn
+from tau2_agentic_rl.chat_stream import ContextWindowExceeded, render_environment_turn
 from tau2_agentic_rl.concurrency import (
     BudgetLease,
     QueueWaitError,
@@ -47,6 +47,7 @@ from tau2_agentic_rl.initial_prompt import (
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
 from tau2_agentic_rl.judge.simple_turn import score_simple_turns
+from tau2_agentic_rl.judge.trajectory_once import evaluate_scoring_inputs
 from tau2_agentic_rl.policy_rules import validate_policy_rows
 from tau2_agentic_rl.procredit_runtime import credit_from_record
 from tau2_agentic_rl.reward.db_subgoals import (
@@ -224,13 +225,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             raise ValueError("Qwen3-4B-Instruct-2507 requires the hermes JSON parser")
         self.tool_parser = ToolParser.get_tool_parser(parser_name, self.tokenizer)
         self.reward_config = build_reward_config(self.project)
-        self.budget = ContextBudget(
-            max_context_tokens=int(rollout["max_context_length"]),
-            reserved_observation_tokens=int(rollout["reserved_observation_tokens"]),
-            reserved_template_tokens=int(rollout["reserved_template_tokens"]),
-            min_final_response_tokens=int(rollout["min_final_response_tokens"]),
-            per_turn_max_new_tokens=int(rollout["per_turn_max_new_tokens"]),
-        )
+        self.budget = ContextBudget.from_rollout(rollout)
         judge_config = self.project["judge"]
         self.judge = (
             DeepSeekJudge(
@@ -278,20 +273,17 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         prompt_ids: list[int],
         response_mask: list[int],
     ) -> tuple[list[dict[str, Any]], list[int], bool]:
-        """Always append a bounded observation after a side effect has occurred."""
+        """Append a complete observation, or stop at the total context boundary."""
         allowed = min(
             self.budget.max_context_tokens - len(prompt_ids),
             self.response_length - len(response_mask),
         )
-        if allowed <= 0:
-            raise RuntimeError("no token budget remains for environment observation")
         return await render_environment_turn(
             raw_messages,
             tokenizer=self.tokenizer,
             render=self._render_full_chat,
             turn_separator=self.turn_separator,
             allowed_tokens=allowed,
-            content_limit=self.budget.reserved_observation_tokens,
         )
 
     async def run(
@@ -585,6 +577,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         request_id = trajectory_id
         terminated = False
         infrastructure_error: tuple[str, Exception] | None = None
+        context_overflow = None
         observed_policy_versions: set[int] = {policy_version}
         min_global_steps: int | None = None
         max_global_steps: int | None = None
@@ -901,6 +894,14 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     ) = await self._bounded_environment_messages(
                         step.messages, prompt_ids, response_mask
                     )
+                except ContextWindowExceeded as exc:
+                    termination_reason = "context_window_exceeded"
+                    context_overflow = {
+                        "required_tokens": exc.required_tokens,
+                        "available_tokens": exc.available_tokens,
+                        "unappended_messages": deepcopy(step.messages),
+                    }
+                    break
                 except Exception as exc:
                     infrastructure_error = ("observation_tokenization", exc)
                     termination_reason = "infrastructure_error"
@@ -1011,6 +1012,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "reward": self.project.get("reward", {}),
                 "credit": self.project.get("credit", {}),
                 "rollout": self.project["rollout"],
+                "judge": {"mode": self.project.get("judge", {}).get("mode", "per_turn")},
             },
         }
         if progress_inputs is not None:
@@ -1128,9 +1130,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     judge_raw,
                     judge_prompt_hash,
                     judge_cache_key,
-                ) = await self.judge.evaluate(
-                    **scoring_inputs["judge"],
-                )
+                ) = await evaluate_scoring_inputs(self.judge, scoring_inputs)
                 progress()
             except Exception as exc:
                 infrastructure_error = ("judge", exc)
@@ -1168,6 +1168,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 simple_turn_labels = await score_simple_turns(
                     scoring_inputs["simple_turn_inputs"], tool_events,
                     custom_reward.details["policy_credit"], self.judge, progress=progress,
+                    mode=self.project.get("judge", {}).get("mode", "per_turn"),
+                    batch_response=(judge_raw, judge_prompt_hash, judge_cache_key),
                 )
             except Exception as exc:
                 infrastructure_error = ("turn_labels", exc)
@@ -1231,6 +1233,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "initial_prompt": prompt_measurement,
                 "queue_wait_seconds": queue_wait_seconds,
                 "interaction_termination_reason": interaction_termination_reason,
+                "context_overflow": context_overflow,
                 "truncation": truncation_metadata(
                     self.project, interaction_termination_reason, split=split,
                     evaluation=bool(os.environ.get("EVALUATION_MANIFEST_ID")),

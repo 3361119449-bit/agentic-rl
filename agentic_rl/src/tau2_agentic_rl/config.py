@@ -54,7 +54,24 @@ def load_runtime_config(path: str | Path) -> dict[str, Any]:
 def validate_procredit_config(config: dict) -> None:
     """Fail before model/API work when the new algorithm would be ambiguous."""
     from tau2_agentic_rl.advantages import CreditConfig, is_procredit
+    from tau2_agentic_rl.budget import ContextBudget
     from tau2_agentic_rl.reward.score import build_reward_config
+
+    if "max_context_length" in config.get("rollout", {}):
+        ContextBudget.from_rollout(config["rollout"])
+
+    judge = config.get("judge", {})
+    mode = judge.get("mode", "per_turn")
+    if mode not in {"per_turn", "trajectory_once_v1"}:
+        raise ValueError("unknown judge.mode")
+    if mode == "trajectory_once_v1" and (
+        judge.get("calls_per_trajectory") != 1
+        or config.get("credit", {}).get("final_turn_rule") != "simple-turn-v2"
+    ):
+        raise ValueError("judge trajectory_once_v1 requires one request and simple-turn-v2")
+    if config.get("project", {}).get("annotation_version") == "v7-repaired-airline-train30":
+        if mode != "trajectory_once_v1" or config.get("user_sim_filter", {}).get("enabled") is not False:
+            raise ValueError("formal train30 requires judge trajectory_once_v1 and user_sim_filter disabled")
 
     if not is_procredit(config):
         if any(config.get("credit", {}).get(k) is not None for k in (

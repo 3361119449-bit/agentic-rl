@@ -5,7 +5,6 @@ import pytest
 from tau2_agentic_rl.tooling import (
     ConfirmationTracker,
     execute_validated_tool_call,
-    truncate_message_contents,
     validate_tool_call,
     validate_tool_turn,
 )
@@ -172,22 +171,3 @@ def test_confirmation_cannot_hide_changed_or_conditional_instructions(reply, all
 )
 def test_whole_tool_turn_is_validated(raw, count, error):
     assert validate_tool_turn(raw, count) == error
-
-
-class TinyTokenizer:
-    def encode(self, text, add_special_tokens=False):
-        del add_special_tokens
-        return [ord(char) for char in text]
-
-    def decode(self, ids, skip_special_tokens=True):
-        del skip_special_tokens
-        return "".join(chr(item) for item in ids)
-
-
-def test_observation_is_deterministically_truncated() -> None:
-    messages, truncated = truncate_message_contents(
-        [{"role": "tool", "content": "x" * 100}], TinyTokenizer(), 40
-    )
-    assert truncated is True
-    assert len(messages[0]["content"]) <= 40
-    assert messages[0]["observation_truncated"] is True

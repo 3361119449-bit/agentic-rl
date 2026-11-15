@@ -55,11 +55,8 @@ def encode_full_chat(tokenizer, messages, *, tools=None, template_kwargs=None):
 def inspect_initial_prompt(task_id, token_count, prompt_limit, budget: ContextBudget):
     if type(prompt_limit) is not int or prompt_limit < 1:
         raise ValueError("initial prompt limit must be a positive integer")
-    reserve = (
-        budget.reserved_observation_tokens
-        + budget.reserved_template_tokens
-        + budget.min_final_response_tokens
-    )
+    # One remaining token is enough to begin generation; no fixed reservations.
+    reserve = 1
     violations = []
     if token_count > prompt_limit:
         violations.append("initial_prompt_limit_exceeded")

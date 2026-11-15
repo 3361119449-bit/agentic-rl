@@ -4,6 +4,7 @@ import asyncio
 
 from tau2_agentic_rl.failures import scoring_retryable
 from tau2_agentic_rl.judge.simple_turn import score_simple_turns
+from tau2_agentic_rl.judge.trajectory_once import evaluate_scoring_inputs
 from tau2_agentic_rl.reward.db_subgoals import subgoal_trace_from_scoring
 from tau2_agentic_rl.reward.post_completion import completion_trace_from_scoring
 from tau2_agentic_rl.reward.progress import build_progress_trace
@@ -129,7 +130,7 @@ async def retry_scoring(record, judge, store):
                 record.metadata["scoring_inputs_sha256"] = sha256_json(inputs)
             record.progress_trace = inputs["progress_trace"]
         attempt["phase"] = "judge"
-        result, raw, prompt_hash, cache_key = await judge.evaluate(**inputs["judge"])
+        result, raw, prompt_hash, cache_key = await evaluate_scoring_inputs(judge, inputs)
         attempt["phase"] = "reward_scoring"
         reward = score_trajectory(
             events=record.tool_events,
@@ -154,6 +155,8 @@ async def retry_scoring(record, judge, store):
             attempt["phase"] = "turn_labels"
             record.metadata["simple_turn_labels"] = await score_simple_turns(
                 inputs["simple_turn_inputs"], record.tool_events, reward.details["policy_credit"], judge,
+                mode=inputs.get("reward_project_config", {}).get("judge", {}).get("mode", "per_turn"),
+                batch_response=(raw, prompt_hash, cache_key),
             )
         record.judge_result = result
         record.custom_reward = reward

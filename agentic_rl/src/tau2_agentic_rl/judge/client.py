@@ -43,6 +43,8 @@ class JudgeConfig:
     rubric_version: str = JUDGE_RUBRIC_VERSION
     schema_version: str = JUDGE_SCHEMA_VERSION
     scorer_code_version: str = "tau2-agentic-rl-scorer-v6-transfer-policy"
+    thinking_type: str | None = None
+    reasoning_effort: str | None = None
 
 
 class DeepSeekJudge:
@@ -68,12 +70,18 @@ class DeepSeekJudge:
             "schema_version": self.config.schema_version,
             "rubric_version": self.config.rubric_version,
             "prompt_version": self.config.prompt_version,
-            "decoding_config": {
-                "temperature": self.config.temperature,
-                "response_format": {"type": "json_object"},
-            },
+            "decoding_config": self.decoding_config(),
             "scorer_code_version": self.config.scorer_code_version,
         }
+
+    def decoding_config(self) -> dict[str, Any]:
+        settings = {"temperature": self.config.temperature,
+                    "response_format": {"type": "json_object"}}
+        if self.config.thinking_type is not None:
+            settings["thinking"] = {"type": self.config.thinking_type}
+        if self.config.reasoning_effort is not None:
+            settings["reasoning_effort"] = self.config.reasoning_effort
+        return settings
 
     @staticmethod
     def _atomic_write(path: Path, payload: str) -> None:
@@ -238,8 +246,7 @@ class DeepSeekJudge:
         payload = {
             "model": self.config.model,
             "messages": messages,
-            "temperature": self.config.temperature,
-            "response_format": {"type": "json_object"},
+            **self.decoding_config(),
         }
         last_error: Exception | None = None
         validation_history = []
