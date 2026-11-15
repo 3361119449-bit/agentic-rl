@@ -92,6 +92,7 @@ def build_judge_messages(
     transfer_validation_version: str = "transfer-policy-v1",
     semantic_checks_only: bool = False,
     task_guidance: str | None = None,
+    turn_output_schema: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     """Build an isolated, injection-resistant judge request."""
     criteria = task.get("evaluation_criteria")
@@ -184,6 +185,11 @@ def build_judge_messages(
             "Turn-only scoring requires actual offending generations on failed checks. "
             "Fail transfer_scope_and_message for a missed mandatory transfer."
         )
+    if turn_output_schema is not None:
+        rubric["output_schema"] = {
+            "trajectory_result": rubric["output_schema"],
+            "turns": [turn_output_schema],
+        }
     content = (
         "FIXED_AIRLINE_POLICY:\n"
         + policy
@@ -193,6 +199,12 @@ def build_judge_messages(
         + json.dumps(trajectory, ensure_ascii=False)
     )
     system = JUDGE_SYSTEM_PROMPT
+    if turn_output_schema is not None:
+        system += (
+            "\nFollow rubric.output_schema exactly. The only top-level keys are "
+            "trajectory_result and turns. Put all trajectory check fields inside "
+            "trajectory_result and all requested per-turn decisions inside turns.\n"
+        )
     if task_guidance:
         system += (
             "\nUse task_guidance to focus existing checks. Policy remains authoritative. "
@@ -203,3 +215,4 @@ def build_judge_messages(
         {"role": "system", "content": system},
         {"role": "user", "content": content},
     ]
+

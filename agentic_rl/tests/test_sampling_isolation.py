@@ -140,6 +140,28 @@ def test_one_failed_slot_keeps_seven_siblings_and_three_good_groups(scratch_dir)
     assert not any(buffer.cleared)  # No good surplus or partial group is discarded.
 
 
+def test_truncation_counter_appearing_during_sampling_does_not_crash_salvage(scratch_dir):
+    buffer = make_buffer(scratch_dir)
+    # Exact smoke failure: the initial snapshot predates the first truncation.
+    buffer.rollout_counts_start = {"initial": 0, "infrastructure": 0, "user": 0}
+    buffer.rollout_counts_fn = lambda: {
+        "initial": 32, "infrastructure": 0, "user": 0, "truncation": 9}
+    batch, metrics = buffer.sample(1, "train", 4)
+    assert len(batch) == 31
+    assert metrics["training/dynamic_sampling/physical_rollout_attempts"] == 41
+    assert metrics["training/dynamic_sampling/truncation_replacements"] == 9
+    assert metrics["training/dynamic_sampling/salvaged_rollouts"] == 7
+
+
+def test_counter_snapshot_before_any_sampling_includes_truncation():
+    state = BudgetState({"trajectories": 8})
+    assert state.rollout_counts("train") == {
+        "initial": 0, "infrastructure": 0, "user": 0, "truncation": 0}
+    state.record_rollout_attempt("train", "initial")
+    state.record_rollout_attempt("train", "truncation")
+    assert state.rollout_counts("train")["truncation"] == 1
+
+
 def test_surplus_groups_cannot_expand_the_optimizer_batch(scratch_dir):
     buffer = make_buffer(scratch_dir, good_groups=7)
     batch, metrics = buffer.sample(1, "train", 4)
@@ -401,7 +423,7 @@ def test_no_exception_evidence_is_not_a_transient_failure():
 
 def test_v4_config_declares_group_salvage():
     from tau2_agentic_rl.config import load_yaml
-    cfg = load_yaml(Path(__file__).parents[1] / "configs/rl/airline_procredit_v4.yaml")
+    cfg = load_yaml(Path(__file__).parents[1] / "configs/rl/airline_procredit_v4_train30.yaml")
     assert cfg["slot_recovery"]["on_exhaustion"] == "salvage_group"
 
 
@@ -426,7 +448,8 @@ def test_physical_counts_include_failed_and_rejected_attempts_before_filtering(s
             "slot_recovery": {"max_resamples": 2},
             "user_sim_filter": {"enabled": True, "max_resamples": 1},
         }, kwargs={}, on_attempt=observer))
-    assert state.rollout_counts("train") == {"initial": 37, "infrastructure": 1, "user": 1}
+    assert state.rollout_counts("train") == {
+        "initial": 37, "infrastructure": 1, "user": 1, "truncation": 0}
     buffer = make_buffer(scratch_dir)
     buffer.rollout_counts_fn = lambda: state.rollout_counts("train")
     buffer.rollout_counts_start = initial
@@ -436,4 +459,6 @@ def test_physical_counts_include_failed_and_rejected_attempts_before_filtering(s
     assert metrics["training/dynamic_sampling/physical_rollout_attempts"] == 34
     assert metrics["training/dynamic_sampling/infrastructure_replacements"] == 1
     assert metrics["training/dynamic_sampling/user_replacements"] == 1
-    assert state.rollout_counts("validation") == {"initial": 0, "infrastructure": 0, "user": 0}
+    assert state.rollout_counts("validation") == {
+        "initial": 0, "infrastructure": 0, "user": 0, "truncation": 0}
+

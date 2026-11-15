@@ -5,7 +5,7 @@ from copy import deepcopy
 from dataclasses import replace
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, StrictInt
+from pydantic import BaseModel, ConfigDict, StrictInt, model_validator
 
 from tau2_agentic_rl.judge.client import DeepSeekJudge
 from tau2_agentic_rl.judge.prompts import build_judge_messages
@@ -21,7 +21,7 @@ from tau2_agentic_rl.reward.simple_turn import (
 from tau2_agentic_rl.schemas import JudgeResult
 
 MODE = "trajectory_once_v1"
-PROMPT_VERSION = "trajectory-once-causal-v1"
+PROMPT_VERSION = "trajectory-once-causal-v2-single-schema"
 
 # Preserve the previously tested whole-trajectory rubric and full receipt rules.
 TURN_PROMPT = """
@@ -62,9 +62,7 @@ refusal: an explicitly requested prohibited action, grounded facts and fully
 correct explanation/alternatives. Evaluate each refusal independently, including
 repeats. Any error wins. Otherwise neutral. Use task_guidance when relevant.
 
-Return exactly {"trajectory_result": <the original rubric output_schema>, "turns":[
-{"turn_index":0,"message_index":2,"target_quote":"literal excerpt","verdict":"neutral",
-"evidence_message_indices":[2],"reason":"short reason","refusal_requests":[]}]}
+Follow the single combined rubric.output_schema.
 Every target appears exactly once in order; no extra fields. verdict is bad,
 refusal or neutral. refusal_requests lists {"target":"object","operation":"action"}
 only for refusal, otherwise []. Quote 16-80 literal characters from raw_generated_text
@@ -92,6 +90,17 @@ class TrajectoryOnceResult(BaseModel):
 
     trajectory_result: JudgeResult
     turns: list[BatchTurn]
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_flat_wrapper(cls, value):
+        """Move an unambiguous flat envelope without changing any verdicts."""
+        required = {"semantic_checks", "transfer_semantic_checks",
+                    "mandatory_policy_checks", "transfer_check", "turns"}
+        if isinstance(value, dict) and required <= value.keys() <= required | {"schema_version"}:
+            return {"trajectory_result": {k: v for k, v in value.items() if k != "turns"},
+                    "turns": value["turns"]}
+        return value
 
 
 def decisions_from_result(result, turn_inputs):
@@ -159,7 +168,14 @@ def build_messages(*, turn_inputs, **global_inputs):
         compact.append({k: v for k, v in native.items() if k not in {"content", "tool_calls"}}
                        | {"visible_message_index": index})
     trajectory["messages"] = compact
-    messages = build_judge_messages(**{**global_inputs, "trajectory": trajectory})
+    messages = build_judge_messages(
+        **{**global_inputs, "trajectory": trajectory},
+        turn_output_schema={
+            "turn_index": 0, "message_index": 2, "target_quote": "literal target excerpt",
+            "verdict": "bad|refusal|neutral", "evidence_message_indices": [2],
+            "reason": "short supported reason", "refusal_requests": [],
+        },
+    )
     messages[0]["content"] += TURN_PROMPT
     messages[1]["content"] += "\n\nACTOR_VISIBLE_TIMELINE_AND_TARGETS:\n" + json.dumps(
         {"visible_messages": visible, "targets": targets}, ensure_ascii=False)
@@ -204,3 +220,4 @@ def label_trace_from_response(inputs, events, policy_credit, response):
     trace["judge_mode"] = MODE
     trace["judge_calls"] = [{"mode": MODE, "prompt_hash": prompt_hash, "cache_key": cache_key}]
     return trace
+

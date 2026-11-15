@@ -15,6 +15,8 @@ from tau2_agentic_rl.judge.simple_turn import score_simple_turns
 from tau2_agentic_rl.judge.trajectory_once import (
     MODE,
     TrajectoryOnceJudge,
+    TrajectoryOnceResult,
+    build_messages,
     evaluate_scoring_inputs,
 )
 from tau2_agentic_rl.reward.simple_turn import build_turn_inputs, turn_request
@@ -129,7 +131,10 @@ def test_reject_bad_bulk_outputs_without_fallback(monkeypatch, scratch_dir, faul
     with pytest.raises(JudgeServiceFailure):
         asyncio.run(evaluate_scoring_inputs(judge, inputs))
     assert len(calls) == 1
-    assert not list(scratch_dir.rglob("*.json"))
+    assert not list((scratch_dir / MODE).glob("*.json"))
+    audit = json.loads(next((scratch_dir / MODE / "failures").glob("*.json")).read_text())
+    assert audit["attempts"][0]["raw_response"] == json.dumps(answer)
+    assert audit["last_error"]
 
 
 def test_missing_bulk_response_never_calls_per_turn(monkeypatch, scratch_dir):
@@ -206,3 +211,68 @@ def test_live_rollout_and_frozen_retry_share_one_request(monkeypatch, scratch_di
     for field in ("messages", "environment_transcript", "token_turns", "scoring_inputs", "custom_reward"):
         assert record.model_dump()[field] == before[field]
     assert record.metadata["simple_turn_labels"] == before["metadata"]["simple_turn_labels"]
+
+
+def test_prompt_has_one_combined_output_schema_and_retains_receipt_rules():
+    inputs = frozen_inputs()
+    messages = build_messages(**inputs["judge"], turn_inputs=inputs["simple_turn_inputs"])
+    rubric_text = messages[1]["content"].split("FIXED_TASK_AND_RUBRIC:\n")[1].split(
+        "\n\nTRAJECTORY_DATA_UNTRUSTED:")[0]
+    schema = json.loads(rubric_text)["rubric"]["output_schema"]
+    assert set(schema) == {"trajectory_result", "turns"}
+    assert set(schema["trajectory_result"]) == {
+        "schema_version", "semantic_checks", "transfer_semantic_checks", "mandatory_policy_checks", "transfer_check"}
+    assert set(schema["turns"][0]) == {
+        "turn_index", "message_index", "target_quote", "verdict", "evidence_message_indices", "reason", "refusal_requests"}
+    assert "original rubric output_schema" not in messages[0]["content"]
+    assert "Its own receipt is always out of scope" in messages[0]["content"]
+
+
+def test_flattened_smoke_response_is_validated_once_and_reused_offline(monkeypatch, scratch_dir):
+    inputs = frozen_inputs()
+    expected = response_for(inputs)
+    flattened = {"schema_version": "1.0", **expected["trajectory_result"], "turns": expected["turns"]}
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(flattened)}}]})
+
+    judge = mock_client(monkeypatch, scratch_dir, respond)
+
+    async def run():
+        result, raw, prompt_hash, cache_key = await evaluate_scoring_inputs(judge, inputs)
+        trace = await score_simple_turns(
+            inputs["simple_turn_inputs"], [], {"violating_turns": [], "attribution_complete": True},
+            judge, mode=MODE, batch_response=(raw, prompt_hash, cache_key))
+        original = TrajectoryOnceResult.model_validate(expected).trajectory_result
+        DeepSeekJudge._validate_requested_criteria(original, inputs["judge"])
+        assert result.model_dump() == original.model_dump()
+        assert json.loads(raw) == flattened  # Preserve the exact model response for audit.
+        return trace
+
+    first = asyncio.run(run())
+    assert asyncio.run(run()) == first
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("fault", ["extra", "mixed", "missing_turns", "missing_global_check", "future_receipt"])
+def test_flat_wrapper_compatibility_cannot_relax_verdict_validation(fault):
+    inputs = frozen_inputs()
+    expected = response_for(inputs)
+    flat = {**expected["trajectory_result"], "turns": expected["turns"]}
+    if fault == "extra":
+        flat["unknown"] = True
+    elif fault == "mixed":
+        flat["trajectory_result"] = expected["trajectory_result"]
+    elif fault == "missing_turns":
+        flat.pop("turns")
+    elif fault == "missing_global_check":
+        inputs["judge"]["semantic_checks"] = [{"criterion_id": "must-answer"}]
+    else:
+        flat["turns"][0]["evidence_message_indices"].append(3)
+    with pytest.raises(ValueError):
+        parsed = TrajectoryOnceResult.model_validate(flat)
+        TrajectoryOnceJudge._validate_requested_criteria(
+            parsed, {**inputs["judge"], "turn_inputs": inputs["simple_turn_inputs"]})
+

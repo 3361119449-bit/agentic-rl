@@ -283,12 +283,16 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         )
         if self.rollout_counts_fn is not None:
             counts = self.rollout_counts_fn()
-            delta = {key: value - self.rollout_counts_start[key] for key, value in counts.items()}
+            delta = {
+                key: counts.get(key, 0) - self.rollout_counts_start.get(key, 0)
+                for key in ("initial", "infrastructure", "user", "truncation")
+            }
             metrics.update({
                 "training/dynamic_sampling/physical_rollout_attempts": sum(delta.values()),
                 "training/dynamic_sampling/initial_rollout_attempts": delta["initial"],
                 "training/dynamic_sampling/infrastructure_replacements": delta["infrastructure"],
                 "training/dynamic_sampling/user_replacements": delta["user"],
+                "training/dynamic_sampling/truncation_replacements": delta["truncation"],
             })
 
     def _sample_validation(self, global_steps: int, batch_size: int):
@@ -1069,3 +1073,4 @@ class CappedPPOTrainerSync(PPOTrainerSync):
 
         self.on_train_end()
         self._shutdown_dump_executor()
+

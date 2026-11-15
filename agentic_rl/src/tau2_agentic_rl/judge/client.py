@@ -86,7 +86,7 @@ class DeepSeekJudge:
     @staticmethod
     def _atomic_write(path: Path, payload: str) -> None:
         descriptor, temporary_name = tempfile.mkstemp(
-            prefix=f".{path.name}.", suffix=".tmp", dir=path.parent, text=True
+            prefix=".judge-", suffix=".tmp", dir=path.parent, text=True
         )
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -250,6 +250,7 @@ class DeepSeekJudge:
         }
         last_error: Exception | None = None
         validation_history = []
+        failed_attempts = []
         async with httpx.AsyncClient(
             base_url=self.config.base_url.rstrip("/") + "/",
             timeout=self.config.timeout_seconds,
@@ -290,6 +291,21 @@ class DeepSeekJudge:
                     ValueError,
                 ) as exc:
                     last_error = exc
+                    failed_attempts.append({
+                        "attempt": attempt + 1,
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                        "raw_response": raw,
+                        "request_sha256": sha256_json(payload["messages"]),
+                    })
+                    failure_dir = self.cache_dir / "failures"
+                    failure_dir.mkdir(exist_ok=True)
+                    self._atomic_write(
+                        failure_dir / f"{cache_key}.json",
+                        json.dumps({"cache_key": cache_key, "prompt_hash": prompt_hash,
+                                    "last_error": f"{type(exc).__name__}: {exc}",
+                                    "attempts": failed_attempts}, ensure_ascii=False, indent=2),
+                    )
                     if isinstance(exc, ValueError):
                         validation_history.append({"attempt": attempt + 1, "error": str(exc)[:800],
                             "raw_response": raw, "request_sha256": sha256_json(payload["messages"])})
@@ -309,4 +325,9 @@ class DeepSeekJudge:
         retryable = not isinstance(last_error, httpx.HTTPError) or interaction_retryable(
             "model_generation", last_error
         )
-        raise JudgeServiceFailure("judge failed after bounded retries", retryable=retryable) from last_error
+        raise JudgeServiceFailure(
+            "judge failed after bounded retries: "
+            f"{type(last_error).__name__}: {str(last_error)[:800]}",
+            retryable=retryable,
+        ) from last_error
+

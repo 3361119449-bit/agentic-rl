@@ -145,14 +145,14 @@ class BudgetState:
             raise ValueError("unknown rollout attempt kind")
         with self.lock:
             counts = self.rollout_attempts.setdefault(
-                partition_id, dict.fromkeys(("initial", "infrastructure", "user"), 0),
+                partition_id, dict.fromkeys(("initial", "infrastructure", "user", "truncation"), 0),
             )
             counts[kind] = counts.get(kind, 0) + 1
 
     def rollout_counts(self, partition_id):
         with self.lock:
             return dict(self.rollout_attempts.get(
-                partition_id, dict.fromkeys(("initial", "infrastructure", "user"), 0),
+                partition_id, dict.fromkeys(("initial", "infrastructure", "user", "truncation"), 0),
             ))
 
     def record_rollout_failure(self, report):
@@ -278,3 +278,4 @@ def api_budget():
         }
     )
     return SharedBudget(limits, **queue_options_from_project(project))
+
