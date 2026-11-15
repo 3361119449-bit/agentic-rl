@@ -125,7 +125,10 @@ def build_command(
         "actor_rollout_ref.rollout.mode=async",
         "actor_rollout_ref.rollout.calculate_log_probs=true",
         "actor_rollout_ref.rollout.load_format=safetensors",
-        "actor_rollout_ref.rollout.layered_summon=true",
+        # Single-GPU FSDP uses NO_SHARD. The pinned veRL layered fallback
+        # requests unsupported CPU offload; full summon copies only LoRA
+        # tensors to CPU when the base is already loaded from safetensors.
+        "actor_rollout_ref.rollout.layered_summon=false",
         f"actor_rollout_ref.rollout.seed={seed}",
         "actor_rollout_ref.rollout.agent.default_agent_loop=tau2_airline",
         f"actor_rollout_ref.rollout.agent.agent_loop_config_path={agent_config}",
