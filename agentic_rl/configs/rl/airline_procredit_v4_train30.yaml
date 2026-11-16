@@ -115,6 +115,7 @@ algorithm:
 ppo:
   old_log_probs_source: vllm_rollout
   ppo_epochs: 1
+  max_tokens_per_microbatch: 32768
   effective_trajectory_mini_batch_size: 32
   verl_ppo_mini_batch_size_prompts: 4
   ppo_micro_batch_size_per_gpu: 1

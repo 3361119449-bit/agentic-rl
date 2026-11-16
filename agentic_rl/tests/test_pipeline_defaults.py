@@ -41,6 +41,7 @@ def test_default_training_command_uses_v4():
     assert "+algorithm.procredit_enabled=true" in command
     assert "actor_rollout_ref.actor.fsdp_config.model_dtype=bfloat16" in command
     assert "+actor_rollout_ref.actor.fsdp_config.wrap_policy.tau2_fp32_lora_master=true" in command
+    assert "+actor_rollout_ref.actor.fsdp_config.wrap_policy.tau2_strict_microbatch_tokens=32768" in command
 
 
 def test_optimizer_settings_reach_the_training_command():
@@ -48,6 +49,7 @@ def test_optimizer_settings_reach_the_training_command():
     config["optimizer"].update(
         weight_decay=0.07, betas=[0.8, 0.91], eps=2e-7, lr_scheduler_type="cosine"
     )
+    config["algorithm"]["grad_clip"] = 0.25
     command = build_command(
         project_root=ROOT,
         model_path="/model",
@@ -61,6 +63,7 @@ def test_optimizer_settings_reach_the_training_command():
     assert "actor_rollout_ref.actor.optim.betas=[0.8,0.91]" in command
     assert "actor_rollout_ref.actor.optim.override_optimizer_config={eps:2e-07}" in command
     assert "actor_rollout_ref.actor.optim.lr_scheduler_type=cosine" in command
+    assert "actor_rollout_ref.actor.optim.clip_grad=0.25" in command
     config["optimizer"]["weight_dacay"] = 0.07
     with pytest.raises(ValueError, match="weight_dacay"):
         effective_project_config(config, [])
@@ -68,6 +71,7 @@ def test_optimizer_settings_reach_the_training_command():
 
 def test_evaluation_defaults_to_official_only_and_supports_explicit_judge():
     assert evaluate_airline.parse_args([]).reward_judge is False
+    assert evaluate_airline.parse_args([]).max_refill_rounds == 0
     assert evaluate_airline.parse_args(["--reward-judge"]).reward_judge is True
     assert evaluate_airline.parse_args(["--no-reward-judge"]).reward_judge is False
 

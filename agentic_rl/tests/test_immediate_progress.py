@@ -64,6 +64,19 @@ def test_task_advantage_still_broadcast_and_progress_does_not_imply_positive():
     assert turns(results[1]) == pytest.approx([1.49999840000256, .99999840000256])
 
 
+def test_procredit_honors_grpo_std_toggle_without_changing_progress_credit():
+    cfg = CreditConfig.from_project({
+        "algorithm": {"norm_adv_by_std_in_grpo": False},
+        "credit": {"version": "procredit-turn-v4", "progress_credit": "immediate_delta_v1"},
+    })
+    rows = [row(0, phi=(0, .5, .5), terminal=0), row(1, phi=(0, 1, 1), terminal=1)]
+    first, second = compute_group_credit(rows, cfg)["trajectories"]
+    assert first["trajectory_advantage"] == pytest.approx(-.625)
+    assert second["trajectory_advantage"] == pytest.approx(.625)
+    assert turns(first) == pytest.approx([-.375, -.625])
+    assert turns(second) == pytest.approx([1.125, .625])
+
+
 def test_policy_floor_preserves_process_cost_and_no_double_simple_penalty():
     a = row(0, bad=(1,), costs=(.08, .1, .03))
     value = compute_group_credit([a], config())["trajectories"][0]

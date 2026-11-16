@@ -127,7 +127,11 @@ def build_command(
         # veRL v0.9.0 interprets this field in prompt groups. Four prompts
         # times rollout.n=8 gives the planned 32-trajectory mini-batch.
         "actor_rollout_ref.actor.use_dynamic_bsz=true",
-        "actor_rollout_ref.actor.ppo_max_token_len_per_gpu=32768",
+        *(
+            ["actor_rollout_ref.actor.ppo_max_token_len_per_gpu=32768"]
+            if "actor_rollout_ref.actor.ppo_max_token_len_per_gpu" not in mapped
+            else []
+        ),
         f"actor_rollout_ref.actor.data_loader_seed={seed}",
         "actor_rollout_ref.actor.fsdp_config.param_offload=false",
         "actor_rollout_ref.actor.fsdp_config.optimizer_offload=false",
@@ -264,7 +268,10 @@ def main() -> None:
     if args.reward_judge is not None:
         project["judge"]["enabled"] = args.reward_judge
     validate_procredit_config(project)
-    if project.get("precision", {}).get("lora_master_dtype") == "float32":
+    if (
+        project.get("precision", {}).get("lora_master_dtype") == "float32"
+        or project["ppo"].get("max_tokens_per_microbatch") is not None
+    ):
         require_precision_patch(args.verl_root)
     repaired_training = bool(project.get("training_selection", {}).get("task_repairs"))
     args.stage = args.stage or ("full_train" if repaired_training else "internal_dev")

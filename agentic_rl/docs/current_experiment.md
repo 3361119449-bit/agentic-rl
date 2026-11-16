@@ -17,6 +17,7 @@
 | RL LoRA | rank 32、alpha 64、all-linear；PPO epochs 1 |
 | 优化器 | AdamW，学习率 `5e-6`，weight decay 0.01，betas (0.9, 0.999)，epsilon `1e-8`，constant LR |
 | 采样 | 每组 8 条，8 并发；初始 4 组，最多 3 波补组 |
+| 训练微批 | 每个微批最多 32,768 个实际输入 tokens。超出时拆批并在同一次 PPO 更新内累积梯度 |
 | 精度 | 冻结基座、前向和 rollout 为 BF16，LoRA 主参数、LoRA 梯度和 AdamW 一、二阶矩为 FP32 |
 | 上下文与轮次 | 训练和官方测评均为 24,576 tokens，35 个助手轮次上限。工具回执使用同一总预算 |
 | 截断 | 记录原因，整条训练信号归零；训练每槽最多重采 2 次，测评不重采 |
@@ -52,7 +53,7 @@ python scripts/train_airline_grpo.py --stage full_train --reward-judge --dry-run
 
 当前服务器入口为 `/root/autodl-tmp/run_rl_train30.sh`，代码在 `/root/autodl-tmp/agentic-rl-train30-20261115/agentic_rl`，复用模型 `/root/sft_eval_v4_20261106_merged`。这些是该服务器的部署路径，其他机器按环境变量配置。
 
-首次启动会核验 veRL 补丁。框架在包装后检查可训练参数 dtype，并在第一次实际更新后检查 AdamW 状态。调整精度、PPO 遍数或上下文后使用新 run name，从冻结 SFT 权重启动。
+启动会核验 FP32 LoRA 和微批上限两份 veRL 补丁。框架在包装后检查可训练参数 dtype，并在第一次实际更新后检查 AdamW 状态。调整训练配置时使用新 run name，从冻结 SFT 权重启动。
 
 此前 63 项离线检查没有覆盖真实的单轮生成预算、完整回执和 Judge 请求次数，不能据此宣称正式配置已完全就绪。修正后新增生产循环行为测试：超过 1,024 tokens 的回复可正常结束；回执不裁剪；仅总上下文耗尽时停止；live 与冻结重试均使用整轨一次请求；用户筛选关闭。测试采用模拟接口和本地 tokenizer，不调用评分 API。GPU 完整单步训练仍需另行验收。
 

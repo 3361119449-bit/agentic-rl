@@ -69,6 +69,8 @@ def test_launcher_refills_only_missing_slots_and_resume_is_identity_bound(
         str(model),
         "--tag",
         "test-run",
+        "--max-refill-rounds",
+        "2",
     ]
     if reward_judge:
         argv.append("--reward-judge")
@@ -298,6 +300,8 @@ def test_user_filter_refills_invalid_slot_but_never_rerolls_pending_check(
             "--tag",
             "screened",
             "--no-reward-judge",
+            "--max-refill-rounds",
+            "2",
         ],
     )
     root = scratch_dir / "outputs/evaluations/screened"

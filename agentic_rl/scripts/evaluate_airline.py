@@ -153,7 +153,10 @@ def parse_args(argv=None):
     parser.add_argument("--extra", action="append", default=[])
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--max-refill-rounds", type=int, default=2)
+    parser.add_argument(
+        "--max-refill-rounds", type=int, default=0,
+        help="Explicitly allow extra physical attempts to fill missing evaluation slots.",
+    )
     parser.add_argument(
         "--reward-judge",
         action=argparse.BooleanOptionalAction,

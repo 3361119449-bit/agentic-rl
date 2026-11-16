@@ -19,8 +19,11 @@ class CreditConfig:
     post_completion_credit: str | None = None
     final_turn_rule: str | None = None
     progress_credit: str | None = None
+    norm_adv_by_std_in_grpo: bool = True
 
     def __post_init__(self):
+        if type(self.norm_adv_by_std_in_grpo) is not bool:
+            raise ValueError("norm_adv_by_std_in_grpo must be boolean")
         if self.progress_credit is not None:
             if self.progress_credit != "immediate_delta_v1" or self.version != "procredit-turn-v4":
                 raise ValueError("immediate_delta_v1 requires ProCredit v4")
@@ -65,10 +68,15 @@ class CreditConfig:
             signal_tolerance=project.get("dynamic_sampling", {}).get(
                 "signal_tolerance", 1e-8
             ),
+            norm_adv_by_std_in_grpo=project.get("algorithm", {}).get(
+                "norm_adv_by_std_in_grpo", True
+            ),
         )
 
     def audit_config(self) -> dict:
         values = asdict(self)
+        if self.norm_adv_by_std_in_grpo:
+            values.pop("norm_adv_by_std_in_grpo")
         if self.progress_credit is None:
             values.pop("progress_credit")
         if self.final_turn_rule is None:
@@ -288,7 +296,9 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
                 result_row["policy_turn_rewards"] = [0.0] * len(returns)
             results.append(result_row)
             continue
-        trajectory_advantage = (score - mean) / (std + config.epsilon)
+        trajectory_advantage = score - mean
+        if config.norm_adv_by_std_in_grpo:
+            trajectory_advantage /= std + config.epsilon
         turn_advantages = [
             (value if config.progress_credit == "immediate_delta_v1" else value - turn_mean)
             if complete and t in present else 0.0

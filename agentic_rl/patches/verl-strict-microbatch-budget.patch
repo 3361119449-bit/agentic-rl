@@ -1,0 +1,55 @@
+diff --git a/verl/workers/engine/fsdp/transformer_impl.py b/verl/workers/engine/fsdp/transformer_impl.py
+--- a/verl/workers/engine/fsdp/transformer_impl.py
++++ b/verl/workers/engine/fsdp/transformer_impl.py
+@@ -697,6 +697,39 @@
+         else:
+             yield
+ 
++    def _cap_micro_batches(self, data, micro_batches, partitions, token_budget):
++        """Split oversized partitions without changing sample order or the loss denominator."""
++        if (
++            self.get_data_parallel_size() != 1
++            or self.ulysses_sequence_parallel_size != 1
++            or tu.get_non_tensor_data(data=data, key="force_group_size", default=1) != 1
++            or partitions is None
++            or not data["input_ids"].is_nested
++        ):
++            raise ValueError("Strict token cap requires single-GPU dynamic batches with packed inputs")
++
++        lengths = data["input_ids"].offsets().diff().tolist()
++        if max(lengths) > token_budget:
++            raise ValueError("A sequence exceeds the hard micro-batch token limit")
++        capped_batches, capped_partitions = [], []
++        for micro_batch, partition in zip(micro_batches, partitions, strict=True):
++            if sum(lengths[index] for index in partition) <= token_budget:
++                capped_batches.append(micro_batch)
++                capped_partitions.append(partition)
++                continue
++            current, used = [], 0
++            for index in partition:
++                length = lengths[index]
++                if current and used + length > token_budget:
++                    capped_batches.append(tu.index_select_tensor_dict(data, current))
++                    capped_partitions.append(current)
++                    current, used = [], 0
++                current.append(index)
++                used += length
++            capped_batches.append(tu.index_select_tensor_dict(data, current))
++            capped_partitions.append(current)
++        return capped_batches, capped_partitions
++
+     def forward_backward_batch(self, data: TensorDict, loss_function: Callable, forward_only=False) -> list[TensorDict]:
+         # note that the global_batch_size should include data on all the dp
+         tu.assign_non_tensor(data, sp_size=self.ulysses_sequence_parallel_size)
+@@ -713,6 +746,11 @@
+         micro_batches, indices = prepare_micro_batches(
+             data=data, dp_group=self.get_data_parallel_group(), same_micro_num_in_dp=True
+         )
++
++        wrap_policy = getattr(self.engine_config, "wrap_policy", None) or {}
++        token_budget = wrap_policy.get("tau2_strict_microbatch_tokens")
++        if token_budget is not None:
++            micro_batches, indices = self._cap_micro_batches(data, micro_batches, indices, token_budget)
+ 
+         output_lst = []
+ 

@@ -118,7 +118,10 @@ def precision_overrides(project: dict) -> dict[str, str]:
 def validate_precision_overrides(project: dict, extra: list[str]) -> None:
     """Dtype settings belong in the identity-bound project configuration."""
     protected = [key.lstrip("+") for key in precision_overrides(project)]
-    if project.get("precision", {}).get("lora_master_dtype") == "float32":
+    if (
+        project.get("precision", {}).get("lora_master_dtype") == "float32"
+        or project.get("ppo", {}).get("max_tokens_per_microbatch") is not None
+    ):
         protected.extend((
             "actor_rollout_ref.actor.fsdp_config.wrap_policy",
             "actor_rollout_ref.actor.strategy",
@@ -146,8 +149,13 @@ def training_overrides(project: dict[str, Any]) -> dict[str, str]:
         result["algorithm.gamma"] = "1.0"
     result.update(precision_overrides(project))
     result.update(optimizer_overrides(project["optimizer"]))
+    result[f"{OPTIMIZER_PREFIX}.clip_grad"] = hydra_value(project["algorithm"]["grad_clip"])
     if project.get("precision", {}).get("lora_master_dtype") == "float32":
         result["+actor_rollout_ref.actor.fsdp_config.wrap_policy.tau2_fp32_lora_master"] = "true"
+    limit = project["ppo"].get("max_tokens_per_microbatch")
+    if limit is not None:
+        result["actor_rollout_ref.actor.ppo_max_token_len_per_gpu"] = str(limit)
+        result["+actor_rollout_ref.actor.fsdp_config.wrap_policy.tau2_strict_microbatch_tokens"] = str(limit)
     return result
 
 
@@ -163,11 +171,22 @@ def effective_project_config(
         f"{OPTIMIZER_PREFIX}.{target}": f"optimizer.{field}"
         for field, target in OPTIMIZER_FIELDS.items()
     })
+    reverse[f"{OPTIMIZER_PREFIX}.clip_grad"] = "algorithm.grad_clip"
     for override in extra:
         key, separator, raw = override.partition("=")
         normalized = key.lstrip("+")
         if not separator:
             raise ValueError("--extra must use key=value")
+        if normalized.lstrip("~") == f"{OPTIMIZER_PREFIX}.grad_clip":
+            raise ValueError("set gradient clipping in algorithm.grad_clip in the project YAML")
+        if "max_tokens_per_microbatch" in result["ppo"] and normalized.lstrip("~") in {
+            "actor_rollout_ref.actor.ppo_max_token_len_per_gpu",
+            "actor_rollout_ref.actor.use_dynamic_bsz",
+            "actor_rollout_ref.model.use_remove_padding",
+            "actor_rollout_ref.rollout.log_prob_use_dynamic_bsz",
+            "actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu",
+        }:
+            raise ValueError("strict micro-batch training derives these settings from the project YAML")
         if "eps" in result["optimizer"] and (
             normalized.lstrip("~") in (OPTIMIZER_PREFIX, f"{OPTIMIZER_PREFIX}.eps")
             or normalized.lstrip("~").startswith(f"{OPTIMIZER_PREFIX}.override_optimizer_config")
@@ -230,6 +249,16 @@ def effective_project_config(
             result[section][field] = yaml.safe_load(raw)
     dynamic, rollout, ppo = result["dynamic_sampling"], result["rollout"], result["ppo"]
     optimizer_overrides(result["optimizer"])
+    grad_clip = result["algorithm"]["grad_clip"]
+    if type(grad_clip) not in (int, float) or not isfinite(grad_clip) or grad_clip <= 0:
+        raise ValueError("algorithm.grad_clip must be positive and finite")
+    limit = ppo.get("max_tokens_per_microbatch")
+    if "max_tokens_per_microbatch" in ppo and (
+        type(limit) is not int or limit < rollout["max_context_length"]
+    ):
+        raise ValueError("ppo.max_tokens_per_microbatch must cover one full context")
+    if result.get("profile_status") == "current" and limit is None:
+        raise ValueError("current training requires a hard micro-batch token limit")
     queue_options_from_project(result)
     if (
         type(rollout["initial_prompt_max_tokens"]) is not int
