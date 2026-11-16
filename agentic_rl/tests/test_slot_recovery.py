@@ -225,6 +225,40 @@ def test_configuration_error_wrapped_in_service_phase_is_not_retried(scratch_dir
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("leaf_name", ["tls_eof", "tls_close", "network_oserror"])
+def test_read_failure_with_transport_context_is_classified_as_service_error(leaf_name):
+    import ssl
+
+    import httpcore
+    import httpx
+
+    from tau2_agentic_rl.slot_recovery import interaction_retryable
+
+    leaves = {
+        "tls_eof": ssl.SSLEOFError(8, "EOF"),
+        "tls_close": ssl.SSLZeroReturnError(6, "TLS connection closed"),
+        "network_oserror": OSError("network read failed"),
+    }
+    inner = httpcore.ReadError()
+    inner.__context__ = leaves[leaf_name]
+    inner.__suppress_context__ = True
+    error = httpx.ReadError("")
+    error.__cause__ = inner
+    assert interaction_retryable("model_generation", error)
+    assert not interaction_retryable("model_generation", leaves[leaf_name])
+
+
+@pytest.mark.parametrize("leaf", [ValueError("bad config"), FileNotFoundError(2, "missing file")])
+def test_transport_wrapper_keeps_local_errors_visible(leaf):
+    import httpx
+
+    from tau2_agentic_rl.slot_recovery import interaction_retryable
+
+    error = httpx.ReadError("")
+    error.__cause__ = leaf
+    assert not interaction_retryable("model_generation", error)
+
+
 @pytest.mark.parametrize("kind", ["cause", "context", "group"])
 def test_nested_contract_errors_cannot_be_hidden_by_service_wrappers(scratch_dir, kind):
     loop, _ = minimal_loop(scratch_dir)

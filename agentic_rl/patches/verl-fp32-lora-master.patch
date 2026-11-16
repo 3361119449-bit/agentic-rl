@@ -1,0 +1,79 @@
+diff --git a/verl/workers/engine/fsdp/transformer_impl.py b/verl/workers/engine/fsdp/transformer_impl.py
+--- a/verl/workers/engine/fsdp/transformer_impl.py
++++ b/verl/workers/engine/fsdp/transformer_impl.py
+@@ -351,7 +351,7 @@
+             # FSDP requires all params in a flat group to share dtype: cast a
+             # fp32 adapter to the bf16 base dtype only when they actually differ.
+             base_dtype = next((p.dtype for p in module.parameters() if not p.requires_grad), None)
+-            if base_dtype is not None:
++            if base_dtype is not None and not getattr(self, "_fp32_lora_master", False):
+                 mismatched = [p for p in module.parameters() if p.requires_grad and p.dtype != base_dtype]
+                 if mismatched:
+                     logger.info(
+@@ -360,6 +360,13 @@
+                     )
+                     for param in mismatched:
+                         param.data = param.data.to(base_dtype)
++
++        if getattr(self, "_fp32_lora_master", False):
++            for name, param in module.named_parameters():
++                if param.requires_grad:
++                    if not any(tag in name for tag in (".lora_A.", ".lora_B.")):
++                        raise ValueError(f"Unexpected trainable parameter for FP32 LoRA: {name}")
++                    param.data = param.data.float()
+ 
+         return module
+ 
+@@ -478,7 +485,13 @@
+         from verl.workers.config.optimizer import build_optimizer
+ 
+         optimizer = build_optimizer(module.parameters(), self.optimizer_config)
+-
++        if getattr(self, "_fp32_lora_master", False):
++            trainable = [p for p in module.parameters() if p.requires_grad]
++            if not trainable or any(p.dtype != torch.float32 for p in trainable):
++                raise RuntimeError("FSDP did not preserve FP32 LoRA master parameters")
++            if not isinstance(optimizer, torch.optim.AdamW):
++                raise ValueError("FP32 LoRA requires torch AdamW")
++            logger.info("Verified %d FP32 LoRA master parameter tensors", len(trainable))
+         return optimizer
+ 
+     def _build_lr_scheduler(self, optimizer):
+@@ -569,6 +582,19 @@
+     def _build_model_optimizer(self):
+         from verl.utils.model import print_model_size
+ 
++        wrap_policy = self.engine_config.wrap_policy or {}
++        self._fp32_lora_master = wrap_policy.get("tau2_fp32_lora_master", False)
++        self._fp32_adam_verified = False
++        if self._fp32_lora_master and (
++            not self._is_lora
++            or self.model_config.lora_rank <= 0
++            or self.engine_config.strategy != "fsdp"
++            or torch.distributed.get_world_size() != 1
++            or wrap_policy.get("disable", False)
++            or wrap_policy.get("min_num_params", 0) != 0
++        ):
++            raise ValueError("FP32 LoRA requires single-GPU FSDP with LoRA leaf wrapping")
++
+         # Load base model with specified configuration and dtype
+         module = self._build_module()
+         try:
+@@ -796,6 +822,17 @@
+                 self.optimizer.zero_grad()
+             else:
+                 self.optimizer.step()
++
++        if getattr(self, "_fp32_lora_master", False) and not self._fp32_adam_verified and self.optimizer.state:
++            moments = ("exp_avg", "exp_avg_sq")
++            if any(
++                state[key].dtype != torch.float32
++                for state in self.optimizer.state.values()
++                for key in moments
++            ):
++                raise RuntimeError("AdamW moments must be FP32 for FP32 LoRA")
++            self._fp32_adam_verified = True
++            logger.info("Verified FP32 AdamW first and second moments")
+ 
+         if self._qat_enabled:
+             from verl.utils.qat.core import invalidate_all_scales

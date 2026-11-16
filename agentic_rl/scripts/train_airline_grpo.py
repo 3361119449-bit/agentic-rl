@@ -19,7 +19,12 @@ from tau2_agentic_rl.base_identity import (
     save_base_identity,
 )
 from tau2_agentic_rl.checkpoints import resolve_resume_path, restore_step_clock
-from tau2_agentic_rl.config import expand_env, load_yaml, validate_procredit_config
+from tau2_agentic_rl.config import (
+    current_profile,
+    expand_env,
+    load_yaml,
+    validate_procredit_config,
+)
 from tau2_agentic_rl.rl_resume import (
     MANIFEST,
     build_resume_identity,
@@ -29,9 +34,14 @@ from tau2_agentic_rl.rl_resume import (
 from tau2_agentic_rl.training_config import effective_project_config, training_overrides
 from tau2_agentic_rl.user_simulation import reward_judge_enabled
 
+try:
+    from scripts.apply_verl_lora_precision import require_precision_patch
+except ModuleNotFoundError:
+    from apply_verl_lora_precision import require_precision_patch
+
 TAU2_COMMIT = "a2c024725189473d2d7cea3a5cfdbcc67478e41f"
 VERL_COMMIT = "483b8a009ba3a97563edee3a19887e4862b8094a"
-DEFAULT_CONFIG = "configs/rl/airline_procredit_v4.yaml"
+DEFAULT_CONFIG = "configs/rl/airline_procredit_v4_train30.yaml"
 FULL_TRAIN_CONFIG = "configs/rl/airline_procredit_v4_train30.yaml"
 
 
@@ -82,7 +92,7 @@ def build_command(
     project = effective_project_config(
         project_config
         or load_yaml(
-            Path(__file__).resolve().parents[1] / DEFAULT_CONFIG
+            current_profile(Path(__file__).resolve().parents[1], "training")
         ),
         extra,
     )
@@ -219,7 +229,7 @@ def main() -> None:
     parser.add_argument(
         "--stage",
         choices=("smoke", "internal_dev", "full_train"),
-        help="Defaults to full_train with the corrected task set, internal_dev otherwise.",
+        help="Defaults to full_train. Historical stages require an explicit --config.",
     )
     parser.add_argument("--epochs", type=int, default=15)
     parser.add_argument("--seed", type=int, default=42)
@@ -247,12 +257,15 @@ def main() -> None:
     _require_env("DEEPSEEK_API_KEY")
     _require_env("DEEPSEEK_BASE_URL")
 
-    default_config = DEFAULT_CONFIG if args.stage in {"smoke", "internal_dev"} else FULL_TRAIN_CONFIG
-    config_path = (args.config or project_root / default_config).resolve()
+    if args.config is None and args.stage in {"smoke", "internal_dev"}:
+        raise ValueError("historical stages require an explicit --config; use full_train for train30")
+    config_path = (args.config or current_profile(project_root, "training")).resolve()
     project = effective_project_config(load_yaml(config_path), args.extra)
     if args.reward_judge is not None:
         project["judge"]["enabled"] = args.reward_judge
     validate_procredit_config(project)
+    if project.get("precision", {}).get("lora_master_dtype") == "float32":
+        require_precision_patch(args.verl_root)
     repaired_training = bool(project.get("training_selection", {}).get("task_repairs"))
     args.stage = args.stage or ("full_train" if repaired_training else "internal_dev")
     if repaired_training and args.stage != "full_train":

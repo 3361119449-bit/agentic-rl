@@ -1,6 +1,6 @@
 # Tau2 Airline Agentic RL
 
-> 正式主线配置：[`airline_procredit_v4_train30.yaml`](configs/rl/airline_procredit_v4_train30.yaml)，使用修复后的全部 30 个训练任务和 **v13.1-procredit-immediate-independent**。见 [当前实验配置](docs/current_experiment.md) 与 [奖励公式](docs/reward_v13.md)。
+> [正式配置清单](configs/current.json) 绑定修复后的 30 个训练任务、20 个官方测试任务和 **v13.2-procredit-official-semantic-progress**。见 [当前实验配置](docs/current_experiment.md) 与 [奖励公式](docs/reward_v13.md)。
 
 这是本仓库的强化学习与冻结评估模块。项目使用固定版 Tau2 Airline 环境、选定的 Qwen3-4B SFT（或上一阶段 RL）合并模型和新挂载的 RL LoRA，在 veRL v0.9.0 上进行 GRPO / DAPO-style 训练。项目总览、数据版本与实验路线见 [根目录 README](../README.md)。
 
@@ -25,17 +25,17 @@
 - veRL 固定提交：`483b8a009ba3a97563edee3a19887e4862b8094a`（v0.9.0）；
 - 每条 rollout 创建独立 `AgentGymEnv` 和 Airline DB；
 - Qwen3-4B-Instruct 的 JSON `<tool_call>` 固定使用 veRL `hermes` 解析器；
-- 同轮允许多个独立工具调用，逐个校验并按原顺序执行合法调用；未知工具和非法 Schema 只返回对应调用错误，非法 JSON 不进入 Tau2；
-- RL/评估按实际配置逐字加载冻结系统提示词。写数据库前必须列出细节并取得用户明确确认，Agent Judge 按绑定政策检查。仓库默认绑定多工具版本；
+- 每个助手轮最多一个工具调用。校验通过的调用才进入 Tau2。
+- RL 与官方测评使用同一份 SFT v4 单工具提示词。写数据库前需列出细节并取得用户明确确认。
 - Qwen 原始生成 token ID、vLLM old log-prob 和 turn 边界原样保存；
 - 只有 Qwen 输出 token 的 `response_mask=1`，工具、用户、模板 token 均为 0；
 - 多轮 observation 包含 Qwen `turn_separator`，完整计入上下文预算；
-- 16,384 token 生成前预算检查，训练与评估均为 35 个助手轮次上限，截断归零，训练截断最多重采 2 次；
+- 总上下文为 24,576 tokens，最多 35 个助手轮次。截断归零，训练截断最多重采 2 次。
 - DeepSeek 用户模拟器与 Judge 使用独立 prompt、缓存和重试；
 - 正式 train30 使用 `trajectory_once_v1`：完整轨迹一次请求返回整轨结论和全部轮次标签，缓存命中不发请求；失败有界重试，不回退到逐轮 API 调用；
 - 官方 DB/COMMUNICATE、必须动作、语义与政策检查；strict 成功与训练奖励分别计算，默认 v4 将政策违规归因到对应轮次；
 - GRPO 组大小 8、组内标准差归一化、Clip-Higher 0.20/0.28、dual clip 10；
-- PPO epoch=2、old policy 固定为 vLLM rollout log-prob、token-mean、无 KL、无 Critic；
+- PPO epoch=1，old policy 固定为 vLLM rollout log-prob，使用 token-mean，关闭 KL 和 Critic。
 - RL LoRA `r=32, alpha=64, dropout=0, all-linear`；
 - 自定义有界动态采样：首轮 4 个任务组、每组 8 个逻辑槽位（32 条），过滤后只补缺少的组，最多 3 轮（最坏 96 槽位，槽内实际补采另计）；每次更新最多使用 4 组，默认 ProCredit v4 保留异常耗尽组中的成功成员，上限处不足 4 组也继续更新；
 - 正式主线使用 30 train / 20 test，原 internal dev 已并入训练且关闭内部验证；旧 24/6 划分仅用于显式选择的历史配置，test 标注与训练配置分开；
@@ -58,14 +58,10 @@ tests/                   CPU 单元测试
 
 ## SFT、RL 与评估的提示词和政策
 
-已完成的 SFT v4 和冻结 SFT 基线使用单工具政策 `54c8a8153c0f9fe4d2bc4d57a3698221d09388d84245afdcc253378ee4238cb2`。以下说明针对仓库默认的多工具配置。实际启动与复现时，从该次运行的配置和 manifest 核对绑定。
-
-`configs/prompts/areal_airline_sft.v1.json` 是当前冻结的系统提示词。
-该文件的来源元数据为用户提供的 **8 条多工具样本**，不是对历史
-10,649 条 AReaL 数据共有提示词的证明。当前绑定 SHA-256 为：
+SFT v4、正式 RL 和官方测评使用 [冻结单工具提示词](configs/prompts/airline_sft_v4_single_tool.v1.json)。绑定 SHA-256 为：
 
 ~~~text
-e490e0859e1357ed6dd777fdbddab15b11d6de96ff7161328a6babcab77348ab
+54c8a8153c0f9fe4d2bc4d57a3698221d09388d84245afdcc253378ee4238cb2
 ~~~
 
 RL、冻结评估、初始长度预检和工具往返测试使用该文件，启动时按配置中的
@@ -74,7 +70,7 @@ RL、冻结评估、初始长度预检和工具往返测试使用该文件，启
 
 当前政策要求：
 
-- 同轮可以调用多个独立工具；有结果依赖的调用必须分轮执行。
+- 每个助手轮最多调用一个工具。多个调用需分轮进行。
 - 调用工具时不能同时向用户发送正文回复。
 - 更新预订数据库前，必须列出操作细节并取得用户明确同意。
 - 不引入隐藏的 `action_proposal` 标签或额外确认协议。
@@ -84,8 +80,7 @@ RL、冻结评估、初始长度预检和工具往返测试使用该文件，启
 - 旅行券等业务限制按当前绑定政策判定；旧版额外的
   `travel_certificate_new_booking_only` 检查不应冒充当前规则。
 
-同轮各工具分别处理错误，合法调用可继续执行；多工具本身不算错误。
-逐轮奖励在最终优势阶段应用坏轮规则。v10–v12 见 [逐轮奖励历史](SIMPLE_TURN_REWARD.md)，v13 见 [PR #10](https://github.com/3361119449-bit/agentic-rl/pull/10)。
+逐轮奖励在最终优势阶段应用坏轮规则。旧 AReaL 多工具提示词和历史配置用于核对存档。v10–v12 见 [逐轮奖励历史](SIMPLE_TURN_REWARD.md)，v13 见 [PR #10](https://github.com/3361119449-bit/agentic-rl/pull/10)。
 
 原始历史 SFT JSONL 未因提示词绑定而被重写。更换 SFT 数据时，先检查真实
 system 消息及数据哈希，再确认训练、RL 与评估的政策是否一致；不要把不同
@@ -404,6 +399,7 @@ python scripts/train_airline_grpo.py \
 `--stage full_train` 训练全部 30 个任务，并加载 Task 7、14、21、23、39 的修复。整轨一次 Judge 使用对应任务指导，同时返回逐轮标签。v13.2 的完成分取官方奖励，最终进度计入必要动作和整轨语义，再按原公式一起组归一化。原有的 6 个内部验证任务已编入训练，本阶段默认关闭训练内验证。按本次实验设置 `RL_EPOCHS` 和 `RL_UPDATES`，前者控制遍历上限，后者控制 optimizer 更新上限。正式运行前可加 `--dry-run` 检查实际任务与命令。
 
 ```bash
+python scripts/apply_verl_lora_precision.py "$VERL_ROOT"
 python scripts/prepare_tau2_dataset.py
 python scripts/train_airline_grpo.py \
   --config configs/rl/airline_procredit_v4_train30.yaml \

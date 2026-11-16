@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from pathlib import Path
@@ -19,6 +20,16 @@ def load_yaml(path: str | Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"Expected a YAML mapping in {path}")
     return data
+
+
+def current_profile(root: Path, purpose: str) -> Path:
+    """Read the current profile for this entry point."""
+    configs = root / "configs"
+    profiles = json.loads((configs / "current.json").read_text(encoding="utf-8"))
+    path = configs / profiles[purpose]
+    if load_yaml(path).get("profile_status") != "current":
+        raise ValueError(f"Current {purpose} profile is not marked current: {path}")
+    return path
 
 
 def expand_env(value: Any) -> Any:
@@ -56,6 +67,10 @@ def validate_procredit_config(config: dict) -> None:
     from tau2_agentic_rl.advantages import CreditConfig, is_procredit
     from tau2_agentic_rl.budget import ContextBudget
     from tau2_agentic_rl.reward.score import build_reward_config
+
+    tool_limit = config.get("rollout", {}).get("max_tool_calls_per_turn", 1)
+    if type(tool_limit) is not int or tool_limit != 1:
+        raise ValueError("rollout.max_tool_calls_per_turn must be exactly 1")
 
     if "max_context_length" in config.get("rollout", {}):
         ContextBudget.from_rollout(config["rollout"])
@@ -135,7 +150,13 @@ def validate_procredit_config(config: dict) -> None:
         selection_mode = "task_or_local_credit" if local_only else "verified_progress"
         if config.get("training_selection", {}).get("mode") != selection_mode:
             raise ValueError(f"{credit.version} requires {selection_mode} training selection")
-        if config.get("precision") != {
+        precision = dict(config.get("precision", {}))
+        master_dtype = precision.pop("lora_master_dtype", None)
+        if master_dtype not in (None, "float32"):
+            raise ValueError("precision.lora_master_dtype must be float32 when set")
+        if config.get("profile_status") == "current" and master_dtype != "float32":
+            raise ValueError("current RL training requires FP32 LoRA master parameters")
+        if precision != {
             "model_dtype": "bfloat16", "param_dtype": "bfloat16",
             "rollout_dtype": "bfloat16", "reduce_dtype": "float32", "buffer_dtype": "float32",
         }:

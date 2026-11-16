@@ -56,7 +56,7 @@ from tau2_agentic_rl.checkpoints import restore_step_clock
 from tau2_agentic_rl.concurrency import api_budget
 from tau2_agentic_rl.config import load_runtime_config
 from tau2_agentic_rl.dynamic_sampling import TrainingStepClock
-from tau2_agentic_rl.failures import raise_if_fatal
+from tau2_agentic_rl.failures import FatalRolloutError, raise_if_fatal
 from tau2_agentic_rl.ppo_audit import audit_update
 from tau2_agentic_rl.procredit_runtime import (
     _save_group_audit,
@@ -923,6 +923,10 @@ class CappedPPOTrainerSync(PPOTrainerSync):
                 Path(self.config.trainer.resume_from_path), self.global_steps
             )
         self.step_clock = clock
+        pause_at = int(os.environ.get("TAU2_RL_PAUSE_AT_STEP", "0"))
+        if pause_at and not self.global_steps < pause_at < self.total_training_steps:
+            raise ValueError("pause step must be ahead of the current step and below the configured total")
+        phase_end_step = pause_at or self.total_training_steps
         max_attempts_without_update = int(
             self.config.trainer.get("max_attempts_without_update", 50)
         )
@@ -948,7 +952,7 @@ class CappedPPOTrainerSync(PPOTrainerSync):
             current_epoch < self.config.trainer.total_epochs
             and self.global_steps <= self.total_training_steps
         ):
-            is_last_step = self.global_steps >= self.total_training_steps
+            is_last_step = self.global_steps >= phase_end_step
             metrics: dict = {}
             self.timing_raw = {}
             batch: KVBatchMeta | None = None
@@ -966,6 +970,16 @@ class CappedPPOTrainerSync(PPOTrainerSync):
                     # _step_once did not reach the normal on_sample_end hook.
                     self.on_sample_end()
                     logger.warning("%s; optimizer update skipped", exc)
+                except FatalRolloutError:
+                    if clock.optimizer_step > 0:
+                        try:
+                            self._save_last_valid_checkpoint(clock.optimizer_step)
+                        except Exception:
+                            logger.exception(
+                                "Failed to save the last completed optimizer step %s",
+                                clock.optimizer_step,
+                            )
+                    raise
                 finally:
                     self._stop_profiling()
 
@@ -1073,4 +1087,3 @@ class CappedPPOTrainerSync(PPOTrainerSync):
 
         self.on_train_end()
         self._shutdown_dump_executor()
-

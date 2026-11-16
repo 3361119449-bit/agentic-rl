@@ -4,7 +4,9 @@ These are policy checks, not reference-action or task-completion targets. A rule
 whose trigger is absent passes with a short 'not applicable' explanation.
 """
 
-POLICY_RUBRIC_VERSION = "areal-airline-policy-atomic-v5-applicability"
+import json
+
+POLICY_RUBRIC_VERSION = "airline-sft-v4-policy-atomic-v6-single-tool"
 POLICY_APPLICABILITY = (
     "True when the situation described by this rule occurs, including relevant "
     "requests, advice, attempts or executions; otherwise false."
@@ -16,7 +18,7 @@ POLICY_VERDICT_SUFFIX = (
 POLICY_RULES = {
     "information_grounding": "Information and advice given to the user are supported by the fixed policy, the user or available tools; no invented facts, procedures, or subjective recommendations.",
     "user_identity": "Before booking, modifying or cancelling, obtain the user ID from the user (not a guessed ID). For modification/cancellation also obtain or locate the reservation ID using tools.",
-    "single_action_turn": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns.",
+    "single_action_turn": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns.",
     "database_write_confirmation": "Before any action that updates the booking database, list the action details and obtain explicit user confirmation (yes) before making the write tool call.",
     "booking_cabin": "A new reservation uses one cabin class and the same flights for all passengers and all segments.",
     "booking_passengers": "A new reservation has at most five passengers; collect each passenger's first name, last name and date of birth.",
@@ -50,6 +52,80 @@ def policy_checks(task_id: str) -> list[dict[str, str]]:
     ]
 
 
+def _flight_legs(flights):
+    if not isinstance(flights, list) or not flights:
+        return None
+    if not all(
+        isinstance(leg, dict)
+        and isinstance(leg.get("flight_number"), str)
+        and isinstance(leg.get("date"), str)
+        for leg in flights
+    ):
+        return None
+    return [(leg["flight_number"], leg["date"]) for leg in flights]
+
+
+def _bag_delta(before: dict, after: dict, field: str) -> int:
+    old, new = before.get(field), after.get(field)
+    return new - old if type(old) is int and old >= 0 and type(new) is int else 0
+
+
+def _parameter_triggered_rules(events: list[dict]) -> set[str]:
+    active = set()
+    reservations = {}
+    reservation_tools = {
+        "get_reservation_details", "book_reservation",
+        "update_reservation_baggages", "update_reservation_flights",
+    }
+    for event in events:
+        name = event.get("name")
+        if name not in reservation_tools:
+            continue
+        args = event.get("arguments") or {}
+        rid = args.get("reservation_id")
+        before = reservations.get(rid, {}) if isinstance(rid, str) else {}
+        if name == "book_reservation":
+            if any(type(args.get(k)) is int and args[k] > 0 for k in (
+                "total_baggages", "nonfree_baggages",
+            )):
+                active.add("baggage_pricing")
+            if args.get("insurance") == "yes":
+                active.add("insurance_timing")
+        elif name == "update_reservation_baggages":
+            snapshot = event.get("state_before") or {}
+            if isinstance(rid, str) and snapshot.get("reservation_id") == rid:
+                before = {**before, **snapshot}
+            bag_delta = _bag_delta(before, args, "total_baggages")
+            if bag_delta > 0 or _bag_delta(before, args, "nonfree_baggages") > 0:
+                active.add("baggage_pricing")
+            if bag_delta < 0:
+                active.add("baggage_removal")
+        elif name == "update_reservation_flights":
+            previous = _flight_legs(before.get("flights"))
+            requested = _flight_legs(args.get("flights"))
+            if previous is not None and requested is not None and previous != requested:
+                active.add("modification_payment")
+
+        if not event.get("success") and event.get("db_effect") is not True:
+            continue
+        if name != "get_reservation_details" and isinstance(rid, str):
+            # A write can invalidate the old snapshot even if its receipt is missing.
+            reservations.pop(rid, None)
+        if not event.get("success"):
+            continue
+        raw = event.get("result")
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw)
+            except ValueError:
+                continue
+        if isinstance(raw, dict) and isinstance(raw.get("reservation_id"), str):
+            received_id = raw["reservation_id"]
+            if name == "book_reservation" or received_id == rid:
+                reservations[received_id] = raw
+    return active
+
+
 def definitely_active_policy_rules(trajectory: dict, transfer_rule: dict) -> set[str]:
     """Lower bound from concrete events; absence never proves semantic N/A."""
     from tau2_agentic_rl.reward.required_actions import MUTATING_TOOLS
@@ -64,7 +140,7 @@ def definitely_active_policy_rules(trajectory: dict, transfer_rule: dict) -> set
         or e.get("error_kind") == "model_caused_execution_error"
     ]
     attempted = {e.get("name") for e in attempted_events}
-    active = set()
+    active = _parameter_triggered_rules(attempted_events)
     if events or any(m.get("role") == "assistant" for m in trajectory.get("messages", [])):
         active.update({"information_grounding", "single_action_turn"})
     if attempted & MUTATING_TOOLS:
@@ -72,20 +148,9 @@ def definitely_active_policy_rules(trajectory: dict, transfer_rule: dict) -> set
     if attempted & (MUTATING_TOOLS - {"send_certificate"}):
         active.add("user_identity")
     if "book_reservation" in attempted:
-        active.update({"booking_cabin", "booking_passengers", "booking_payment_limits",
-                       "baggage_pricing"})
-    if any(
-        e.get("name") == "book_reservation"
-        and (e.get("arguments") or {}).get("insurance") == "yes"
-        for e in attempted_events
-    ):
-        active.add("insurance_timing")
-    if "update_reservation_baggages" in attempted:
-        active.update({"baggage_pricing", "baggage_removal"})
+        active.update({"booking_cabin", "booking_passengers", "booking_payment_limits"})
     if "update_reservation_passengers" in attempted:
         active.add("passenger_count")
-    if "update_reservation_flights" in attempted:
-        active.add("modification_payment")
     if "cancel_reservation" in attempted:
         active.update({"cancellation_reason", "cancellation_eligibility"})
     if "cancel_reservation" in executed:

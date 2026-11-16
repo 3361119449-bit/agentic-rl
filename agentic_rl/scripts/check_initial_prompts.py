@@ -127,7 +127,7 @@ def main():
         default=ROOT / "data/splits/airline_internal_dev.v1.json",
     )
     parser.add_argument(
-        "--config", type=Path, default=ROOT / "configs/rl/airline_grpo_v1.yaml"
+        "--config", type=Path
     )
     parser.add_argument(
         "--model",
@@ -154,8 +154,11 @@ def main():
             parser.error("live mode requires a local --model and --tau2-root")
         _require_exact_checkout(args.tau2_root, TAU2_COMMIT, "Tau2")
         sys.path.insert(0, str(args.tau2_root.resolve() / "src"))
-        os.environ["AGENTIC_RL_CONFIG"] = str(args.config.resolve())
-        project = load_runtime_config(args.config)
+        from tau2_agentic_rl.config import current_profile
+
+        config_path = (args.config or current_profile(ROOT, "training")).resolve()
+        os.environ["AGENTIC_RL_CONFIG"] = str(config_path)
+        project = load_runtime_config(config_path)
         from transformers import AutoTokenizer
 
         tokenizer = AutoTokenizer.from_pretrained(args.model, local_files_only=True)

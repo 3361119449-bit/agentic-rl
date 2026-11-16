@@ -22,6 +22,7 @@ from tau2_agentic_rl.schemas import JudgeResult
 
 MODE = "trajectory_once_v1"
 PROMPT_VERSION = "trajectory-once-causal-v2-single-schema"
+SCORER_CODE_VERSION = "trajectory-once-v3-policy-trigger-validation"
 
 # Preserve the previously tested whole-trajectory rubric and full receipt rules.
 TURN_PROMPT = """
@@ -94,7 +95,9 @@ class TrajectoryOnceResult(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def normalize_flat_wrapper(cls, value):
-        """Move an unambiguous flat envelope without changing any verdicts."""
+        """Accept known envelope variants without changing any verdicts."""
+        if isinstance(value, dict) and value.get("type") == "json_object":
+            value = {k: v for k, v in value.items() if k != "type"}
         required = {"semantic_checks", "transfer_semantic_checks",
                     "mandatory_policy_checks", "transfer_check", "turns"}
         if isinstance(value, dict) and required <= value.keys() <= required | {"schema_version"}:
@@ -202,7 +205,8 @@ async def evaluate_scoring_inputs(judge, inputs):
     config = replace(
         judge.config, cache_dir=str(judge.cache_dir / MODE),
         prompt_version=PROMPT_VERSION, rubric_version=PROMPT_VERSION,
-        scorer_code_version=PROMPT_VERSION, timeout_seconds=max(judge.config.timeout_seconds, 750),
+        scorer_code_version=SCORER_CODE_VERSION,
+        timeout_seconds=max(judge.config.timeout_seconds, 750),
         thinking_type="enabled", reasoning_effort="high",
     )
     result, raw, prompt_hash, cache_key = await TrajectoryOnceJudge(config).evaluate(
@@ -220,4 +224,3 @@ def label_trace_from_response(inputs, events, policy_credit, response):
     trace["judge_mode"] = MODE
     trace["judge_calls"] = [{"mode": MODE, "prompt_hash": prompt_hash, "cache_key": cache_key}]
     return trace
-

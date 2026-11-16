@@ -5,7 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from tau2_agentic_rl.slot_recovery import run_training_slot
+from tau2_agentic_rl.slot_recovery import (
+    TruncationResamplesExhausted,
+    run_training_slot,
+)
 
 PROJECT = {"slot_recovery": {"max_resamples": 2, "max_truncation_resamples": 2},
            "user_sim_filter": {"enabled": False}}
@@ -14,7 +17,6 @@ PROJECT = {"slot_recovery": {"max_resamples": 2, "max_truncation_resamples": 2},
 @pytest.mark.parametrize("reasons,expected", [
     (["hard_turn_limit", "user_stop"], 2),
     (["budget_exhausted", "context_window_exceeded", "user_stop"], 3),
-    (["hard_turn_limit"] * 5, 3),
 ])
 def test_only_truncated_slot_is_replaced_at_most_twice(reasons, expected):
     calls = []
@@ -37,8 +39,35 @@ def test_only_truncated_slot_is_replaced_at_most_twice(reasons, expected):
     assert all(c["extra_info"]["slot"] == 3 for c in calls)
     assert kinds == ["initial"] + ["truncation"] * (expected - 1)
     assert result.extra_fields["slot_recovery"]["truncation_replacements"] == expected - 1
-    assert len(result.extra_fields["slot_recovery"]["truncated_attempts"]) == (
-        expected if reasons[-1] != "user_stop" else expected - 1)
+    assert len(result.extra_fields["slot_recovery"]["truncated_attempts"]) == expected - 1
+
+
+def test_training_slot_skips_after_two_truncation_resamples():
+    from tau2_agentic_rl.reward.truncation import truncation_metadata
+
+    records = {}
+    kinds = []
+
+    async def generate(params, **kwargs):
+        reason = "hard_turn_limit"
+        records[kwargs["trajectory_id"]] = truncation_metadata(
+            PROJECT, reason, split="train", evaluation=False,
+            slot_context=kwargs["extra_info"]["slot_recovery"],
+        )
+        return SimpleNamespace(extra_fields={"termination_reason": reason})
+
+    async def attempt(kind):
+        kinds.append(kind)
+
+    with pytest.raises(TruncationResamplesExhausted, match="after 2 resamples") as caught:
+        asyncio.run(run_training_slot(generate, {}, project=PROJECT,
+            kwargs={"trajectory_id": "a" * 32}, on_attempt=attempt))
+    assert kinds == ["initial", "truncation", "truncation"]
+    assert len(records) == 3
+    final_id = next(reversed(records))
+    assert final_id in str(caught.value)
+    assert records[final_id]["resamples_exhausted"] is True
+    assert records[final_id]["will_resample"] is False
 
 
 @pytest.mark.parametrize("split", ["internal_dev", "test", "val"])
@@ -49,9 +78,10 @@ def test_validation_never_resamples_truncation(split):
         calls.append(kwargs)
         return SimpleNamespace(extra_fields={"termination_reason": "hard_turn_limit"})
 
-    asyncio.run(run_training_slot(generate, {}, project=PROJECT,
+    result = asyncio.run(run_training_slot(generate, {}, project=PROJECT,
         kwargs={"trajectory_id": "a" * 32, "extra_info": {"split": split}}))
     assert len(calls) == 1
+    assert result.extra_fields["termination_reason"] == "hard_turn_limit"
 
 
 def test_legacy_slot_configuration_does_not_gain_truncation_retries():
@@ -111,12 +141,14 @@ def test_truncation_and_infrastructure_budgets_do_not_reset_each_other():
             raise RolloutInfrastructureError("model_generation", kwargs["trajectory_id"]) from ConnectionError("fixture")
         return SimpleNamespace(extra_fields={"termination_reason": "hard_turn_limit"})
 
-    result = asyncio.run(run_training_slot(generate, {}, project=PROJECT,
-                           kwargs={"trajectory_id": "a" * 32}))
+    with pytest.raises(TruncationResamplesExhausted):
+        asyncio.run(run_training_slot(generate, {}, project=PROJECT,
+                    kwargs={"trajectory_id": "a" * 32}))
     assert len(calls) == 5
-    assert result.extra_fields["slot_recovery"]["truncation_replacements"] == 2
-    assert result.extra_fields["slot_recovery"]["infrastructure_replacements"] == 2
-    assert len(result.extra_fields["slot_recovery"]["truncated_attempts"]) == 3
+    context = calls[-1]["extra_info"]["slot_recovery"]
+    assert context["truncation_replacements"] == 2
+    assert context["infrastructure_replacements"] == 2
+    assert len(context["truncated_attempts"]) == 2
 
 
 def test_cancel_after_truncated_attempt_never_starts_replacement():

@@ -6,14 +6,16 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from test_review_boundaries import scoring_failure_record
 
 from scripts import evaluate_airline
+from tau2_agentic_rl.config import load_yaml
 
 
 @pytest.mark.parametrize(
     "flags,expected",
-    [([], True), (["--reward-judge"], True), (["--no-reward-judge"], False)],
+    [([], False), (["--reward-judge"], True), (["--no-reward-judge"], False)],
 )
 def test_agent_reward_judge_cli_switch(flags, expected):
     assert evaluate_airline.parse_args(flags).reward_judge is expected
@@ -248,6 +250,11 @@ def test_user_filter_refills_invalid_slot_but_never_rerolls_pending_check(
     source = Path(__file__).parents[1]
     for directory in ("configs", "data/annotations", "data/splits"):
         shutil.copytree(source / directory, scratch_dir / directory)
+    path = scratch_dir / "configs/evaluation/airline_official80.yaml"
+    project = load_yaml(path)
+    legacy = load_yaml(scratch_dir / "configs/evaluation/airline_eval_v1.yaml")
+    project["user_sim_filter"] = legacy["user_sim_filter"]
+    path.write_text(yaml.safe_dump(project), encoding="utf-8")
     (scratch_dir / "scripts").mkdir()
     model = scratch_dir / "model"
     model.mkdir()

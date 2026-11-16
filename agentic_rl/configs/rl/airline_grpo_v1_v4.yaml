@@ -1,3 +1,4 @@
+profile_status: archived
 precision:
   model_dtype: bfloat16
   param_dtype: bfloat16

@@ -17,9 +17,14 @@ from tau2_agentic_rl.judge.trajectory_once import (
     TrajectoryOnceJudge,
     TrajectoryOnceResult,
     build_messages,
+    decisions_from_result,
     evaluate_scoring_inputs,
 )
-from tau2_agentic_rl.reward.simple_turn import build_turn_inputs, turn_request
+from tau2_agentic_rl.reward.simple_turn import (
+    build_label_trace,
+    build_turn_inputs,
+    turn_request,
+)
 
 
 def frozen_inputs():
@@ -104,19 +109,73 @@ def test_one_http_request_returns_global_and_all_turns_and_cache_reuses(monkeypa
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("fault", ["future_receipt", "missing", "duplicate", "wrong_target", "contradiction", "bad_refusal"])
+@pytest.mark.parametrize(
+    ("raw", "tool_call", "quote", "bad"),
+    [
+        ("**Checked bags:** 3 (all free, as a gold member)", False,
+         "Checked bags: 3 (all free, as a gold member)", False),
+        ('<tool_call>{"name":"search_direct_flight","arguments":'
+         '{"origin":"ATL","destination":"EWR","date":"2024-05-24"}}</tool_call>',
+         True, '{"destination": "EWR", "date": "2024-05-24"}', False),
+        ('<tool_call>{"name":"transfer_to_human_agents","arguments":'
+         '{"summary":"The customer has no travel insurance on file."}}</tool_call>',
+         True, '"no travel insurance on file"', False),
+        ("\u7528\u6237<|im_end|>", False, "\u7528\u6237", True),
+        ("<|im_end|>", False, "", True),
+        ("", False, "", True),
+    ],
+)
+def test_target_quote_tolerates_only_display_formatting(raw, tool_call, quote, bad):
+    frozen = frozen_inputs()["simple_turn_inputs"]
+    message = frozen["messages"][2]
+    message.update(raw_generated_text=raw, content="" if tool_call else raw.removesuffix("<|im_end|>"))
+    if tool_call:
+        message["tool_calls"] = [json.loads(raw.removeprefix("<tool_call>").removesuffix("</tool_call>"))]
+    answer = response_for({"simple_turn_inputs": frozen})
+    answer["turns"][0].update(target_quote=quote, verdict="bad" if bad else "neutral")
+    decisions = decisions_from_result(TrajectoryOnceResult.model_validate(answer), frozen)
+    trace = build_label_trace(frozen, decisions, [], {
+        "violating_turns": [], "attribution_complete": True,
+    })
+    assert trace["decisions"][0]["target_quote"] == quote
+    assert trace["turns"][0]["bad_turn"] is bad
+
+
+@pytest.mark.parametrize(
+    "quote",
+    ['{"date": "2024-05-25"}', '{"total_baggages": 2}', '"total_baggages":2', ""],
+)
+def test_tool_excerpt_still_rejects_changed_arguments_or_missing_quote(quote):
+    frozen = frozen_inputs()["simple_turn_inputs"]
+    raw = '{"name":"example","arguments":{"date":"2024-05-24","total_baggages":20}}'
+    frozen["messages"][2].update(raw_generated_text=raw, content="", tool_calls=[json.loads(raw)])
+    answer = response_for({"simple_turn_inputs": frozen})
+    answer["turns"][0]["target_quote"] = quote
+    with pytest.raises(ValueError, match="current generation"):
+        decisions_from_result(TrajectoryOnceResult.model_validate(answer), frozen)
+
+
+@pytest.mark.parametrize(
+    "fault",
+    ["future_receipt", "missing_current_evidence", "missing", "duplicate",
+     "wrong_target", "wrong_index", "contradiction", "bad_refusal"],
+)
 def test_reject_bad_bulk_outputs_without_fallback(monkeypatch, scratch_dir, fault):
     inputs = frozen_inputs()
     answer = response_for(inputs)
     row = answer["turns"][0]
     if fault == "future_receipt":
         row["evidence_message_indices"].append(3)
+    elif fault == "missing_current_evidence":
+        row["evidence_message_indices"] = [1]
     elif fault == "missing":
         answer["turns"].pop()
     elif fault == "duplicate":
         answer["turns"][1] = deepcopy(row)
     elif fault == "wrong_target":
         row["target_quote"] = "This text is not in the target."
+    elif fault == "wrong_index":
+        row["message_index"] = 1
     elif fault == "contradiction":
         row["reason"] = "This is a bad turn."
     else:
@@ -256,12 +315,31 @@ def test_flattened_smoke_response_is_validated_once_and_reused_offline(monkeypat
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("fault", ["extra", "mixed", "missing_turns", "missing_global_check", "future_receipt"])
+@pytest.mark.parametrize("flattened", [False, True])
+def test_json_object_transport_marker_is_ignored_without_mutating_response(flattened):
+    inputs = frozen_inputs()
+    expected = response_for(inputs)
+    body = {**expected["trajectory_result"], "turns": expected["turns"]} if flattened else expected
+    raw = {"type": "json_object", **body}
+    result = TrajectoryOnceResult.model_validate(raw)
+    assert result == TrajectoryOnceResult.model_validate(expected)
+    assert raw["type"] == "json_object"
+    TrajectoryOnceJudge._validate_requested_criteria(
+        result, {**inputs["judge"], "turn_inputs": inputs["simple_turn_inputs"]},
+    )
+
+
+@pytest.mark.parametrize("fault", [
+    "extra", "mixed", "missing_turns", "missing_global_check", "future_receipt", "wrong_type",
+])
 def test_flat_wrapper_compatibility_cannot_relax_verdict_validation(fault):
     inputs = frozen_inputs()
     expected = response_for(inputs)
     flat = {**expected["trajectory_result"], "turns": expected["turns"]}
-    if fault == "extra":
+    if fault == "wrong_type":
+        flat["type"] = "arbitrary"
+    elif fault == "extra":
+        flat["type"] = "json_object"
         flat["unknown"] = True
     elif fault == "mixed":
         flat["trajectory_result"] = expected["trajectory_result"]
@@ -275,4 +353,3 @@ def test_flat_wrapper_compatibility_cannot_relax_verdict_validation(fault):
         parsed = TrajectoryOnceResult.model_validate(flat)
         TrajectoryOnceJudge._validate_requested_criteria(
             parsed, {**inputs["judge"], "turn_inputs": inputs["simple_turn_inputs"]})
-

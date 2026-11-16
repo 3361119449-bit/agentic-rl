@@ -36,7 +36,7 @@ except ModuleNotFoundError:  # Direct python scripts/evaluate_airline.py.
 
 from tau2_agentic_rl.agent_policy import load_agent_system_prompt
 from tau2_agentic_rl.base_identity import validate_adapter_base
-from tau2_agentic_rl.config import expand_env, load_yaml
+from tau2_agentic_rl.config import current_profile, expand_env, load_yaml
 from tau2_agentic_rl.evaluation import (
     evaluation_coverage,
     evaluation_lock,
@@ -78,7 +78,7 @@ def build_evaluation_command(
         f"data.val_files={data_file}",
         "data.train_batch_size=1",
         f"data.max_prompt_length={project['rollout']['initial_prompt_max_tokens']}",
-        "data.max_response_length=16384",
+        f"data.max_response_length={project['rollout']['max_context_length']}",
         "data.return_raw_chat=true",
         "data.filter_overlong_prompts=false",
         "data.truncation=error",
@@ -93,7 +93,7 @@ def build_evaluation_command(
         "actor_rollout_ref.rollout.mode=async",
         "actor_rollout_ref.rollout.tensor_model_parallel_size=1",
         "actor_rollout_ref.rollout.gpu_memory_utilization=0.40",
-        "actor_rollout_ref.rollout.max_model_len=16384",
+        f"actor_rollout_ref.rollout.max_model_len={project['rollout']['max_context_length']}",
         "actor_rollout_ref.rollout.calculate_log_probs=true",
         f"actor_rollout_ref.rollout.agent.num_workers={project['rollout']['agent_worker_count']}",
         f"actor_rollout_ref.rollout.max_num_seqs={project['rollout']['vllm_max_num_seqs']}",
@@ -157,8 +157,8 @@ def parse_args(argv=None):
     parser.add_argument(
         "--reward-judge",
         action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Default: official pass plus policy-compliant custom strict. --no-reward-judge selects official pass only; user compliance screening stays enabled.",
+        default=False,
+        help="Default: official reward only, user compliance screening disabled. --reward-judge enables the agent reward Judge.",
     )
     return parser.parse_args(argv)
 
@@ -204,7 +204,6 @@ def main() -> None:
         validate_adapter_base(args.lora_adapter, args.model_path)
     for name in (
         "DEEPSEEK_USER_MODEL",
-        "DEEPSEEK_USER_SIM_JUDGE_MODEL",
         "DEEPSEEK_API_KEY",
         "DEEPSEEK_BASE_URL",
     ):
@@ -214,14 +213,8 @@ def main() -> None:
 
     project_root = Path(__file__).resolve().parents[1]
     test_mode = args.split == "official_test"
-    config_path = (
-        project_root
-        / "configs"
-        / (
-            "evaluation/airline_eval_v1.yaml"
-            if test_mode
-            else "rl/airline_grpo_v1.yaml"
-        )
+    config_path = current_profile(
+        project_root, "official_evaluation" if test_mode else "training"
     )
     run_root = project_root / "outputs/evaluations" / args.tag
     data_file = run_root / "pending_samples.parquet"
@@ -397,7 +390,7 @@ def main() -> None:
                 for item in coverage["missing_slots"]:
                     task, slot = item["task_id"], item["sample_index"]
                     attempt = item.get("user_sim_attempt", 0)
-                    if attempt > project["user_sim_filter"]["max_resamples"]:
+                    if attempt > project["user_sim_filter"].get("max_resamples", 0):
                         raise RuntimeError(
                             "user-simulator replacement cap reached; evaluation remains incomplete"
                         )

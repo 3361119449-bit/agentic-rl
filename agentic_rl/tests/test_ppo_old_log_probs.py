@@ -15,6 +15,6 @@ def test_launcher_uses_vllm_rollout_log_probs_as_fixed_old_policy() -> None:
     )
     assert "actor_rollout_ref.rollout.calculate_log_probs=true" in command
     assert "algorithm.rollout_correction.bypass_mode=true" in command
-    assert "actor_rollout_ref.actor.ppo_epochs=2" in command
+    assert "actor_rollout_ref.actor.ppo_epochs=1" in command
     assert "actor_rollout_ref.actor.use_kl_loss=false" in command
     assert command[2] == "tau2_agentic_rl.verl_entrypoint"

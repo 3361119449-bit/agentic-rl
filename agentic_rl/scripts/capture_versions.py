@@ -73,13 +73,14 @@ def main() -> None:
     parser.add_argument(
         "--project-config",
         type=Path,
-        default=Path("configs/rl/airline_grpo_v1.yaml"),
     )
     parser.add_argument("--model-path", default=os.environ.get("MERGED_SFT_MODEL"))
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     project_root = Path(__file__).resolve().parents[1]
-    config_path = args.project_config.resolve()
+    from tau2_agentic_rl.config import current_profile
+
+    config_path = (args.project_config or current_profile(project_root, "training")).resolve()
     config = load_runtime_config(config_path)
     from tau2_agentic_rl.agent_policy import load_agent_system_prompt, prompt_sha256
 

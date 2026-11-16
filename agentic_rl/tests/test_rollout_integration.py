@@ -20,7 +20,7 @@ from tau2_agentic_rl.storage import TrajectoryStore
 def sft_prompt():
     root = Path(__file__).parents[1]
     return load_agent_system_prompt(
-        load_yaml(root / "configs/rl/airline_grpo_v1.yaml"), root
+        load_yaml(root / "configs/rl/airline_procredit_v4_train30.yaml"), root
     )
 
 
@@ -229,8 +229,8 @@ def minimal_loop(scratch_dir):
     return loop, scope
 
 
-@pytest.mark.parametrize("invalid_index", [None, 0, 1, 2, 3, "all"])
-def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir, invalid_index):
+@pytest.mark.parametrize("invalid_index", [None, "valid_batch", 0, 1, 2, 3, "all"])
+def test_single_tool_executes_and_multitool_batch_never_reaches_backend(scratch_dir, invalid_index):
     from tau2_agentic_rl.agent_policy import extract_airline_policy, prompt_sha256
     from tau2_agentic_rl.policy_rules import policy_checks
 
@@ -409,38 +409,15 @@ def test_sft_prompt_and_valid_write_batch_reaches_backend(scratch_dir, invalid_i
     output = asyncio.run(loop._run_trajectory({}, extra_info={"task_id": "0"}))
     record = next(loop.store.records())
     if mixed_batch:
-        from tau2_agentic_rl.reward.process_penalty import (
-            ProcessPenaltyConfig,
-            build_process_credit,
-        )
-        from tau2_agentic_rl.schemas import ToolEvent
-
-        valid = [index for index in range(4) if index != invalid_index and invalid_index != "all"]
-        assert called == [
-            ("cancel_reservation", {"reservation_id": ["B", "C", "D", "E"][index]})
-            for index in valid
-        ]
-        assert [e.success for e in record.tool_events] == [index in valid for index in range(4)]
-        assert [e.error_kind for e in record.tool_events] == [
-            None if index in valid else "schema_invalid" for index in range(4)
-        ]
-        assert all(e.execution_status is None for e in record.tool_events)
+        assert called == []
+        assert delivered_calls == []
+        assert record.initial_db_hash == record.final_db_hash == "before"
+        assert len(record.tool_events) == 1
+        assert record.tool_events[0].error_kind == "multiple_tool_calls"
+        assert not record.tool_events[0].success
+        assert "exactly one" in record.messages[-1]["content"]
         assert record.token_turns[0].output_token_ids == [4, 9]
         assert record.token_turns[0].output_old_log_probs == [-1.0, -1.0]
-        if invalid_index == "all":
-            assert delivered_calls == []
-            return
-        assert [call["id"] for call in delivered_calls] == [f"call_0001_{index:02d}" for index in range(4)]
-        assert [call.get("validation_error") is not None for call in delivered_calls] == [
-            index == invalid_index for index in range(4)
-        ]
-        trace = build_process_credit(record.tool_events, 1, ProcessPenaltyConfig(
-            cap=None, over_turn_cap=None), local_only=True)
-        assert trace["turn_costs"] == pytest.approx([.08])
-        retry = ToolEvent(event_id="retry", sequence=4, turn_id=2, name="cancel_reservation",
-                          arguments={"reservation_id": ["B", "C", "D", "E"][valid[0]]}, error_kind="model_caused_execution_error")
-        scope["_mark_repetition"](retry, record.tool_events)
-        assert not retry.unchanged_retry
         return
     assert called == [("cancel_reservation", {"reservation_id": "A"})]
     assert record.tool_events[0].confirmed_before is None  # Never fabricate a yes.

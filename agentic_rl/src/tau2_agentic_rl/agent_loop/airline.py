@@ -37,7 +37,7 @@ from tau2_agentic_rl.concurrency import (
 from tau2_agentic_rl.config import load_runtime_config
 from tau2_agentic_rl.environment.booking_comparison import repaired_db_mode
 from tau2_agentic_rl.environment.tau2_gym import GymStep, Tau2GymAdapter
-from tau2_agentic_rl.failures import scoring_retryable
+from tau2_agentic_rl.failures import JudgeServiceFailure, scoring_retryable
 from tau2_agentic_rl.initial_prompt import (
     encode_full_chat,
     initial_messages,
@@ -709,9 +709,6 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             messages.append(assistant_message)
 
             turn_error = validate_tool_turn(decoded, len(calls))
-            mixed_done = len(calls) > 1 and any(call.name == "done" for call in calls)
-            if mixed_done:
-                turn_error = turn_error or "multiple_tool_calls"
             if not calls and not content.strip():
                 # EOS-only/blank replies are model output errors, not Tau2/API
                 # failures. Do not send an empty action to the user simulator.
@@ -731,10 +728,10 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     synthetic_tool_error(
                         "invalid_tool_turn",
                         turn_error,
-                        "done() must be called alone. No calls in this turn were executed."
-                        if mixed_done else
-                        "No action was delivered. Emit a nonempty text reply or "
-                        "one or more complete JSON tool calls, never both.",
+                        ("done() must be called alone. " if len(calls) > 1
+                         and any(call.name == "done" for call in calls) else "") +
+                        "No calls in this turn were executed. Emit a nonempty text "
+                        "reply or exactly one complete JSON tool call, never both.",
                     ),
                 )
             elif calls:
@@ -1280,20 +1277,35 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             and infrastructure_error[0] in SCORING_FAILURES
             and self.project.get("credit", {}).get("version") == "procredit-turn-v4"
         ):
-            if not scoring_retryable(*infrastructure_error):
+            phase, error = infrastructure_error
+            can_retry = scoring_retryable(phase, error)
+            if not can_retry and not isinstance(error, JudgeServiceFailure):
                 record.metadata["failure_kind"] = "fatal"
                 self.store.save(record)
-                phase, error = infrastructure_error
                 raise RolloutInfrastructureError(phase, trajectory_id) from error
-            for _ in range(self.project["slot_recovery"]["max_scoring_retries"]):
-                if await retry_scoring(record, self.judge, self.store):
-                    infrastructure_error = None
-                    custom_reward = record.custom_reward
-                    break
+            if can_retry:
+                for _ in range(self.project["slot_recovery"]["max_scoring_retries"]):
+                    try:
+                        scored = await retry_scoring(record, self.judge, self.store)
+                    except JudgeServiceFailure as retry_error:
+                        error = retry_error
+                        break
+                    if scored:
+                        infrastructure_error = None
+                        custom_reward = record.custom_reward
+                        break
             if infrastructure_error is not None:
+                if isinstance(error, JudgeServiceFailure):
+                    record.metadata.update(
+                        judge_error_skipped=True, failure_kind="transient_exhausted",
+                    )
+                    self.store.save(record)
+                    raise SlotRecoveryExhausted(
+                        f"Judge failed; trajectory {trajectory_id} skipped; siblings retained"
+                    ) from error
                 raise SlotRecoveryExhausted(
                     f"scoring retry limit for frozen trajectory {trajectory_id}; siblings retained"
-                ) from infrastructure_error[1]
+                ) from error
         if infrastructure_error is not None:
             phase, error = infrastructure_error
             raise RolloutInfrastructureError(phase, trajectory_id) from error

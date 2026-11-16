@@ -188,7 +188,10 @@ def _zero_credit_from_record(record):
 def credit_from_record(record) -> dict:
     """Rebuild only from a fully scored versioned record, never terminal guesses."""
     from tau2_agentic_rl.reward.policy_credit import build_policy_credit
-    from tau2_agentic_rl.reward.progress import terminal_progress, validate_progress_trace
+    from tau2_agentic_rl.reward.progress import (
+        terminal_progress,
+        validate_progress_trace,
+    )
     from tau2_agentic_rl.reward.truncation import zero_truncated
 
     if zero_truncated(record.scoring_inputs.get("reward_project_config", {}),

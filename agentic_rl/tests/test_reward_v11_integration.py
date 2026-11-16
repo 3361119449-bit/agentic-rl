@@ -163,9 +163,9 @@ def test_unexecuted_transfer_applicability_cannot_invent_execution_or_blame():
     case = deepcopy(base)
     case.transfer_check.valid = True
     cases.append(case)
-    case = deepcopy(base)
-    case.transfer_check.evidence_turn_ids = [2]
-    cases.append(case)
     for case in cases:
         with pytest.raises(ValueError):
             DeepSeekJudge._validate_requested_criteria(case, x)
+    base.transfer_check.evidence_turn_ids = [2]
+    DeepSeekJudge._validate_requested_criteria(base, x)
+    assert not base.transfer_check.valid

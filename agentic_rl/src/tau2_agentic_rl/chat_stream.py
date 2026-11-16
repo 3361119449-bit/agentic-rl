@@ -16,6 +16,9 @@ class ContextWindowExceeded(OverflowError):
             f"only {available_tokens} remain in the context"
         )
 
+    def __reduce__(self):
+        return type(self), (self.required_tokens, self.available_tokens), self.__dict__
+
 
 async def render_environment_turn(
     messages: list[dict[str, Any]],

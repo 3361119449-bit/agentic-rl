@@ -461,4 +461,3 @@ def test_physical_counts_include_failed_and_rejected_attempts_before_filtering(s
     assert metrics["training/dynamic_sampling/user_replacements"] == 1
     assert state.rollout_counts("validation") == {
         "initial": 0, "infrastructure": 0, "user": 0, "truncation": 0}
-

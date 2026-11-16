@@ -1,3 +1,4 @@
+profile_status: archived
 # Separate ProCredit experiment; legacy config remains reproducible.
 project:
   domain: airline

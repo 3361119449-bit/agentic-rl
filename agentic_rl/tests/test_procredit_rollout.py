@@ -18,7 +18,7 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
                     final_turn_rule=None, turn_scorer=None, zero_truncation=False,
                     hard_limit=None, natural_stop_at=None, judge_enabled=True,
                     semantic_row=None, task_guidance=None, judge_mode=None, actual_judge=None,
-                    task_score_mode=None):
+                    task_score_mode=None, scoring_retries=2):
     loop, scope = minimal_loop(scratch_dir)
     cleaned, judge_calls = [], []
     loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
@@ -35,7 +35,7 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
             mode="turn_local_v1", mandatory_policy_gate=False, task_safety_gate=False,
         )
         loop.project["slot_recovery"] = {
-            "max_resamples": 2, "max_scoring_retries": 2, "on_exhaustion": "salvage_group",
+            "max_resamples": 2, "max_scoring_retries": scoring_retries, "on_exhaustion": "salvage_group",
         }
     if task_score_mode is not None:
         loop.project["reward"].update(
@@ -202,6 +202,45 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
         return loop, None, next(loop.store.records())
     output = asyncio.run(loop._run_trajectory({}, extra_info={"task_id": "0"}))
     return loop, output, next(loop.store.records())
+
+
+@pytest.mark.parametrize(("scoring_retries", "retryable_responses"), [
+    (0, [False]),
+    (0, [True]),
+    (2, [False]),
+    (2, [True, False]),
+    (2, [True, True, True]),
+])
+def test_judge_service_error_skips_slot_after_available_retries(
+    scratch_dir, scoring_retries, retryable_responses,
+):
+    from tau2_agentic_rl.failures import JudgeServiceFailure
+    from tau2_agentic_rl.slot_recovery import SlotRecoveryExhausted
+    from tau2_agentic_rl.storage import TrajectoryStore
+
+    calls = []
+
+    class FailingJudge:
+        async def evaluate(self, **kwargs):
+            retryable = retryable_responses[len(calls)]
+            calls.append(kwargs)
+            raise JudgeServiceFailure("ReadError", retryable=retryable)
+
+    with pytest.raises(SlotRecoveryExhausted, match="Judge.*skipped"):
+        rollout_fixture(
+            scratch_dir, credit_version="procredit-turn-v4",
+            actual_judge=FailingJudge(), scoring_retries=scoring_retries,
+        )
+    assert len(calls) == len(retryable_responses)
+    assert all(call["trajectory"] == calls[0]["trajectory"] for call in calls)
+    record, = TrajectoryStore(scratch_dir / "records", attach_evaluation_identity=False).records()
+    assert record.metadata["judge_error_skipped"] is True
+    assert record.metadata["failure_kind"] == "transient_exhausted"
+    assert record.metadata["failure_phase"] == "judge"
+    assert len(record.metadata.get("scoring_retries", [])) == len(calls) - 1
+    assert record.judge_result is None and record.custom_reward is None
+    assert record.token_turns and record.environment_transcript
+    assert record.official_scores is not None
 
 
 def test_v2_partial_environment_failure_keeps_original_failure_and_audit(scratch_dir):

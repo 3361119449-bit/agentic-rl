@@ -9,10 +9,10 @@ import os
 from pathlib import Path
 
 from tau2_agentic_rl.agent_policy import load_agent_system_prompt
-from tau2_agentic_rl.config import load_yaml
+from tau2_agentic_rl.config import current_profile, load_yaml
 from tau2_agentic_rl.environment.tau2_gym import Tau2GymAdapter
 from tau2_agentic_rl.initial_prompt import initial_messages
-from tau2_agentic_rl.tooling import validate_tool_call
+from tau2_agentic_rl.tooling import validate_tool_call, validate_tool_turn
 
 
 async def verify(args: argparse.Namespace) -> None:
@@ -21,7 +21,9 @@ async def verify(args: argparse.Namespace) -> None:
     from verl.tools.base_tool import OpenAIFunctionToolSchema
 
     root = Path(__file__).resolve().parents[1]
-    system_prompt = load_agent_system_prompt(load_yaml(args.config), root)
+    system_prompt = load_agent_system_prompt(
+        load_yaml(args.config or current_profile(root, "training")), root
+    )
     tokenizer = AutoTokenizer.from_pretrained(args.model, trust_remote_code=False)
     environment = Tau2GymAdapter(
         task_id=args.task_id,
@@ -51,14 +53,6 @@ async def verify(args: argparse.Namespace) -> None:
                             "arguments": {},
                         },
                     },
-                    {
-                        "id": "call_0001_01",
-                        "type": "function",
-                        "function": {
-                            "name": "list_all_airports",
-                            "arguments": {},
-                        },
-                    },
                 ],
             },
         ]
@@ -78,8 +72,8 @@ async def verify(args: argparse.Namespace) -> None:
         token_ids = tokenizer.encode(completion, add_special_tokens=False)
         parser = ToolParser.get_tool_parser("hermes", tokenizer)
         _, calls = await parser.extract_tool_calls(token_ids, parser_schemas)
-        if len(calls) != 2:
-            raise AssertionError(f"expected two parsed calls, got {len(calls)}")
+        if len(calls) != 1 or validate_tool_turn(completion, len(calls)) is not None:
+            raise AssertionError(f"expected one valid tool call, got {len(calls)}")
         checked_calls = [
             validate_tool_call(
                 call.name,
@@ -104,14 +98,14 @@ async def verify(args: argparse.Namespace) -> None:
         )
         after = environment.db_hash()
         results = step.tool_results or []
-        if len(results) != 2 or not all(result.success for result in results):
-            raise AssertionError(f"Tau2 multi-tool batch failed: {results}")
+        if len(results) != 1 or not all(result.success for result in results):
+            raise AssertionError(f"Tau2 tool round trip failed: {results}")
         if before != after:
             raise AssertionError("read-only parser test unexpectedly changed the DB")
         print(
             json.dumps(
                 {
-                    "parsed_calls": 2,
+                    "parsed_calls": len(calls),
                     "tools": [checked.name for checked in checked_calls],
                     "returned_tool_results": len(results),
                     "tau2_tool_success": True,
@@ -129,9 +123,6 @@ def main() -> None:
     parser.add_argument(
         "--config",
         type=Path,
-        default=(
-            Path(__file__).resolve().parents[1] / "configs/rl/airline_grpo_v1.yaml"
-        ),
     )
     parser.add_argument("--model", default="Qwen/Qwen3-4B-Instruct-2507")
     parser.add_argument("--task-id", default="0")

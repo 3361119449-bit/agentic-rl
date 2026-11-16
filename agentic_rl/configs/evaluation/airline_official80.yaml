@@ -1,0 +1,86 @@
+profile_status: current
+project:
+  domain: airline
+  tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
+  verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
+  annotation_version: v5-trajectory-semantic-dedup
+  reward_version: official-35turn-zero-truncation
+
+agent_policy:
+  path: configs/prompts/airline_sft_v4_single_tool.v1.json
+  system_prompt_sha256: 54c8a8153c0f9fe4d2bc4d57a3698221d09388d84245afdcc253378ee4238cb2
+
+model:
+  base: Qwen/Qwen3-4B-Instruct-2507
+  sft_input: ${MERGED_SFT_MODEL}
+
+precision:
+  model_dtype: bfloat16
+  param_dtype: bfloat16
+  rollout_dtype: bfloat16
+  reduce_dtype: float32
+  buffer_dtype: float32
+
+rollout:
+  max_tool_calls_per_turn: 1
+  tool_parser: hermes
+  max_context_length: 24576
+  initial_prompt_max_tokens: 24576
+  max_soft_turns: 35
+  max_hard_turns: 35
+  temperature: 1.0
+  top_p: 1.0
+  top_k: -1
+  group_size: 4
+  agent_worker_count: 8
+  max_active_trajectories: 8
+  user_api_max_inflight: 8
+  judge_api_max_inflight: 8
+  vllm_max_num_seqs: 8
+  queue_timeout_seconds: null
+  queue_stall_timeout_seconds: 1800
+
+user_simulator:
+  provider: DeepSeek
+  model: ${DEEPSEEK_USER_MODEL}
+  temperature: 0.0
+  thinking: disabled
+  max_retries: 2
+  llm_args:
+    api_base: ${DEEPSEEK_BASE_URL}
+    timeout: 120
+    extra_body:
+      thinking:
+        type: disabled
+
+judge:
+  enabled: false
+  provider: DeepSeek
+  model: ${DEEPSEEK_JUDGE_MODEL}
+  base_url: ${DEEPSEEK_BASE_URL}
+  calls_per_trajectory: 1
+  output_schema_version: "1.0"
+  max_retries: 2
+
+user_sim_filter:
+  enabled: false
+
+annotations:
+  required_actions: data/annotations/airline_required_actions.test.v1.json
+  action_dependencies: data/annotations/airline_action_dependencies.test.v1.json
+  semantic_checks: data/annotations/airline_semantic_checks.test.v2.json
+  transfer_rules: data/annotations/airline_transfer_rules.test.v1.json
+  policy_rules: data/annotations/airline_mandatory_policy_rules.test.v1.json
+
+reward:
+  truncation_multiplier: 0.0
+  truncation_policy: zero-trajectory-v1
+
+outputs:
+  trajectories: ${TRAJECTORY_OUTPUT_DIR:-outputs/evaluation_trajectories}
+  checkpoints: outputs/checkpoints
+  judge_cache: ${JUDGE_CACHE_DIR:-outputs/evaluation_judge_cache}
+  user_cache: ${USER_CACHE_DIR:-outputs/evaluation_user_cache}
+  user_sim_judge_cache: ${USER_SIM_JUDGE_CACHE_DIR:-outputs/evaluation_user_sim_judge_cache}
+  metrics: outputs/evaluation_metrics
+  reports: outputs/reports

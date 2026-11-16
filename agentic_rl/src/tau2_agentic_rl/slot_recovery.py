@@ -3,6 +3,7 @@
 import asyncio
 import errno
 import socket
+import ssl
 from copy import deepcopy
 from uuid import uuid4
 
@@ -85,7 +86,13 @@ def interaction_retryable(phase: str, error: BaseException | None = None) -> boo
         else:
             wrapper = False
         transient = _transient_service_error(current) or (
-            transport_context and isinstance(current, (anyio.BrokenResourceError, anyio.EndOfStream))
+            transport_context and (
+                isinstance(current, (
+                    anyio.BrokenResourceError, anyio.EndOfStream,
+                    ssl.SSLEOFError, ssl.SSLZeroReturnError,
+                ))
+                or (type(current) is OSError and current.errno is None)
+            )
         )
         if not transient and not (wrapper and children):
             return False
@@ -106,9 +113,18 @@ class RolloutInfrastructureError(RuntimeError):
         label = "prompt initialization" if phase == "prompt_initialization" else phase
         super().__init__(f"rollout infrastructure failure during {label}; audit record saved")
 
+    def __reduce__(self):
+        return type(self), (self.phase, self.trajectory_id), self.__dict__
+
 
 class SlotRecoveryExhausted(RuntimeError):
     """Stop this slot; its incomplete group must be isolated from good groups."""
+
+
+class TruncationResamplesExhausted(SlotRecoveryExhausted):
+    """The final truncated attempt has been saved and must stay out of training."""
+
+    phase = "truncation"
 
 
 def slot_metadata(kwargs: dict) -> dict:
@@ -118,16 +134,16 @@ def slot_metadata(kwargs: dict) -> dict:
 
 async def run_training_slot(generate, sampling_params, *, project: dict, kwargs: dict, stop_requested=None, on_attempt=None):
     """Keep uid/session, task, sampling parameters and policy version unchanged."""
-    max_infra = project.get("slot_recovery", {}).get("max_resamples", 0)
+    recovery = project.get("slot_recovery", {})
+    max_infra = recovery.get("max_resamples", 0)
     extra = dict(kwargs.get("extra_info", {}) or {})
-    max_truncation = project["slot_recovery"].get("max_truncation_resamples", 0)
+    max_truncation = recovery.get("max_truncation_resamples", 0)
     if extra.get("split", "train") != "train":
         max_truncation = 0
     max_user = project.get("user_sim_filter", {}).get("max_resamples", 2) if filter_enabled(project) else 0
     if any(type(n) is not int or n < 0 for n in (max_infra, max_user, max_truncation)):
         raise ValueError("slot replacement budgets must be nonnegative integers")
     first_id = kwargs.get("trajectory_id") or uuid4().hex
-    extra = dict(kwargs.get("extra_info", {}) or {})
     base_seed = extra.get("environment_seed")
     if base_seed is None:
         base_seed = int(first_id[:8], 16) % (2**31 - 1)
@@ -145,7 +161,7 @@ async def run_training_slot(generate, sampling_params, *, project: dict, kwargs:
             "failed_attempts": deepcopy(failures),
             **({"truncation_replacements": truncation_count,
                 "truncated_attempts": deepcopy(truncated_attempts)}
-               if project["slot_recovery"].get("max_truncation_resamples", 0) else {}),
+               if max_truncation else {}),
         }
         current = {
             **kwargs, "trajectory_id": current_id,
@@ -162,17 +178,18 @@ async def run_training_slot(generate, sampling_params, *, project: dict, kwargs:
             from tau2_agentic_rl.reward.truncation import TRUNCATED_TERMINATIONS
 
             reason = output.extra_fields.get("termination_reason")
-            if reason in TRUNCATED_TERMINATIONS and project["slot_recovery"].get("max_truncation_resamples", 0):
+            if max_truncation and reason in TRUNCATED_TERMINATIONS:
+                if truncation_count >= max_truncation:
+                    raise TruncationResamplesExhausted(
+                        f"slot {first_id}: trajectory {current_id} reached {reason} "
+                        f"after {truncation_count} resamples"
+                    )
                 truncated_attempts.append({"trajectory_id": current_id, "termination_reason": reason})
-                context["truncated_attempts"] = deepcopy(truncated_attempts)
-                context["truncation_replacements"] = truncation_count
-                if truncation_count < max_truncation:
-                    failures.append({"trajectory_id": current_id, "phase": "truncation",
-                                     "termination_reason": reason})
-                    truncation_count += 1
-                    attempt_kind = "truncation"
-                    continue
-                context["truncation_resamples_exhausted"] = max_truncation > 0
+                failures.append({"trajectory_id": current_id, "phase": "truncation",
+                                 "termination_reason": reason})
+                truncation_count += 1
+                attempt_kind = "truncation"
+                continue
             output.extra_fields["slot_recovery"] = context
             return output
         except UserSimulationRejected as exc:

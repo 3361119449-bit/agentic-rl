@@ -3,11 +3,20 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from math import isfinite
 from typing import Any
 
 from tau2_agentic_rl.advantages import is_procredit
 from tau2_agentic_rl.concurrency import queue_options_from_project
 from tau2_agentic_rl.config import validate_procredit_config
+
+OPTIMIZER_FIELDS = {
+    "lr": "lr",
+    "weight_decay": "weight_decay",
+    "betas": "betas",
+    "lr_scheduler_type": "lr_scheduler_type",
+}
+OPTIMIZER_PREFIX = "actor_rollout_ref.actor.optim"
 
 TRAINING_KEYS = {
     "algorithm.adv_estimator": "algorithm.adv_estimator",
@@ -26,7 +35,6 @@ TRAINING_KEYS = {
     "lora.target_modules": "actor_rollout_ref.model.target_modules",
     "hardware.gradient_checkpointing": "actor_rollout_ref.model.enable_gradient_checkpointing",
     "hardware.tensor_parallel_size": "actor_rollout_ref.rollout.tensor_model_parallel_size",
-    "optimizer.lr": "actor_rollout_ref.actor.optim.lr",
     "ppo.ppo_epochs": "actor_rollout_ref.actor.ppo_epochs",
     "ppo.verl_ppo_mini_batch_size_prompts": "actor_rollout_ref.actor.ppo_mini_batch_size",
     "ppo.ppo_micro_batch_size_per_gpu": "actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu",
@@ -48,7 +56,45 @@ TRAINING_KEYS = {
 
 
 def hydra_value(value: Any) -> str:
+    if isinstance(value, (list, tuple)):
+        return "[" + ",".join(hydra_value(item) for item in value) + "]"
     return str(value).lower() if isinstance(value, bool) else str(value)
+
+
+def optimizer_overrides(optimizer: dict) -> dict[str, str]:
+    unknown = optimizer.keys() - OPTIMIZER_FIELDS.keys() - {"eps"}
+    if unknown:
+        raise ValueError(f"Unsupported optimizer fields: {sorted(unknown)}")
+    for key in ("lr", "eps", "weight_decay"):
+        if key not in optimizer:
+            continue
+        value = optimizer[key]
+        if (
+            type(value) not in (int, float)
+            or not isfinite(value)
+            or value < 0
+            or (key != "weight_decay" and value == 0)
+        ):
+            raise ValueError(f"Invalid optimizer.{key}: {value}")
+    if "betas" in optimizer:
+        betas = optimizer["betas"]
+        if (
+            not isinstance(betas, (list, tuple)) or len(betas) != 2
+            or any(type(beta) not in (int, float) or not 0 <= beta < 1 for beta in betas)
+        ):
+            raise ValueError("optimizer.betas requires two numbers in [0, 1)")
+    if optimizer.get("lr_scheduler_type", "constant") not in ("constant", "cosine"):
+        raise ValueError("optimizer.lr_scheduler_type must be constant or cosine")
+    result = {
+        f"{OPTIMIZER_PREFIX}.{target}": hydra_value(optimizer[field])
+        for field, target in OPTIMIZER_FIELDS.items()
+        if field in optimizer
+    }
+    if "eps" in optimizer:
+        result[f"{OPTIMIZER_PREFIX}.override_optimizer_config"] = (
+            "{eps:" + hydra_value(optimizer["eps"]) + "}"
+        )
+    return result
 
 
 def precision_overrides(project: dict) -> dict[str, str]:
@@ -72,6 +118,11 @@ def precision_overrides(project: dict) -> dict[str, str]:
 def validate_precision_overrides(project: dict, extra: list[str]) -> None:
     """Dtype settings belong in the identity-bound project configuration."""
     protected = [key.lstrip("+") for key in precision_overrides(project)]
+    if project.get("precision", {}).get("lora_master_dtype") == "float32":
+        protected.extend((
+            "actor_rollout_ref.actor.fsdp_config.wrap_policy",
+            "actor_rollout_ref.actor.strategy",
+        ))
     for override in extra:
         key = override.partition("=")[0].lstrip("+~")
         if any(
@@ -94,6 +145,9 @@ def training_overrides(project: dict[str, Any]) -> dict[str, str]:
         result["+algorithm.procredit_enabled"] = "true"
         result["algorithm.gamma"] = "1.0"
     result.update(precision_overrides(project))
+    result.update(optimizer_overrides(project["optimizer"]))
+    if project.get("precision", {}).get("lora_master_dtype") == "float32":
+        result["+actor_rollout_ref.actor.fsdp_config.wrap_policy.tau2_fp32_lora_master"] = "true"
     return result
 
 
@@ -105,11 +159,20 @@ def effective_project_config(
     result = deepcopy(project)
     validate_precision_overrides(result, extra)
     reverse = {target: source for source, target in TRAINING_KEYS.items()}
+    reverse.update({
+        f"{OPTIMIZER_PREFIX}.{target}": f"optimizer.{field}"
+        for field, target in OPTIMIZER_FIELDS.items()
+    })
     for override in extra:
         key, separator, raw = override.partition("=")
         normalized = key.lstrip("+")
         if not separator:
             raise ValueError("--extra must use key=value")
+        if "eps" in result["optimizer"] and (
+            normalized.lstrip("~") in (OPTIMIZER_PREFIX, f"{OPTIMIZER_PREFIX}.eps")
+            or normalized.lstrip("~").startswith(f"{OPTIMIZER_PREFIX}.override_optimizer_config")
+        ):
+            raise ValueError("set AdamW epsilon in optimizer.eps in the project YAML")
         if normalized.lstrip("~") == "trainer.critic_warmup":
             value = yaml.safe_load(raw)
             if normalized.startswith("~") or type(value) is not int or value != 0:
@@ -166,6 +229,7 @@ def effective_project_config(
             section, field = reverse[normalized].split(".")
             result[section][field] = yaml.safe_load(raw)
     dynamic, rollout, ppo = result["dynamic_sampling"], result["rollout"], result["ppo"]
+    optimizer_overrides(result["optimizer"])
     queue_options_from_project(result)
     if (
         type(rollout["initial_prompt_max_tokens"]) is not int

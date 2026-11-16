@@ -189,8 +189,10 @@ def test_rejected_resume_or_fresh_run_does_not_modify_existing_files(
 
 
 def test_prompt_override_has_one_runtime_and_hydra_source():
-    config = effective_project_config(project(), ["data.max_prompt_length=7000"])
-    assert config["rollout"]["initial_prompt_max_tokens"] == 7000
+    config = effective_project_config(project(), ["data.max_prompt_length=16384"])
+    assert config["rollout"]["initial_prompt_max_tokens"] == 16384
+    with pytest.raises(ValueError, match="same total context limit"):
+        effective_project_config(project(), ["data.max_prompt_length=7000"])
     with pytest.raises(ValueError, match="derived"):
         effective_project_config(
             project(), ["actor_rollout_ref.rollout.prompt_length=7000"]

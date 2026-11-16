@@ -1,5 +1,7 @@
 """Typed remote failures and a fatal signal independent of queue group status."""
 
+from functools import partial
+
 
 class JudgeServiceFailure(RuntimeError):
     """A bounded remote Judge request failed; never a local code/config error."""
@@ -7,6 +9,9 @@ class JudgeServiceFailure(RuntimeError):
     def __init__(self, message, *, retryable):
         self.retryable = retryable
         super().__init__(message)
+
+    def __reduce__(self):
+        return partial(type(self), retryable=self.retryable), self.args, self.__dict__
 
 
 class PolicyAttributionPending(ValueError):
@@ -25,6 +30,9 @@ class FatalRolloutError(RuntimeError):
             f"phase {report.get('phase')}: {report.get('error_type')}: "
             f"{report.get('message', '')}"
         )
+
+    def __reduce__(self):
+        return type(self), (self.report,), self.__dict__
 
 
 def raise_if_fatal(report):

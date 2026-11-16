@@ -1,6 +1,7 @@
 """Versioned binary turn labels and the final, uncentered advantage rule."""
 
 import json
+import re
 from copy import deepcopy
 
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt
@@ -15,6 +16,10 @@ TOOL_ERRORS = frozenset({
     "parse_error", "unknown_tool", "schema_invalid",
     "model_caused_execution_error", "mixed_content_and_tool_call",
 })
+_GENERATION_END = re.compile(r"(?:\s*<\|(?:im_end|endoftext)\|>)+\s*$")
+_MARKDOWN_EMPHASIS = re.compile(r"\*\*([^*\n]+)\*\*|__([^_\n]+)__")
+_JSON_QUOTE_TOKEN = re.compile(r'"(?:[^"\\]|\\.)*"|[{}\[\]:,]|[^\s{}\[\]:,"]+')
+_JSON_VALUE_AT_QUOTE_END = re.compile(r'"\s*:\s*(?:-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)$')
 
 
 class RefusalRequest(BaseModel):
@@ -159,17 +164,59 @@ def turn_request(inputs, turn_index, previous_decisions):
     return request
 
 
+def _normalize_prose_quote(text: str) -> str:
+    text = _MARKDOWN_EMPHASIS.sub(lambda match: match[1] or match[2], text)
+    return " ".join(text.split())
+
+
+def _quote_matches_generation(quote: str, request: dict) -> bool:
+    message = request["current_generation"]["message"]
+    has_tools = bool(message.get("tool_calls"))
+    text = _GENERATION_END.sub("", request["target_generation_text"]).strip()
+    quote = _GENERATION_END.sub("", quote).strip()
+    if not has_tools and not any(
+        str(message.get(key) or "").strip() for key in ("raw_generated_text", "content")
+    ):
+        # _generation_text can fall back to serializing an empty message.
+        text = ""
+    if not text:
+        return not quote and not has_tools and not str(message.get("content") or "").strip()
+
+    minimum = min(16, len(text))
+    if len(quote) < minimum:
+        return False
+    if quote in text and not (has_tools and _JSON_VALUE_AT_QUOTE_END.search(quote)):
+        return True
+
+    if has_tools:
+        # JSON tokens preserve string and scalar values, including 2 versus 20.
+        target_tokens = _JSON_QUOTE_TOKEN.findall(text)
+        for excerpt in (quote, quote.strip("{}[] ")):
+            tokens = _JSON_QUOTE_TOKEN.findall(excerpt)
+            if tokens and any(
+                target_tokens[i:i + len(tokens)] == tokens
+                for i in range(len(target_tokens) - len(tokens) + 1)
+            ):
+                return True
+        # A prose fragment quoted from inside a tool summary can gain outer quotes.
+        return quote.startswith('"') and quote.endswith('"') and (
+            len(quote[1:-1]) >= minimum and quote[1:-1] in text
+        )
+
+    visible_quote = _normalize_prose_quote(quote)
+    return bool(visible_quote) and visible_quote in _normalize_prose_quote(text)
+
+
 def validate_decision(decision, request):
     target = validate_target_request(request)
     d = TurnDecision.model_validate(decision).model_dump()
     if d["turn_index"] != request["turn_index"] or not d["reason"].strip():
         raise ValueError("turn label identity or reason missing")
-    text, quote = request["target_generation_text"], d["target_quote"]
     if (d["target_message_index"] != target
-        or d["target_generation_sha256"] != request["target_generation_sha256"]
-        or not quote.strip() or quote not in text
-        or len(quote.strip()) < min(16, len(text.strip()))):
-        raise ValueError("decision target identity/quote must match the current generation")
+        or d["target_generation_sha256"] != request["target_generation_sha256"]):
+        raise ValueError("decision target identity must match the current generation")
+    if not _quote_matches_generation(d["target_quote"], request):
+        raise ValueError("decision target quote must match the current generation")
     evidence = d["evidence_message_indices"]
     if (len(set(evidence)) != len(evidence)
         or any(i < 0 or i > target for i in evidence)

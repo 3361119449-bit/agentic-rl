@@ -1,3 +1,4 @@
+profile_status: archived
 # Policy-local ProCredit v2; v1 stays reproducible in its separate configuration.
 project:
   domain: airline

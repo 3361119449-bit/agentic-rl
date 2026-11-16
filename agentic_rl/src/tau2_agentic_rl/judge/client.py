@@ -42,7 +42,7 @@ class JudgeConfig:
     prompt_version: str = JUDGE_PROMPT_VERSION
     rubric_version: str = JUDGE_RUBRIC_VERSION
     schema_version: str = JUDGE_SCHEMA_VERSION
-    scorer_code_version: str = "tau2-agentic-rl-scorer-v6-transfer-policy"
+    scorer_code_version: str = "tau2-agentic-rl-scorer-v7-policy-triggers"
     thinking_type: str | None = None
     reasoning_effort: str | None = None
 
@@ -184,8 +184,10 @@ class DeepSeekJudge:
                     "transfer applicability disagrees with execution, obligation, "
                     "or an explicitly attributed failed transfer attempt"
                 )
-            if not transferred and (check.valid or check.evidence_turn_ids):
-                raise ValueError("unexecuted transfer must be explicitly invalid without execution evidence")
+            # An applicable invalid verdict may cite an attributed attempt or omission.
+            # Such evidence never establishes that the transfer tool succeeded.
+            if not transferred and (check.valid or (not check.applicable and check.evidence_turn_ids)):
+                raise ValueError("unexecuted transfer must be invalid; only applicable failures may cite context")
             if transferred and check.valid and not check.evidence_turn_ids:
                 raise ValueError("valid transfer requires explicit execution evidence")
             if (
@@ -330,4 +332,3 @@ class DeepSeekJudge:
             f"{type(last_error).__name__}: {str(last_error)[:800]}",
             retryable=retryable,
         ) from last_error
-

@@ -1,7 +1,7 @@
 [
   {
     "task_id": "0",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -17,7 +17,7 @@
       {
         "criterion_id": "0:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "0:policy:database_write_confirmation",
@@ -118,7 +118,7 @@
   },
   {
     "task_id": "1",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -134,7 +134,7 @@
       {
         "criterion_id": "1:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "1:policy:database_write_confirmation",
@@ -235,7 +235,7 @@
   },
   {
     "task_id": "3",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -251,7 +251,7 @@
       {
         "criterion_id": "3:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "3:policy:database_write_confirmation",
@@ -352,7 +352,7 @@
   },
   {
     "task_id": "4",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -368,7 +368,7 @@
       {
         "criterion_id": "4:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "4:policy:database_write_confirmation",
@@ -469,7 +469,7 @@
   },
   {
     "task_id": "5",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -485,7 +485,7 @@
       {
         "criterion_id": "5:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "5:policy:database_write_confirmation",
@@ -586,7 +586,7 @@
   },
   {
     "task_id": "7",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -602,7 +602,7 @@
       {
         "criterion_id": "7:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "7:policy:database_write_confirmation",
@@ -703,7 +703,7 @@
   },
   {
     "task_id": "9",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -719,7 +719,7 @@
       {
         "criterion_id": "9:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "9:policy:database_write_confirmation",
@@ -820,7 +820,7 @@
   },
   {
     "task_id": "10",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -836,7 +836,7 @@
       {
         "criterion_id": "10:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "10:policy:database_write_confirmation",
@@ -937,7 +937,7 @@
   },
   {
     "task_id": "11",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -953,7 +953,7 @@
       {
         "criterion_id": "11:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "11:policy:database_write_confirmation",
@@ -1054,7 +1054,7 @@
   },
   {
     "task_id": "12",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -1070,7 +1070,7 @@
       {
         "criterion_id": "12:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "12:policy:database_write_confirmation",
@@ -1171,7 +1171,7 @@
   },
   {
     "task_id": "14",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -1187,7 +1187,7 @@
       {
         "criterion_id": "14:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "14:policy:database_write_confirmation",
@@ -1288,7 +1288,7 @@
   },
   {
     "task_id": "15",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -1304,7 +1304,7 @@
       {
         "criterion_id": "15:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "15:policy:database_write_confirmation",
@@ -1405,7 +1405,7 @@
   },
   {
     "task_id": "17",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -1421,7 +1421,7 @@
       {
         "criterion_id": "17:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "17:policy:database_write_confirmation",
@@ -1522,7 +1522,7 @@
   },
   {
     "task_id": "20",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -1538,7 +1538,7 @@
       {
         "criterion_id": "20:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "20:policy:database_write_confirmation",
@@ -1639,7 +1639,7 @@
   },
   {
     "task_id": "21",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -1655,7 +1655,7 @@
       {
         "criterion_id": "21:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "21:policy:database_write_confirmation",
@@ -1756,7 +1756,7 @@
   },
   {
     "task_id": "23",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -1772,7 +1772,7 @@
       {
         "criterion_id": "23:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "23:policy:database_write_confirmation",
@@ -1873,7 +1873,7 @@
   },
   {
     "task_id": "27",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -1889,7 +1889,7 @@
       {
         "criterion_id": "27:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "27:policy:database_write_confirmation",
@@ -1990,7 +1990,7 @@
   },
   {
     "task_id": "28",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -2006,7 +2006,7 @@
       {
         "criterion_id": "28:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "28:policy:database_write_confirmation",
@@ -2107,7 +2107,7 @@
   },
   {
     "task_id": "33",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -2123,7 +2123,7 @@
       {
         "criterion_id": "33:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "33:policy:database_write_confirmation",
@@ -2224,7 +2224,7 @@
   },
   {
     "task_id": "34",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -2240,7 +2240,7 @@
       {
         "criterion_id": "34:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "34:policy:database_write_confirmation",
@@ -2341,7 +2341,7 @@
   },
   {
     "task_id": "36",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -2357,7 +2357,7 @@
       {
         "criterion_id": "36:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "36:policy:database_write_confirmation",
@@ -2458,7 +2458,7 @@
   },
   {
     "task_id": "38",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -2474,7 +2474,7 @@
       {
         "criterion_id": "38:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "38:policy:database_write_confirmation",
@@ -2575,7 +2575,7 @@
   },
   {
     "task_id": "39",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -2591,7 +2591,7 @@
       {
         "criterion_id": "39:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "39:policy:database_write_confirmation",
@@ -2692,7 +2692,7 @@
   },
   {
     "task_id": "40",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -2708,7 +2708,7 @@
       {
         "criterion_id": "40:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "40:policy:database_write_confirmation",
@@ -2809,7 +2809,7 @@
   },
   {
     "task_id": "41",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -2825,7 +2825,7 @@
       {
         "criterion_id": "41:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "41:policy:database_write_confirmation",
@@ -2926,7 +2926,7 @@
   },
   {
     "task_id": "42",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -2942,7 +2942,7 @@
       {
         "criterion_id": "42:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "42:policy:database_write_confirmation",
@@ -3043,7 +3043,7 @@
   },
   {
     "task_id": "43",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -3059,7 +3059,7 @@
       {
         "criterion_id": "43:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "43:policy:database_write_confirmation",
@@ -3160,7 +3160,7 @@
   },
   {
     "task_id": "46",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -3176,7 +3176,7 @@
       {
         "criterion_id": "46:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "46:policy:database_write_confirmation",
@@ -3277,7 +3277,7 @@
   },
   {
     "task_id": "47",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -3293,7 +3293,7 @@
       {
         "criterion_id": "47:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "47:policy:database_write_confirmation",
@@ -3394,7 +3394,7 @@
   },
   {
     "task_id": "49",
-    "policy_rubric_version": "areal-airline-policy-atomic-v5-applicability",
+    "policy_rubric_version": "airline-sft-v4-policy-atomic-v6-single-tool",
     "deterministic_rules": [],
     "judge_checks": [
       {
@@ -3410,7 +3410,7 @@
       {
         "criterion_id": "49:policy:single_action_turn",
         "applicability": "True when the situation described by this rule occurs, including relevant requests, advice, attempts or executions; otherwise false.",
-        "description": "Each assistant turn is either user-facing text or one or more tool calls, never both. Independent tool calls may share a turn; if one tool call depends on another tool result, they must be made in separate turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
+        "description": "Each assistant turn is either user-facing text or at most one tool call, never both. Independent tool calls must also be made in separate assistant turns. If this situation is absent, return applicable=false and passed=true without violation blame. Judge compliance, not whether the task was completed."
       },
       {
         "criterion_id": "49:policy:database_write_confirmation",

@@ -153,7 +153,7 @@ def test_internal_validation_recovers_only_its_slot_and_counts_physical_attempts
     counts = loop.shared_budget.call("rollout_counts", "val")
     counts = {key: value - before[key] for key, value in counts.items()}
     assert counts == {"initial": 1, "infrastructure": 2 if failure == "infrastructure" else 0,
-                      "user": 2 if failure == "user" else 0}
+                      "user": 2 if failure == "user" else 0, "truncation": 0}
     assert loop.shared_budget.call("rollout_counts", "train") == train_before
 
 

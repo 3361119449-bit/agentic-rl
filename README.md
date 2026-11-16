@@ -16,9 +16,9 @@
 
 ### 实验配置与仓库默认值
 
-已完成的 SFT v4 和 80 条基线使用单工具政策哈希 `54c8a815…`。本次服务器正式 RL 配置仍绑定多工具提示词 `e490e085…`，训练用户合规筛选关闭；对话所需的用户模拟器保留。两版提示词尚未完全对齐。正式官方对照按运行配置关闭用户筛选与 Agent 奖励 Judge；仓库评估入口的开关默认值另见 [评估说明](agentic_rl/README.md#冻结评估)。
+正式 RL 和官方测评沿用 SFT v4 的单工具提示词 `54c8a815…`，上下文为 24,576 tokens。训练关闭用户合规筛选，官方测评同时关闭 Agent 奖励 Judge。启动入口使用 [正式配置清单](agentic_rl/configs/current.json)。
 
-不传 `--stage` 的训练入口默认选择修复后的 `full_train`；显式指定 `internal_dev` 或 `smoke` 仍可复现旧划分。2026-11-15 的无卡验收通过 56 项配置/流程测试、7 项真实 Tau2 回归和正式入口 dry-run。尚未启动本次 RL，GPU 训练与收益以实际 run 为准。[奖励公式](agentic_rl/docs/reward_v13.md) · [训练命令](agentic_rl/README.md#从-sft-v4-开始-grpo)
+训练入口默认采用修复后的 `full_train`。复现旧划分时需通过 `--config` 显式选择归档配置并指定相应阶段。[奖励公式](agentic_rl/docs/reward_v13.md) · [训练命令](agentic_rl/README.md#从-sft-v4-开始-grpo)
 
 ## 历史实验
 

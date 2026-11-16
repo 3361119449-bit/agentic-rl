@@ -174,7 +174,7 @@ def test_current_configuration_drives_increment_and_independent_refusal():
 
 
 def test_current_configuration_changes_only_approved_selectors():
-    cfg = load_yaml(ROOT / DEFAULT_CONFIG)
+    cfg = load_yaml(ROOT / 'configs/rl/airline_procredit_v4.yaml')
     old = load_yaml(ROOT / 'configs/rl/airline_procredit_v4_v12.yaml')
     assert cfg['project']['reward_version'] == 'v13.1-procredit-immediate-independent'
     assert cfg['reward'].pop('check_reference_write_scope') is False

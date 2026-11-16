@@ -7,9 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from tau2_agentic_rl.agent_policy import load_agent_system_prompt
+from tau2_agentic_rl.config import current_profile, load_yaml, validate_procredit_config
 from tau2_agentic_rl.policy_rules import policy_checks
 
 try:
@@ -86,9 +85,8 @@ def verify(project_root: Path, tau2_data: Path) -> dict[str, Any]:
             assert row["deterministic_rules"] == []
             assert row["judge_checks"] == policy_checks(str(row["task_id"]))
 
-    config = yaml.safe_load(
-        (project_root / "configs/rl/airline_grpo_v1.yaml").read_text(encoding="utf-8")
-    )
+    config = load_yaml(current_profile(project_root, "training"))
+    validate_procredit_config(config)
     assert config["project"]["tau2_commit"] == TAU2_COMMIT
     assert config["project"]["verl_commit"] == VERL_COMMIT
     load_agent_system_prompt(config, project_root)
@@ -99,12 +97,15 @@ def verify(project_root: Path, tau2_data: Path) -> dict[str, Any]:
         * dynamic["max_num_gen_batches"]
         == dynamic["max_rollouts_per_optimizer_step"]
     )
-    assert sum(config["reward"]["normal_weights"].values()) == 1.0
-    assert sum(config["reward"]["transfer_weights"].values()) == 1.0
+    evaluation = load_yaml(current_profile(project_root, "official_evaluation"))
+    assert config["rollout"]["max_context_length"] == evaluation["rollout"]["max_context_length"]
+    assert load_agent_system_prompt(config, project_root) == load_agent_system_prompt(
+        evaluation, project_root
+    )
     return {
         "official_train_tasks": len(train_ids),
-        "rl_train_tasks": len(split_local["rl_train"]),
-        "internal_dev_tasks": len(split_local["internal_dev"]),
+        "rl_train_tasks": len(train_ids),
+        "internal_dev_tasks": 0,
         "official_test_tasks": len(test_ids),
         "selected_required_actions": selected_count,
     }

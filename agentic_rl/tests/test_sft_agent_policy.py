@@ -1,4 +1,4 @@
-"""Bound multitool SFT prompt -> actor/Judge identity and policy contracts."""
+"""Actual SFT v4 single-tool prompt -> actor/Judge identity and policy contracts."""
 
 import json
 import sys
@@ -23,14 +23,14 @@ from tau2_agentic_rl.reward.score import score_trajectory
 from tau2_agentic_rl.schemas import JudgeCheck, JudgeResult, OfficialScores, ToolEvent
 
 ROOT = Path(__file__).parents[1]
-CONFIG = ROOT / "configs/rl/airline_grpo_v1.yaml"
-DIGEST = "e490e0859e1357ed6dd777fdbddab15b11d6de96ff7161328a6babcab77348ab"
+CONFIG = ROOT / "configs/rl/airline_procredit_v4_train30.yaml"
+DIGEST = "54c8a8153c0f9fe4d2bc4d57a3698221d09388d84245afdcc253378ee4238cb2"
 
 
 def test_actor_and_evaluation_use_exact_sft_message_without_extra_protocol():
     project = load_yaml(CONFIG)
     prompt = load_agent_system_prompt(project, ROOT)
-    evaluation = load_yaml(ROOT / "configs/evaluation/airline_eval_v1.yaml")
+    evaluation = load_yaml(ROOT / "configs/evaluation/airline_official80.yaml")
     assert load_agent_system_prompt(evaluation, ROOT) == prompt
     assert prompt_sha256(prompt) == DIGEST
     incoming = [{"role": "user", "content": "Cancel my reservation."}]
@@ -39,20 +39,21 @@ def test_actor_and_evaluation_use_exact_sft_message_without_extra_protocol():
         *incoming,
     ]
     assert "action_proposal" not in prompt
-    assert "Make one or more tool calls." in prompt
-    assert "You may make one or more tool calls in the same turn." in prompt
+    assert "Make a tool call." in prompt
+    assert "You should only make one tool call at a time" in prompt
+    assert "one or more tool calls" not in prompt
     assert "obtain explicit user confirmation (yes) to proceed" in prompt
 
 
 def test_frozen_prompt_artifact_matches_bound_uploaded_prompt_identity():
     artifact = json.loads(
-        (ROOT / "configs/prompts/areal_airline_sft.v1.json").read_text(encoding="utf-8")
+        (ROOT / load_yaml(CONFIG)["agent_policy"]["path"]).read_text(encoding="utf-8")
     )
     assert artifact["system_prompt_sha256"] == DIGEST
     assert prompt_sha256(artifact["system_prompt"]) == DIGEST
-    assert artifact["source_rows"] == 8
+    assert artifact["source_rows"] == 1374
     assert artifact["source_sha256"] == (
-        "b1f6c296033283a3c4550b8c2b9cc7dc5f1bb1f0e00e2236a22e2cd6d3e9fa1d"
+        "e3a9c21a15da369bd190dedf3c53cc55eda9de570a213788f758dd0df744691f"
     )
 
 
@@ -89,7 +90,7 @@ def test_environment_cannot_inject_another_system_message():
 
 
 @pytest.mark.parametrize("split", ["train", "test"])
-def test_checked_in_policy_bundles_match_multitool_generator(split):
+def test_checked_in_policy_bundles_match_single_tool_generator(split):
     mapping = load_task_mapping(
         ROOT / f"data/annotations/airline_mandatory_policy_rules.{split}.v1.json"
     )
@@ -100,6 +101,10 @@ def test_checked_in_policy_bundles_match_multitool_generator(split):
     assert "confirmation_before_database_write" not in serialized
     assert "database_write_confirmation" in serialized
     assert "one_tool_call_per_assistant_turn" not in serialized
+    for row in mapping.values():
+        rule = next(c for c in row["judge_checks"] if c["criterion_id"].endswith(":single_action_turn"))
+        assert "at most one tool call" in rule["description"]
+        assert "Independent tool calls may share a turn" not in rule["description"]
     mapping[next(iter(mapping))]["judge_checks"].append(
         {"criterion_id": "confirmation_details"}
     )
@@ -107,7 +112,7 @@ def test_checked_in_policy_bundles_match_multitool_generator(split):
         validate_policy_rows(mapping)
 
 
-def test_judge_uses_bound_multitool_policy_and_enforces_confirmation():
+def test_judge_uses_bound_single_tool_policy_and_enforces_confirmation():
     prompt = load_agent_system_prompt(load_yaml(CONFIG), ROOT)
     policy = extract_airline_policy(prompt)
     messages = build_judge_messages(

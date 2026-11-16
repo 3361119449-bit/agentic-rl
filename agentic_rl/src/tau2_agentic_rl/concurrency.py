@@ -56,6 +56,13 @@ class QueueWaitError(TimeoutError):
             f"for {stalled:.1f}s; no active lease was reclaimed"
         )
 
+    def __reduce__(self):
+        details = self.details
+        return type(self), (
+            details["resource"], details["reason"],
+            details["queue_wait_seconds"], details["no_progress_seconds"],
+        ), self.__dict__
+
 
 class _QueueWait:
     def __init__(self, resource, revision, timeout, stall_timeout):
@@ -278,4 +285,3 @@ def api_budget():
         }
     )
     return SharedBudget(limits, **queue_options_from_project(project))
-

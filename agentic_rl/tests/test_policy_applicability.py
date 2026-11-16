@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from tau2_agentic_rl.judge.client import DeepSeekJudge
@@ -151,3 +153,98 @@ def test_v4_missing_required_transfer_cannot_cache_an_unattributable_pass(scratc
     assert asyncio.run(judge.evaluate(**inputs)) == result
     assert len(calls) == 2
     assert len(list(scratch_dir.glob("*.json"))) == 1
+
+
+@pytest.mark.parametrize(
+    ("tool", "arguments", "after", "rule", "required"),
+    [
+        ("book_reservation", {"total_baggages": 0, "nonfree_baggages": 0},
+         None, "baggage_pricing", False),
+        ("book_reservation", {"total_baggages": 1, "nonfree_baggages": 0},
+         None, "baggage_pricing", True),
+        ("update_reservation_baggages", {"total_baggages": 2, "nonfree_baggages": 0},
+         {"total_baggages": 2}, "baggage_removal", False),
+        ("update_reservation_baggages", {"total_baggages": 0, "nonfree_baggages": 0},
+         None, "baggage_removal", True),
+        ("update_reservation_baggages", {"total_baggages": 2, "nonfree_baggages": 0},
+         {"total_baggages": 2}, "baggage_pricing", True),
+        ("update_reservation_baggages", {"total_baggages": 1, "nonfree_baggages": 1},
+         {"nonfree_baggages": 1}, "baggage_pricing", True),
+        ("update_reservation_baggages", {"total_baggages": 1, "nonfree_baggages": 0},
+         {}, "baggage_pricing", False),
+        ("update_reservation_flights",
+         {"cabin": "business", "flights": [{"flight_number": "HAT100", "date": "2024-05-20"}]},
+         {"cabin": "business"}, "modification_payment", False),
+        ("update_reservation_flights",
+         {"cabin": "business", "flights": [{"flight_number": "HAT100", "date": "2024-05-21"}]},
+         None, "modification_payment", True),
+    ],
+)
+def test_write_applicability_depends_on_arguments_and_prior_receipt(
+    tool, arguments, after, rule, required
+):
+    before = {
+        "reservation_id": "old",
+        "total_baggages": 1,
+        "nonfree_baggages": 0,
+        "flights": [{"flight_number": "HAT100", "date": "2024-05-20", "price": 50}],
+    }
+    read = ToolEvent(
+        event_id="read", sequence=0, turn_id=1, name="get_reservation_details",
+        arguments={"reservation_id": "old"}, success=True, result=json.dumps(before),
+    )
+    write = ToolEvent(
+        event_id="write", sequence=1, turn_id=2, name=tool,
+        arguments={"reservation_id": "old", **arguments}, success=after is not None,
+        result=json.dumps({**before, **after}) if after is not None else "Error: rejected",
+        error_kind="model_caused_execution_error" if after is None else None,
+    )
+    criterion = f"14:policy:{rule}"
+    result = JudgeResult(mandatory_policy_checks=[JudgeCheck(
+        criterion_id=criterion, applicable=False, passed=True, short_reason="No trigger",
+    )])
+    inputs = {
+        "mandatory_policy_checks": [{"criterion_id": criterion}],
+        "trajectory": {"messages": [], "tool_events": [read.model_dump(), write.model_dump()]},
+    }
+    if required:
+        with pytest.raises(ValueError, match="active policy"):
+            DeepSeekJudge._validate_requested_criteria(result, inputs)
+    else:
+        DeepSeekJudge._validate_requested_criteria(result, inputs)
+
+
+@pytest.mark.parametrize(("valid", "evidence", "error"), [
+    (False, [4], None),
+    (True, [4], "unexecuted transfer"),
+    (False, [5], "absent turn IDs"),
+])
+def test_failed_transfer_can_cite_its_attempt_without_claiming_success(valid, evidence, error):
+    criterion = "21:policy:transfer_scope_and_message"
+    result = JudgeResult.model_validate({
+        "mandatory_policy_checks": [{
+            "criterion_id": criterion, "applicable": True, "passed": False,
+            "evidence_turn_ids": [4], "violation_assistant_turn_ids": [2],
+            "short_reason": "Announced a transfer without executing it.",
+        }],
+        "transfer_check": {
+            "applicable": True, "valid": valid, "policy_required": False,
+            "self_caused_only": False, "evidence_turn_ids": evidence,
+            "short_reason": "The announcement was not followed by a successful tool call.",
+        },
+    })
+    inputs = {
+        "transfer_validation_version": "transfer-policy-v2",
+        "require_policy_attribution": True,
+        "mandatory_policy_checks": [{"criterion_id": criterion}],
+        "trajectory": {"messages": [{
+            "role": "assistant", "assistant_turn_id": 2, "turn_idx": 4,
+            "content": "I have transferred you.",
+        }], "tool_events": []},
+    }
+    if error:
+        with pytest.raises(ValueError, match=error):
+            DeepSeekJudge._validate_requested_criteria(result, inputs)
+    else:
+        DeepSeekJudge._validate_requested_criteria(result, inputs)
+        assert not result.transfer_check.valid

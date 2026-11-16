@@ -27,6 +27,14 @@ def load_agent_system_prompt(project: dict, root: Path) -> str:
     ):
         raise ValueError("SFT system prompt hash mismatch")
     extract_airline_policy(prompt)  # Fail before a live reset/API call.
+    if project.get("profile_status") != "archived" and (
+        "one or more tool calls" in prompt
+        or "You should only make one tool call at a time" not in prompt
+    ):
+        raise ValueError(
+            "current runs require the actual SFT v4 single-tool prompt; "
+            "the legacy multitool prompt is historical evidence only"
+        )
     return prompt
 
 

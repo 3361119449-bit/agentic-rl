@@ -7,7 +7,10 @@ import pytest
 from test_sampling_isolation import make_buffer
 
 from tau2_agentic_rl.concurrency import BudgetState
-from tau2_agentic_rl.slot_recovery import SlotRecoveryExhausted
+from tau2_agentic_rl.slot_recovery import (
+    SlotRecoveryExhausted,
+    TruncationResamplesExhausted,
+)
 
 
 class LocalBudget:
@@ -96,6 +99,71 @@ def test_runtime_warmup_rejected_before_training_or_checkpointing():
     trainer.config = SimpleNamespace(trainer=SimpleNamespace(critic_warmup=100))
     with pytest.raises(ValueError, match="critic_warmup=0"):
         trainer.fit(None)
+
+
+@pytest.mark.parametrize("completed_steps", [0, 3])
+@pytest.mark.parametrize("save_fails", [False, True])
+def test_fatal_sampling_failure_preserves_latest_completed_update(completed_steps, save_fails):
+    import logging
+    import os
+    from contextlib import nullcontext
+
+    from test_procredit_runtime import production_method
+
+    from tau2_agentic_rl.dynamic_sampling import TrainingStepClock
+    from tau2_agentic_rl.failures import FatalRolloutError
+
+    class Options(dict):
+        __getattr__ = dict.__getitem__
+
+    progress = SimpleNamespace(close=lambda: None)
+    trainer_class = production_method(
+        "CappedPPOTrainerSync", "fit", object,
+        SkipManager=SimpleNamespace(init=lambda config: None, set_step=lambda step: None),
+        Tracking=lambda **kwargs: SimpleNamespace(),
+        ValidationGenerationsLogger=lambda **kwargs: None,
+        DapoFilteredRewardTableLogger=lambda **kwargs: None,
+        OmegaConf=SimpleNamespace(to_container=lambda *args, **kwargs: {}),
+        TrainingStepClock=TrainingStepClock,
+        tqdm=lambda **kwargs: progress,
+        marked_timer=lambda *args, **kwargs: nullcontext(),
+        os=os,
+        FatalRolloutError=FatalRolloutError,
+        DynamicSamplingCapReached=type("SamplingCap", (Exception,), {}),
+        logger=logging.getLogger(__name__),
+    )
+    trainer = trainer_class()
+    trainer.config = SimpleNamespace(
+        trainer=Options(
+            critic_warmup=0, project_name="test", experiment_name="test", logger=[],
+            val_before_train=False, resume_mode="disable", total_epochs=15,
+        ),
+        global_profiler=SimpleNamespace(steps=None),
+    )
+    trainer.global_steps = completed_steps
+    trainer.steps_per_epoch = 8
+    trainer.total_training_steps = 12
+    for name in ("_reissue_inflight_prompts", "on_train_begin", "on_step_begin",
+                 "_start_profiling", "_stop_profiling"):
+        setattr(trainer, name, lambda: None)
+    failure = FatalRolloutError({"uid": "bad", "phase": "judge"})
+    saved = []
+
+    def fail_sampling(*args):
+        raise failure
+
+    def save(step):
+        saved.append(step)
+        if save_fails:
+            raise OSError("checkpoint storage unavailable")
+
+    trainer.step = fail_sampling
+    trainer._save_last_valid_checkpoint = save
+    with pytest.raises(FatalRolloutError) as caught:
+        trainer.fit(None)
+    assert caught.value is failure
+    assert saved == ([completed_steps] if completed_steps else [])
+    assert trainer.step_clock.optimizer_step == completed_steps
 
 
 def worker_class(budget, errors, queue, pending=None, tags=None):
@@ -188,10 +256,11 @@ def test_worker_reports_fatal_before_pending_siblings_finish(error):
     asyncio.run(scenario())
 
 
-def test_worker_transient_exhaustion_drains_siblings_without_fatal_latch():
+@pytest.mark.parametrize("error_type", [SlotRecoveryExhausted, TruncationResamplesExhausted])
+def test_worker_transient_exhaustion_drains_siblings_without_fatal_latch(error_type):
     budget, queue, tags = LocalBudget(), [], []
     worker = worker_class(
-        budget, {3: SlotRecoveryExhausted("bounded retries")}, queue, tags=tags
+        budget, {3: error_type("bounded retries")}, queue, tags=tags
     )()
     asyncio.run(worker._run_prompt({"uid": "bad"}, {}, {"validate": False}))
     assert budget.call("fatal_rollout") is None
