@@ -66,13 +66,13 @@ def response_for(inputs):
             "turns": turns}
 
 
-def mock_client(monkeypatch, scratch_dir, responder):
+def mock_client(monkeypatch, scratch_dir, responder, *, max_retries=0):
     monkeypatch.setenv("TEST_JUDGE_KEY", "offline-dummy-key")
     original = httpx.AsyncClient
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: original(
         transport=httpx.MockTransport(responder), **kw))
     return DeepSeekJudge(JudgeConfig(model="fixture", api_key_env="TEST_JUDGE_KEY",
-                                    cache_dir=str(scratch_dir), max_retries=0))
+                                    cache_dir=str(scratch_dir), max_retries=max_retries))
 
 
 def test_one_http_request_returns_global_and_all_turns_and_cache_reuses(monkeypatch, scratch_dir):
@@ -157,7 +157,7 @@ def test_tool_excerpt_still_rejects_changed_arguments_or_missing_quote(quote):
 
 @pytest.mark.parametrize(
     "fault",
-    ["future_receipt", "missing_current_evidence", "missing", "duplicate",
+    ["future_receipt", "missing", "duplicate",
      "wrong_target", "wrong_index", "contradiction", "bad_refusal"],
 )
 def test_reject_bad_bulk_outputs_without_fallback(monkeypatch, scratch_dir, fault):
@@ -166,8 +166,6 @@ def test_reject_bad_bulk_outputs_without_fallback(monkeypatch, scratch_dir, faul
     row = answer["turns"][0]
     if fault == "future_receipt":
         row["evidence_message_indices"].append(3)
-    elif fault == "missing_current_evidence":
-        row["evidence_message_indices"] = [1]
     elif fault == "missing":
         answer["turns"].pop()
     elif fault == "duplicate":
@@ -194,6 +192,51 @@ def test_reject_bad_bulk_outputs_without_fallback(monkeypatch, scratch_dir, faul
     audit = json.loads(next((scratch_dir / MODE / "failures").glob("*.json")).read_text())
     assert audit["attempts"][0]["raw_response"] == json.dumps(answer)
     assert audit["last_error"]
+
+
+def test_quote_and_message_index_anchor_turn_without_repeated_ids():
+    inputs = frozen_inputs()
+    answer = response_for(inputs)
+    baseline = decisions_from_result(
+        TrajectoryOnceResult.model_validate(answer), inputs["simple_turn_inputs"]
+    )
+    for row in answer["turns"]:
+        row.pop("turn_index")
+    answer["turns"][0]["evidence_message_indices"] = []
+    answer["turns"][1]["evidence_message_indices"] = [3, 3]
+    answer["turns"].reverse()
+    decisions = decisions_from_result(
+        TrajectoryOnceResult.model_validate(answer), inputs["simple_turn_inputs"]
+    )
+    assert decisions[0] == baseline[0]
+    assert decisions[1] == {**baseline[1], "evidence_message_indices": [3, 4]}
+    assert answer["turns"][0]["evidence_message_indices"] == [3, 3]
+
+
+def test_one_frozen_retry_lists_both_invalid_target_rows(monkeypatch, scratch_dir):
+    inputs = frozen_inputs()
+    good = response_for(inputs)
+    bad = deepcopy(good)
+    bad["turns"][0]["target_quote"] = "Different target quote from the user."
+    bad["turns"][1]["evidence_message_indices"].append(5)
+    calls = []
+
+    def respond(request):
+        payload = json.loads(request.content)
+        calls.append(payload)
+        result = bad if len(calls) == 1 else good
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(result)}}]})
+
+    judge = mock_client(monkeypatch, scratch_dir, respond, max_retries=1)
+    _, raw, _, _ = asyncio.run(evaluate_scoring_inputs(judge, inputs))
+    assert json.loads(raw) == good
+    assert len(calls) == 2
+    assert calls[1]["messages"][:-1] == calls[0]["messages"]
+    feedback = calls[1]["messages"][-1]["content"]
+    assert "message_index 2 (cite 0..2)" in feedback
+    assert "message_index 4 (cite 0..4)" in feedback
+    asyncio.run(evaluate_scoring_inputs(judge, inputs))
+    assert len(calls) == 2
 
 
 def test_missing_bulk_response_never_calls_per_turn(monkeypatch, scratch_dir):
@@ -229,12 +272,21 @@ def test_combined_validator_retains_global_rubric_checks():
             **inputs["judge"], "turn_inputs": inputs["simple_turn_inputs"]})
 
 
-def test_live_rollout_and_frozen_retry_share_one_request(monkeypatch, scratch_dir):
+@pytest.mark.parametrize("failed_http_attempts", [0, 6])
+def test_live_rollout_and_frozen_retry_share_one_request(
+    monkeypatch, scratch_dir, failed_http_attempts,
+):
     from test_procredit_rollout import rollout_fixture
 
     from tau2_agentic_rl.scoring_retry import retry_scoring
 
     calls = []
+    original_sleep = asyncio.sleep
+
+    async def quick_sleep(_seconds):
+        await original_sleep(0)
+
+    monkeypatch.setattr("tau2_agentic_rl.judge.client.asyncio.sleep", quick_sleep)
 
     def respond(request):
         payload = json.loads(request.content)
@@ -251,9 +303,11 @@ def test_live_rollout_and_frozen_retry_share_one_request(monkeypatch, scratch_di
         answer = {"trajectory_result": {"semantic_checks": [], "transfer_semantic_checks": [],
                                         "mandatory_policy_checks": [], "transfer_check": {}},
                   "turns": turns}
+        if len(calls) <= failed_http_attempts:
+            answer["turns"][0]["target_quote"] = "This is not a quotation from that turn."
         return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps(answer)}}]})
 
-    judge = mock_client(monkeypatch, scratch_dir / "cache", respond)
+    judge = mock_client(monkeypatch, scratch_dir / "cache", respond, max_retries=2)
     loop, output, record = rollout_fixture(
         scratch_dir / "run", credit_version="procredit-turn-v4", final_turn_rule="simple-turn-v2",
         hard_limit=2, natural_stop_at=2, judge_mode=MODE, actual_judge=judge)
@@ -261,12 +315,15 @@ def test_live_rollout_and_frozen_retry_share_one_request(monkeypatch, scratch_di
     assert record.assistant_turns == 2
     assert record.user_sim_inputs is None and record.user_sim_result is None
     assert record.metadata["simple_turn_labels"]["judge_mode"] == MODE
-    assert len(calls) == 1
+    assert len(calls) == failed_http_attempts + 1
+    assert all(call["messages"][:2] == calls[0]["messages"] for call in calls)
+    if failed_http_attempts:
+        assert [row["success"] for row in record.metadata["scoring_retries"]] == [False, True]
     before = deepcopy(record.model_dump())
     record.custom_reward = None
     record.metadata["failure_phase"] = "turn_labels"
     assert asyncio.run(retry_scoring(record, judge, loop.store))
-    assert len(calls) == 1
+    assert len(calls) == failed_http_attempts + 1
     for field in ("messages", "environment_transcript", "token_turns", "scoring_inputs", "custom_reward"):
         assert record.model_dump()[field] == before[field]
     assert record.metadata["simple_turn_labels"] == before["metadata"]["simple_turn_labels"]
@@ -282,7 +339,7 @@ def test_prompt_has_one_combined_output_schema_and_retains_receipt_rules():
     assert set(schema["trajectory_result"]) == {
         "schema_version", "semantic_checks", "transfer_semantic_checks", "mandatory_policy_checks", "transfer_check"}
     assert set(schema["turns"][0]) == {
-        "turn_index", "message_index", "target_quote", "verdict", "evidence_message_indices", "reason", "refusal_requests"}
+        "message_index", "target_quote", "verdict", "evidence_message_indices", "reason", "refusal_requests"}
     assert "original rubric output_schema" not in messages[0]["content"]
     assert "Its own receipt is always out of scope" in messages[0]["content"]
 

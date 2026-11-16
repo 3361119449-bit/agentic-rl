@@ -21,16 +21,18 @@ from tau2_agentic_rl.reward.simple_turn import (
 from tau2_agentic_rl.schemas import JudgeResult
 
 MODE = "trajectory_once_v1"
-PROMPT_VERSION = "trajectory-once-causal-v2-single-schema"
-SCORER_CODE_VERSION = "trajectory-once-v3-policy-trigger-validation"
+PROMPT_VERSION = "trajectory-once-causal-v3-message-index"
+SCORER_CODE_VERSION = "trajectory-once-v4-message-index"
 
 # Preserve the previously tested whole-trajectory rubric and full receipt rules.
 TURN_PROMPT = """
-Also return turns for every requested target, in order. For [turn_index,i], judge
+Also return turns for every requested target. For its message_index i, judge
 only visible_messages[i]; use visible_messages[0..i] and the bound Policy.
 Task/reference facts, global tool-event outcomes and future messages are not
 evidence available to that generation. Global findings do not excuse or taint
-a different turn. Cite i and supporting zero-based visible message indices.
+a different turn. Cite supporting zero-based visible message indices. The target
+message_index already identifies the current generation; include it in evidence
+only if useful.
 
 For a tool call at i, judge its name, arguments and authorization using facts
 available before the call. Its own receipt is always out of scope. Do not state
@@ -64,12 +66,12 @@ correct explanation/alternatives. Evaluate each refusal independently, including
 repeats. Any error wins. Otherwise neutral. Use task_guidance when relevant.
 
 Follow the single combined rubric.output_schema.
-Every target appears exactly once in order; no extra fields. verdict is bad,
+Every target message_index appears exactly once; no extra fields. verdict is bad,
 refusal or neutral. refusal_requests lists {"target":"object","operation":"action"}
 only for refusal, otherwise []. Quote 16-80 literal characters from raw_generated_text
 if present, else content/tool call (whole text if shorter).
-Native trajectory evidence IDs are ONLY for trajectory_result. visible_messages
-indices and target turn_index are ONLY for turns; never interchange these IDs.
+Native trajectory evidence IDs are ONLY for trajectory_result. For turns, use
+message_index exactly as listed in targets and cite visible_messages indices.
 Native messages with visible_message_index reference that visible message's content.
 """
 
@@ -77,7 +79,7 @@ Native messages with visible_message_index reference that visible message's cont
 class BatchTurn(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    turn_index: StrictInt
+    turn_index: StrictInt | None = None  # Compatibility with previously frozen replies.
     message_index: StrictInt
     target_quote: str
     verdict: Literal["bad", "refusal", "neutral"]
@@ -109,21 +111,42 @@ class TrajectoryOnceResult(BaseModel):
 def decisions_from_result(result, turn_inputs):
     if turn_inputs.get("version") != INDEPENDENT_VERSION:
         raise ValueError("trajectory_once_v1 requires independent simple-turn-v2")
-    if len(result.turns) != len(turn_inputs["turn_message_indices"]):
-        raise ValueError("whole-trajectory response must contain every requested turn")
-    decisions = []
-    for t, row in enumerate(result.turns):
-        request = turn_request(turn_inputs, t, [])
-        decision = TurnDecision(
-            turn_index=row.turn_index, target_message_index=row.message_index,
-            target_generation_sha256=request["target_generation_sha256"],
-            target_quote=row.target_quote, bad_turn=row.verdict == "bad",
-            correct_refusal=row.verdict == "refusal", reason=row.reason,
-            evidence_message_indices=row.evidence_message_indices,
-            refusal_requests=row.refusal_requests, revoked_refusals=[],
+    targets = turn_inputs["turn_message_indices"]
+    returned = {row.message_index: row for row in result.turns}
+    if len(returned) != len(result.turns) or returned.keys() != set(targets):
+        missing = sorted(set(targets) - returned.keys())
+        unexpected = sorted(returned.keys() - set(targets))
+        raise ValueError(
+            "Return each target message_index exactly once. "
+            f"Missing {missing}; unexpected {unexpected}; "
+            f"duplicate rows {len(result.turns) - len(returned)}."
         )
-        decisions.append(validate_decision(decision.model_dump(), request))
-        check_label_consistency(decision)
+    decisions, errors = [], []
+    for t, index in enumerate(targets):
+        row = returned[index]
+        request = turn_request(turn_inputs, t, [])
+        # The required message_index and literal quote still bind the label
+        # to this generation. Repeating the target in evidence is redundant.
+        evidence = list(dict.fromkeys(row.evidence_message_indices))
+        if index not in evidence:
+            evidence.append(index)
+        try:
+            decision = TurnDecision(
+                turn_index=t if row.turn_index is None else row.turn_index,
+                target_message_index=index,
+                target_generation_sha256=request["target_generation_sha256"],
+                target_quote=row.target_quote, bad_turn=row.verdict == "bad",
+                correct_refusal=row.verdict == "refusal", reason=row.reason,
+                evidence_message_indices=evidence,
+                refusal_requests=row.refusal_requests, revoked_refusals=[],
+            )
+            validated = validate_decision(decision.model_dump(), request)
+            check_label_consistency(decision)
+            decisions.append(validated)
+        except ValueError as error:
+            errors.append(f"message_index {index} (cite 0..{index}): {error}")
+    if errors:
+        raise ValueError("Invalid turn rows. " + "; ".join(errors))
     return decisions
 
 
@@ -145,7 +168,9 @@ def build_messages(*, turn_inputs, **global_inputs):
     for t, i in enumerate(turn_inputs["turn_message_indices"]):
         # Verify frozen target shape before any HTTP request.
         turn_request(turn_inputs, t, [])
-        targets.append({"turn_index": t, "message_index": i})
+        targets.append({"message_index": i})
+    if not targets:
+        raise ValueError("trajectory_once_v1 requires at least one target")
 
     # Shared delivered content is transmitted once. Preserve native evidence IDs
     # and unmatched native entries; never replace the actor-visible view with
@@ -174,8 +199,8 @@ def build_messages(*, turn_inputs, **global_inputs):
     messages = build_judge_messages(
         **{**global_inputs, "trajectory": trajectory},
         turn_output_schema={
-            "turn_index": 0, "message_index": 2, "target_quote": "literal target excerpt",
-            "verdict": "bad|refusal|neutral", "evidence_message_indices": [2],
+            "message_index": targets[0]["message_index"], "target_quote": "literal target excerpt",
+            "verdict": "bad|refusal|neutral", "evidence_message_indices": [],
             "reason": "short supported reason", "refusal_requests": [],
         },
     )
