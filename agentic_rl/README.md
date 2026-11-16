@@ -399,9 +399,9 @@ python scripts/train_airline_grpo.py \
 
 ### 从 SFT v4 开始 GRPO
 
-将 `MERGED_SFT_MODEL` 指向 SFT v4 Step 334 的完整合并模型。选定奖励版本后，用新的 run 名称启动。当前实验核对实际配置中的 `reward_version: v13.1-procredit-immediate-independent`、`progress_credit: immediate_delta_v1` 与 `final_turn_rule: simple-turn-v2`。提示词和用户筛选以该 run 的记录为准。
+将 `MERGED_SFT_MODEL` 指向 SFT v4 Step 334 的完整合并模型。选定奖励版本后，用新的 run 名称启动。当前正式实验核对实际配置中的 `reward_version: v13.2-procredit-official-semantic-progress`、`progress_credit: immediate_delta_v1` 与 `final_turn_rule: simple-turn-v2`。提示词和用户筛选以该 run 的记录为准。
 
-`--stage full_train` 训练全部 30 个任务，并加载 Task 7、14、21、23、39 的修复。整轨一次 Judge 使用对应任务指导，同时返回逐轮标签，奖励公式延续 v13.1。原有的 6 个内部验证任务已编入训练，本阶段默认关闭训练内验证。按本次实验设置 `RL_EPOCHS` 和 `RL_UPDATES`，前者控制遍历上限，后者控制 optimizer 更新上限。正式运行前可加 `--dry-run` 检查实际任务与命令。
+`--stage full_train` 训练全部 30 个任务，并加载 Task 7、14、21、23、39 的修复。整轨一次 Judge 使用对应任务指导，同时返回逐轮标签。v13.2 的完成分取官方奖励，最终进度计入必要动作和整轨语义，再按原公式一起组归一化。原有的 6 个内部验证任务已编入训练，本阶段默认关闭训练内验证。按本次实验设置 `RL_EPOCHS` 和 `RL_UPDATES`，前者控制遍历上限，后者控制 optimizer 更新上限。正式运行前可加 `--dry-run` 检查实际任务与命令。
 
 ```bash
 python scripts/prepare_tau2_dataset.py

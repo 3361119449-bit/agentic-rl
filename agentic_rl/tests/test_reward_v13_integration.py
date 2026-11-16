@@ -1,6 +1,7 @@
 import asyncio
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from test_immediate_progress import config, row
@@ -9,7 +10,7 @@ from test_procredit_rollout import rollout_fixture
 from test_simple_turn_reward import decision
 from test_simple_turn_scoring import fake_score
 
-from scripts.train_airline_grpo import DEFAULT_CONFIG
+from scripts.train_airline_grpo import DEFAULT_CONFIG, FULL_TRAIN_CONFIG
 from tau2_agentic_rl.advantages import CreditConfig, compute_group_credit
 from tau2_agentic_rl.config import load_yaml, validate_procredit_config
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
@@ -27,6 +28,88 @@ from tau2_agentic_rl.schemas import (
 from tau2_agentic_rl.scoring_retry import retry_scoring
 
 ROOT = Path(__file__).parents[1]
+OFFICIAL_PROGRESS = "official_semantic_progress_v1"
+
+
+def test_train30_uses_official_completion_and_all_terminal_progress_checks():
+    cfg = load_yaml(ROOT / FULL_TRAIN_CONFIG)
+    validate_procredit_config(cfg)
+    assert cfg["reward"]["task_score_mode"] == OFFICIAL_PROGRESS
+    required = [{"action_id": "cancel", "name": "cancel_reservation",
+                 "arguments": {"reservation_id": "R"}}]
+    event = ToolEvent(event_id="cancel", sequence=0, turn_id=1, name="cancel_reservation",
+                      arguments={"reservation_id": "R"}, success=True, db_effect=True)
+    trace = build_progress_trace(
+        task={"id": "test"}, messages=[{}], prefix_lengths=[0, 1],
+        events=[event], required_actions=required, dependencies=[], transfer_rule={},
+        initial_state_fingerprint="initial", version="progress-v3",
+        evaluator=lambda task, messages: {"db": True, "communicate": []},
+    )
+    judge = JudgeResult(
+        semantic_checks=[
+            JudgeCheck(criterion_id="test:nl:0", passed=True),
+            JudgeCheck(criterion_id="test:nl:1", passed=False),
+        ],
+        transfer_check=TransferCheck(applicable=False, valid=False, policy_required=False,
+                                     self_caused_only=False, short_reason="No transfer needed."),
+    )
+    result = score_trajectory(
+        events=[event], messages=[{}], assistant_turns=1, required_actions=required,
+        official=OfficialScores(reward=1, db_applicable=True, db_score=1),
+        judge=judge, config=build_reward_config(cfg), progress_trace=trace,
+    )
+    # Initial DB is excluded. One required action and one of two semantic checks passed.
+    assert trace["phi"] == [0, 1]
+    assert result.details["task_completion"] == result.strict_success == 1
+    assert result.progress == pytest.approx(2 / 3)
+    assert result.train_reward == pytest.approx(1 + 0.5 * (2 / 3))
+
+
+def test_official_progress_retries_frozen_and_reaches_group_credit(scratch_dir):
+    definitions = [{"criterion_id": "required-explanation", "criterion": "Explain."}]
+
+    async def judge(**kwargs):
+        assert kwargs["semantic_checks"] == definitions
+        result = JudgeResult(semantic_checks=[
+            JudgeCheck(criterion_id="required-explanation", passed=False),
+        ])
+        return result, "", "", ""
+
+    loop, output, record = rollout_fixture(
+        scratch_dir, credit_version="procredit-turn-v4", natural_stop_at=1,
+        actual_judge=SimpleNamespace(evaluate=judge),
+        semantic_row={"semantic_checks": definitions}, task_score_mode=OFFICIAL_PROGRESS,
+    )
+    row = credit_from_record(record)
+    assert row == output.extra_fields["procredit"]
+    assert row["terminal_success"] == record.official_scores.reward == 1
+    assert row["phi"] == [0, 1]
+    assert row["final_progress"] == .5
+    assert row["score"] == 1.25
+    worse = dict(row, trajectory_id="worse", final_progress=0, score=1)
+    report = compute_group_credit([row, worse], config())
+    assert report["score_mean"] == 1.125
+    assert report["trajectories"][0]["turn_returns"] == [.5]
+    assert report["trajectories"][0]["trajectory_advantage"] > 0
+    assert report["trajectories"][1]["trajectory_advantage"] < 0
+
+    record.custom_reward = None
+    record.metadata["failure_phase"] = "judge"
+    assert asyncio.run(retry_scoring(record, loop.judge, loop.store))
+    assert credit_from_record(record) == row
+    record.judge_result.semantic_checks[0].passed = True
+    with pytest.raises(ValueError, match="reward differs"):
+        credit_from_record(record)
+
+
+def test_new_credit_keeps_partial_official_scores_and_rejects_mixing_versions():
+    value = row(phi=(0, .5), terminal=.25)
+    value.update(final_progress=.75, score=.625)
+    assert compute_group_credit([value], config())["score_mean"] == .625
+    with pytest.raises(ValueError, match="mixed group identity"):
+        compute_group_credit([value, row(1, phi=(0, .5))], config())
+    with pytest.raises(ValueError, match="scalar score differs"):
+        compute_group_credit([dict(value, score=.5)], config())
 
 
 def test_live_freeze_retry_runtime_preserve_v2_and_original_tokens(scratch_dir, monkeypatch):

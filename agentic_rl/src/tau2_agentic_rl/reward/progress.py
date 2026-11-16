@@ -21,7 +21,7 @@ from tau2_agentic_rl.reward.transfer_branch import (
     _pre_transfer_score,
     successful_transfer_event,
 )
-from tau2_agentic_rl.schemas import ToolEvent
+from tau2_agentic_rl.schemas import JudgeResult, ToolEvent
 from tau2_agentic_rl.versions import sha256_json
 
 PROGRESS_VERSION = "progress-v1"
@@ -256,6 +256,18 @@ def validate_progress_trace(trace: dict, *, turns: int) -> list[float]:
         if not math.isclose(actual, expected, rel_tol=0, abs_tol=1e-12):
             raise ValueError("progress fraction differs from verified checks")
     return phi
+
+
+def terminal_progress(trace: dict, judge: JudgeResult, *, transfer: bool) -> float:
+    """Count terminal semantic checks alongside the active progress checks."""
+    if trace["version"] != PROGRESS_ADDITIVE_VERSION:
+        raise ValueError("terminal semantic progress requires additive progress-v3")
+    active = [i for i, check in enumerate(trace["checks"]) if check["included"]]
+    checks = judge.transfer_semantic_checks if transfer else judge.semantic_checks
+    total = len(active) + len(checks)
+    completed = sum(trace["check_values"][-1][i] for i in active)
+    completed += sum(check.passed for check in checks)
+    return completed / total if total else 0.0
 
 
 def validate_progress_inputs(

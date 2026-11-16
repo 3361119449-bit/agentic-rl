@@ -73,6 +73,14 @@ def validate_procredit_config(config: dict) -> None:
         if mode != "trajectory_once_v1" or config.get("user_sim_filter", {}).get("enabled") is not False:
             raise ValueError("formal train30 requires judge trajectory_once_v1 and user_sim_filter disabled")
 
+    reward = config.get("reward", {})
+    if reward.get("task_score_mode") is not None and (
+        not is_procredit(config)
+        or reward.get("progress_version") != "progress-v3"
+        or config.get("credit", {}).get("progress_credit") != "immediate_delta_v1"
+    ):
+        raise ValueError("task_score_mode requires progress-v3 and immediate ProCredit")
+
     if not is_procredit(config):
         if any(config.get("credit", {}).get(k) is not None for k in (
             "db_subgoal_credit", "post_completion_credit", "final_turn_rule", "progress_credit",
@@ -132,7 +140,6 @@ def validate_procredit_config(config: dict) -> None:
             "rollout_dtype": "bfloat16", "reduce_dtype": "float32", "buffer_dtype": "float32",
         }:
             raise ValueError("ProCredit v3/v4 requires explicit BF16 precision")
-    reward = config["reward"]
     if reward.get("score_floor") != 0 or reward.get("penalty_placement") != (
         "turn_only" if local_only else "outside_truncation"
     ):

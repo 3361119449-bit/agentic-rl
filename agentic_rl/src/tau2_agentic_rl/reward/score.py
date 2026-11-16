@@ -8,6 +8,7 @@ from typing import Any
 
 from tau2_agentic_rl.failures import PolicyAttributionPending
 from tau2_agentic_rl.judge.evidence import validate_evidence_turn_ids
+from tau2_agentic_rl.pass_metrics import official_success
 from tau2_agentic_rl.reward.mandatory_policy import (
     evaluate_mandatory_policy,
     evaluate_task_safety,
@@ -24,6 +25,7 @@ from tau2_agentic_rl.reward.process_penalty import (
     compute_process_penalty,
 )
 from tau2_agentic_rl.reward.progress import (
+    terminal_progress,
     validate_progress_inputs,
     validate_progress_trace,
 )
@@ -64,6 +66,7 @@ class RewardConfig:
     transfer_validation_version: str = "transfer-policy-v1"
     duplicate_query_version: str | None = None
     progress_scale: float = 0.5
+    task_score_mode: str | None = None
     credit_version: str = "procredit-turn-v1"
     normal_weights: dict[str, float] = field(
         default_factory=lambda: {
@@ -102,6 +105,10 @@ class RewardConfig:
         if self.credit_version not in {"procredit-turn-v1", "procredit-turn-v2", "procredit-turn-v3", "procredit-turn-v4"}:
             raise ValueError("unknown credit version")
         local_only = self.credit_version == "procredit-turn-v4"
+        if self.task_score_mode not in (None, "official_semantic_progress_v1") or (
+            self.task_score_mode is not None and not local_only
+        ):
+            raise ValueError("official_semantic_progress_v1 requires ProCredit v4")
         if local_only != (self.mode == "turn_local_v1"):
             raise ValueError("turn_local_v1 requires ProCredit v4")
         if self.credit_version != "procredit-turn-v1" and self.mode not in {"strict_progress_v1", "turn_local_v1"}:
@@ -146,6 +153,7 @@ def build_reward_config(project_config: dict[str, Any]) -> RewardConfig:
         duplicate_query_version=reward.get("duplicate_query_version"),
         credit_version=project_config.get("credit", {}).get("version", "procredit-turn-v1"),
         progress_scale=float(reward.get("progress_scale", 0.5)),
+        task_score_mode=reward.get("task_score_mode"),
         normal_weights={
             str(key): float(value)
             for key, value in reward.get(
@@ -446,7 +454,16 @@ def score_trajectory(
     valid = result.policy_gate and result.task_safety_gate
     local_only = config.credit_version == "procredit-turn-v4"
     multiplier = result.details["truncation_multiplier"]
-    task_score = result.strict_success + config.progress_scale * phi[-1]
+    completion = result.strict_success
+    progress = phi[-1]
+    success = result.strict_success if valid else 0.0
+    if config.task_score_mode is not None:
+        completion = kwargs["official"].reward
+        success = float(official_success(completion))
+        progress = terminal_progress(
+            progress_trace, kwargs["judge"], transfer=result.branch == "human_transfer",
+        )
+    task_score = completion + config.progress_scale * progress
     raw_score = multiplier * task_score
     if not local_only:
         raw_score -= result.process_penalty
@@ -464,8 +481,8 @@ def score_trajectory(
         **result.model_dump(),
         "reward_mode": config.mode,
         "train_reward": max(0.0, raw_score) if valid or local_only else 0.0,
-        "strict_success": result.strict_success if valid else 0.0,
-        "progress": phi[-1],
+        "strict_success": success,
+        "progress": progress,
         "details": details,
     })
     if config.credit_version != "procredit-turn-v1":
@@ -478,7 +495,7 @@ def score_trajectory(
         policy = scored.details["policy_credit"]
         if not policy["attribution_complete"]:
             raise PolicyAttributionPending("v4 requires complete policy attribution; retry this frozen Judge input")
-        scored.details["task_completion"] = result.strict_success
+        scored.details["task_completion"] = completion
         scored.details["policy_gate_applied"] = False
         scored.details["policy_turn_rewards"] = [
             -1.0 if t in policy["violating_turns"] else 0.0

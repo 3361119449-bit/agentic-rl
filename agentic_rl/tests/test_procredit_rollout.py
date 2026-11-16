@@ -17,7 +17,8 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
                     db_subgoal_credit=False, post_completion_credit=False,
                     final_turn_rule=None, turn_scorer=None, zero_truncation=False,
                     hard_limit=None, natural_stop_at=None, judge_enabled=True,
-                    semantic_row=None, task_guidance=None, judge_mode=None, actual_judge=None):
+                    semantic_row=None, task_guidance=None, judge_mode=None, actual_judge=None,
+                    task_score_mode=None):
     loop, scope = minimal_loop(scratch_dir)
     cleaned, judge_calls = [], []
     loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
@@ -36,6 +37,11 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
         loop.project["slot_recovery"] = {
             "max_resamples": 2, "max_scoring_retries": 2, "on_exhaustion": "salvage_group",
         }
+    if task_score_mode is not None:
+        loop.project["reward"].update(
+            task_score_mode=task_score_mode, progress_version="progress-v3",
+        )
+        loop.project["credit"]["progress_credit"] = "immediate_delta_v1"
     if db_subgoal_credit:
         loop.project["credit"]["db_subgoal_credit"] = "db_subgoal_local_v1"
     if post_completion_credit:

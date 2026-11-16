@@ -173,6 +173,7 @@ def _zero_credit_from_record(record):
         "checkset_fingerprint": trace["checkset_fingerprint"],
         "initial_state_fingerprint": trace["initial_state_fingerprint"],
         "score": 0.0, "valid": False, "terminal_success": 0.0, "multiplier": 0.0,
+        **({"final_progress": 0.0} if config.task_score_mode is not None else {}),
         "phi": [0.0] * (turns + 1), "raw_progress_phi": trace["phi"],
         "response_turn_ids": _record_token_mapping(record),
         "credit_version": config.credit_version,
@@ -187,7 +188,7 @@ def _zero_credit_from_record(record):
 def credit_from_record(record) -> dict:
     """Rebuild only from a fully scored versioned record, never terminal guesses."""
     from tau2_agentic_rl.reward.policy_credit import build_policy_credit
-    from tau2_agentic_rl.reward.progress import validate_progress_trace
+    from tau2_agentic_rl.reward.progress import terminal_progress, validate_progress_trace
     from tau2_agentic_rl.reward.truncation import zero_truncated
 
     if zero_truncated(record.scoring_inputs.get("reward_project_config", {}),
@@ -203,13 +204,16 @@ def credit_from_record(record) -> dict:
     ):
         raise ValueError("record lacks complete ProCredit scoring inputs")
     validate_progress_trace(trace, turns=record.assistant_turns)
-    frozen_reward = record.scoring_inputs.get("reward_project_config", {}).get("reward", {})
+    frozen = record.scoring_inputs
+    frozen_reward = frozen.get("reward_project_config", {}).get("reward", {})
     if trace["version"] != frozen_reward.get("progress_version", trace["version"]):
         raise ValueError("record progress version differs from frozen configuration")
     valid = reward.policy_gate and reward.task_safety_gate
     version = reward.details.get("credit_version", "procredit-turn-v1")
     local_only = version == "procredit-turn-v4"
     terminal = reward.strict_success
+    progress = trace["phi"][-1]
+    semantic_progress = frozen_reward.get("task_score_mode") is not None
     if local_only:
         from tau2_agentic_rl.reward.normal_branch import strict_success
 
@@ -233,6 +237,20 @@ def credit_from_record(record) -> dict:
             terminal = transfer_task_completion(
                 transfer_scores, transfer_valid, record.judge_result, "transfer-policy-v2",
             )
+        if semantic_progress:
+            from tau2_agentic_rl.pass_metrics import official_success
+
+            if (
+                record.judge_result is None
+                or sha256_json(frozen) != record.metadata.get("scoring_inputs_sha256")
+                or frozen.get("progress_trace") != trace
+                or frozen.get("official_scores") != record.official_scores.model_dump()
+            ):
+                raise ValueError("official completion requires frozen scoring evidence")
+            terminal = record.official_scores.reward
+            progress = terminal_progress(trace, record.judge_result, transfer=transfer_target)
+            if reward.strict_success != float(official_success(terminal)):
+                raise ValueError("strict success differs from official reward")
         if (
             reward.reward_mode != "turn_local_v1"
             or reward.branch != ("human_transfer" if transfer_target else "normal")
@@ -244,7 +262,7 @@ def credit_from_record(record) -> dict:
     expected_score = (
         max(
             0,
-            multiplier * (terminal + 0.5 * trace["phi"][-1])
+            multiplier * (terminal + 0.5 * progress)
             - (0 if local_only else reward.process_penalty),
         )
         if valid or local_only
@@ -252,7 +270,7 @@ def credit_from_record(record) -> dict:
     )
     if (
         reward.details.get("checkset_fingerprint") != trace["checkset_fingerprint"]
-        or reward.progress != trace["phi"][-1]
+        or reward.progress != progress
         or not math.isclose(
             reward.train_reward, expected_score, rel_tol=0, abs_tol=1e-12
         )
@@ -268,6 +286,7 @@ def credit_from_record(record) -> dict:
         "score": reward.train_reward,
         "valid": valid,
         "terminal_success": terminal,
+        **({"final_progress": progress} if semantic_progress else {}),
         "multiplier": multiplier,
         "phi": trace["phi"],
         "response_turn_ids": record.response_turn_ids,
@@ -295,8 +314,7 @@ def credit_from_record(record) -> dict:
         from tau2_agentic_rl.reward.process_penalty import build_process_credit
         from tau2_agentic_rl.reward.score import build_reward_config
 
-        frozen = record.scoring_inputs.get("reward_project_config", {})
-        config = build_reward_config(frozen)
+        config = build_reward_config(frozen.get("reward_project_config", {}))
         if (
             config.credit_version != version
             or trace["version"] not in {"progress-v2", "progress-v3"}
@@ -315,7 +333,6 @@ def credit_from_record(record) -> dict:
         ):
             raise ValueError("record process attribution differs from frozen scoring evidence")
         row["process_credit"] = expected_process
-    frozen = record.scoring_inputs or {}
     if frozen.get("reward_project_config", {}).get("credit", {}).get("db_subgoal_credit") is not None:
         from tau2_agentic_rl.reward.db_subgoals import subgoal_trace_from_scoring
 

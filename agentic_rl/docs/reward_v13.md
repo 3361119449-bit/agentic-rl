@@ -3,7 +3,7 @@
 This is the user-approved credit-assignment change, based on main
 `d10a8e7622447b28df3021ae5ec80a7f6c855301`. It does not replace ProCredit v4.
 
-## Current default and compatibility
+## v13.1 profile and compatibility
 
 The formal default is `configs/rl/airline_procredit_v4_train30.yaml`;
 `airline_procredit_v4.yaml` preserves the explicit legacy development split.
@@ -46,9 +46,26 @@ the test rubric from 50 to 19. The original `v1` files remain available for repl
 Official COMMUNICATE checks find literal text. Residual checks still verify the
 meaning of an amount, a policy explanation, or any behavior DB and REQ do not
 establish. Where all semantic criteria are covered, Judge Semantic is inapplicable.
-The other applicable components still determine task completion. The global Judge
-receives only the residual semantic criteria and continues to score policy and
-transfer. The per-turn Judge still uses its own existing rubric.
+The global Judge receives only the residual semantic criteria and continues to
+score policy and transfer. In v13.1, all applicable completion components must
+pass. In the formal train30 v13.2 profile, semantic results contribute to
+terminal progress.
+
+## Official completion and terminal progress
+
+The formal `airline_procredit_v4_train30.yaml` selects
+`v13.2-procredit-official-semantic-progress` with
+`reward.task_score_mode: official_semantic_progress_v1`.
+
+- The completion term `T` is the Tau2 official reward for the configured task.
+- Terminal progress counts each initially unmet progress check (DB, official
+  communication and required actions) and each retained trajectory semantic
+  check once. Divide the count of passed checks at termination by the total count.
+  If the total is zero, terminal progress is zero. Required transfers use their
+  transfer progress and transfer-semantic checks.
+- The group score is `T + 0.5 * phi_final`. Per-turn progress still comes from
+  prefix-verifiable checks. The terminal semantic results do not change the
+  earlier progress trace or the final turn's local progress.
 
 ## Formula and precedence
 

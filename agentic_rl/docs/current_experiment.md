@@ -11,7 +11,7 @@
 | 正式配置 | `configs/rl/airline_procredit_v4_train30.yaml` |
 | 任务 | 官方 train 全部 30 个；旧 6 个 internal dev 编入训练；official test 20 个保持隔离 |
 | 内部验证 | `val_before_train=false`、`test_freq=-1` |
-| 奖励 | `v13.1-procredit-immediate-independent`；进度权重 0.5；公式见 [奖励说明](reward_v13.md) |
+| 奖励 | `v13.2-procredit-official-semantic-progress`。组归一化输入为官方奖励 + 0.5 × 最终进度；最终进度包含必要动作和整轨语义。见 [奖励说明](reward_v13.md#official-completion-and-terminal-progress) |
 | Judge | `trajectory_once_v1`：一次提交完整轨迹，返回整轨结论与全部 `simple-turn-v2` 轮次标签；高思考，新缓存，有界失败重试 |
 | 用户筛选 | 关闭用户模拟合规筛选；保留对话所需的用户模拟器，不调用用户合规 Judge |
 | RL LoRA | rank 32、alpha 64、all-linear；学习率 `5e-6`；PPO epochs 2 |

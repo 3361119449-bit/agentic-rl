@@ -162,10 +162,12 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
         ids.add(trajectory_id)
         if any(row.get(field) is None for field in identity_fields):
             raise ValueError("missing group identity")
-        identities.append(tuple(row[field] for field in identity_fields))
+        semantic_progress = "final_progress" in row
+        identity = tuple(row[field] for field in identity_fields)
+        identities.append((*identity, semantic_progress))
         score = _number(row["score"], 0, 1.5, "score")
         terminal = _number(row["terminal_success"], 0, 1, "terminal_success")
-        if terminal not in (0, 1) or type(row["valid"]) is not bool:
+        if (not semantic_progress and terminal not in (0, 1)) or type(row["valid"]) is not bool:
             raise ValueError("success and gate must be binary")
         if not local_only and not row["valid"] and score != 0:
             raise ValueError("invalid trajectory must have zero score")
@@ -185,6 +187,15 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             raise ValueError("truncation zero marker contradicts multiplier")
         if multiplier not in (0, 0.75, 1):
             raise ValueError("unsupported truncation multiplier")
+        if semantic_progress:
+            if not local_only or config.progress_credit != "immediate_delta_v1":
+                raise ValueError("terminal semantic progress requires immediate ProCredit v4")
+            final_progress = _number(row["final_progress"], 0, 1, "final_progress")
+            expected = multiplier * (terminal + config.progress_scale * final_progress)
+            if (zero and (terminal != 0 or final_progress != 0)) or not math.isclose(
+                score, expected, rel_tol=0, abs_tol=1e-12,
+            ):
+                raise ValueError("scalar score differs from official completion and final progress")
         phi = validate_phi(row["phi"])
         mapping = row["response_turn_ids"]
         if not isinstance(mapping, list) or not mapping:
