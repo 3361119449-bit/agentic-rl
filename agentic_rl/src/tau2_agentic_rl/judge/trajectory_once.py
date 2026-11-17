@@ -220,7 +220,7 @@ class TrajectoryOnceJudge(DeepSeekJudge):
         decisions_from_result(result, inputs["turn_inputs"])
 
 
-async def evaluate_scoring_inputs(judge, inputs):
+async def evaluate_scoring_inputs(judge, inputs, *, progress=None):
     """Shared by live rollout and frozen rescoring; no fallback between modes."""
     mode = inputs.get("reward_project_config", {}).get("judge", {}).get("mode", "per_turn")
     if mode == "per_turn":
@@ -235,7 +235,7 @@ async def evaluate_scoring_inputs(judge, inputs):
         thinking_type="enabled", reasoning_effort="high",
     )
     result, raw, prompt_hash, cache_key = await TrajectoryOnceJudge(config).evaluate(
-        **inputs["judge"], turn_inputs=inputs["simple_turn_inputs"])
+        **inputs["judge"], turn_inputs=inputs["simple_turn_inputs"], on_request_end=progress)
     return result.trajectory_result, raw, prompt_hash, cache_key
 
 

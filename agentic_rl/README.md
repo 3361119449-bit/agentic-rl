@@ -398,6 +398,8 @@ python scripts/train_airline_grpo.py \
 
 `--stage full_train` 训练全部 30 个任务，并加载 Task 7、14、21、23、39 的修复。整轨一次 Judge 使用对应任务指导，同时返回逐轮标签。v13.2 的完成分取官方奖励，最终进度计入必要动作和整轨语义，再按原公式一起组归一化。原有的 6 个内部验证任务已编入训练，本阶段默认关闭训练内验证。按本次实验设置 `RL_EPOCHS` 和 `RL_UPDATES`，前者控制遍历上限，后者控制 optimizer 更新上限。正式运行前可加 `--dry-run` 检查实际任务与命令。
 
+复跑 12 步实验使用 `python -m scripts.run_train30_12_steps --run-name RUN_NAME`。它在 optimizer 第 6、12 步各保留 checkpoint，并各跑 80 条官方测试。启动前可加 `--dry-run`。同一实验中断后使用原 run 名和 `--resume`。缺样的测评会停在当前阶段，保留已有轨迹并等待显式处置。
+
 ```bash
 python scripts/apply_verl_lora_precision.py "$VERL_ROOT"
 python scripts/prepare_tau2_dataset.py

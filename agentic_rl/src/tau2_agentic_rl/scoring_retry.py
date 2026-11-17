@@ -49,7 +49,7 @@ async def retry_scoring_batch(records, judge, store):
     return results
 
 
-async def retry_scoring(record, judge, store):
+async def retry_scoring(record, judge, store, *, progress=None):
     """Atomically update the same ID/slot, preserving all interaction evidence."""
     from tau2_agentic_rl.reward.truncation import (
         deterministic_zero_reward,
@@ -130,7 +130,9 @@ async def retry_scoring(record, judge, store):
                 record.metadata["scoring_inputs_sha256"] = sha256_json(inputs)
             record.progress_trace = inputs["progress_trace"]
         attempt["phase"] = "judge"
-        result, raw, prompt_hash, cache_key = await evaluate_scoring_inputs(judge, inputs)
+        result, raw, prompt_hash, cache_key = await evaluate_scoring_inputs(
+            judge, inputs, progress=progress
+        )
         attempt["phase"] = "reward_scoring"
         reward = score_trajectory(
             events=record.tool_events,

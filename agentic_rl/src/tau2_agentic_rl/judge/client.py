@@ -226,7 +226,9 @@ class DeepSeekJudge:
             result.transfer_check.applicable = True
         validate_evidence_turn_ids(result, inputs.get("trajectory", {}))
 
-    async def evaluate(self, **inputs: Any) -> tuple[JudgeResult, str, str, str]:
+    async def evaluate(
+        self, *, on_request_end=None, **inputs: Any
+    ) -> tuple[JudgeResult, str, str, str]:
         """Return result, raw response, prompt hash, and full cache-key hash."""
         messages = self.build_messages(**inputs)
         prompt_hash = sha256_json(messages)
@@ -261,13 +263,28 @@ class DeepSeekJudge:
                 raw = None
                 try:
                     async with api_budget().aslot("judge_api"):
-                        response = await client.post(
-                            "chat/completions",
-                            headers={"Authorization": f"Bearer {api_key}"},
-                            json=payload,
-                        )
+                        try:
+                            async with asyncio.timeout(self.config.timeout_seconds):
+                                response = await client.post(
+                                    "chat/completions",
+                                    headers={"Authorization": f"Bearer {api_key}"},
+                                    json=payload,
+                                )
+                        except TimeoutError as exc:
+                            raise httpx.ReadTimeout(
+                                f"Judge request exceeded its {self.config.timeout_seconds:g}s total deadline"
+                            ) from exc
+                        finally:
+                            if on_request_end is not None:
+                                on_request_end()
                     response.raise_for_status()
-                    raw = response.json()["choices"][0]["message"]["content"]
+                    try:
+                        content = response.json()["choices"][0]["message"]["content"]
+                    except (IndexError, KeyError, TypeError, ValueError):
+                        content = None
+                    if not isinstance(content, str) or not content.strip():
+                        raise httpx.RemoteProtocolError("Judge HTTP response contains no reply text")
+                    raw = content
                     parsed = self.result_model.model_validate(json.loads(raw))
                     self._validate_requested_criteria(parsed, inputs)
                     self._atomic_write(
@@ -288,8 +305,6 @@ class DeepSeekJudge:
                     return parsed, raw, prompt_hash, cache_key
                 except (
                     httpx.HTTPError,
-                    KeyError,
-                    json.JSONDecodeError,
                     ValueError,
                 ) as exc:
                     last_error = exc

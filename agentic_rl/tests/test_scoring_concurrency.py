@@ -181,7 +181,10 @@ def test_real_judge_http_is_limited_separately_from_four_scoring_tasks(
     async def quick_backoff(_):
         await asyncio.sleep(0.001)
 
-    monkeypatch.setattr(judge_client, "asyncio", SimpleNamespace(sleep=quick_backoff))
+    monkeypatch.setattr(
+        judge_client, "asyncio",
+        SimpleNamespace(sleep=quick_backoff, timeout=asyncio.timeout),
+    )
 
     class Judge(DeepSeekJudge):
         async def evaluate(self, **inputs):

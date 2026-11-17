@@ -1127,7 +1127,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     judge_raw,
                     judge_prompt_hash,
                     judge_cache_key,
-                ) = await evaluate_scoring_inputs(self.judge, scoring_inputs)
+                ) = await evaluate_scoring_inputs(self.judge, scoring_inputs, progress=progress)
                 progress()
             except Exception as exc:
                 infrastructure_error = ("judge", exc)
@@ -1286,7 +1286,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             if can_retry:
                 for _ in range(self.project["slot_recovery"]["max_scoring_retries"]):
                     try:
-                        scored = await retry_scoring(record, self.judge, self.store)
+                        scored = await retry_scoring(record, self.judge, self.store, progress=progress)
                     except JudgeServiceFailure as retry_error:
                         error = retry_error
                         break

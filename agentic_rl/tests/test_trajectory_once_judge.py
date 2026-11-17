@@ -3,6 +3,7 @@
 import asyncio
 import json
 from copy import deepcopy
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
@@ -270,6 +271,63 @@ def test_combined_validator_retains_global_rubric_checks():
     with pytest.raises(ValueError, match="criterion IDs"):
         TrajectoryOnceJudge._validate_requested_criteria(parsed, {
             **inputs["judge"], "turn_inputs": inputs["simple_turn_inputs"]})
+
+
+@pytest.mark.parametrize(
+    "envelope",
+    [{"choices": []}, {"choices": [{"message": {"content": None}}]}, []],
+)
+def test_bad_http_envelope_retries_without_reprompting(monkeypatch, scratch_dir, envelope):
+    inputs = frozen_inputs()
+    requests = []
+
+    async def no_sleep(_seconds):
+        pass
+
+    monkeypatch.setattr("tau2_agentic_rl.judge.client.asyncio.sleep", no_sleep)
+
+    def respond(request):
+        requests.append(request.content)
+        if len(requests) == 1:
+            return httpx.Response(200, json=envelope)
+        return httpx.Response(200, json={"choices": [
+            {"message": {"content": json.dumps(response_for(inputs))}}
+        ]})
+
+    judge = mock_client(monkeypatch, scratch_dir, respond, max_retries=2)
+    heartbeats = []
+    asyncio.run(evaluate_scoring_inputs(judge, inputs, progress=lambda: heartbeats.append(1)))
+    assert len(requests) == len(heartbeats) == 2
+    assert requests[0] == requests[1]
+
+
+def test_total_request_deadline_retries_and_releases_the_lease(monkeypatch, scratch_dir):
+    from tau2_agentic_rl.concurrency import api_budget
+
+    started, completed = [], []
+
+    async def no_sleep(_seconds):
+        pass
+
+    async def wait_for_response(_request):
+        started.append(1)
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr("tau2_agentic_rl.judge.client.asyncio.sleep", no_sleep)
+    judge = mock_client(monkeypatch, scratch_dir, wait_for_response, max_retries=2)
+    judge.config = replace(judge.config, timeout_seconds=0.02)
+
+    async def run():
+        with pytest.raises(JudgeServiceFailure) as caught:
+            await asyncio.wait_for(judge.evaluate(
+                **frozen_inputs()["judge"], on_request_end=lambda: completed.append(1),
+            ), timeout=2)
+        assert caught.value.retryable
+        assert "total deadline" in str(caught.value)
+        assert api_budget().call("snapshot")["active"]["judge_api"] == 0
+
+    asyncio.run(run())
+    assert len(started) == len(completed) == 3
 
 
 @pytest.mark.parametrize("failed_http_attempts", [0, 6])
