@@ -8,6 +8,7 @@ from pathlib import Path
 
 from tau2_agentic_rl.advantages import is_procredit
 from tau2_agentic_rl.agent_policy import load_agent_system_prompt, prompt_sha256
+from tau2_agentic_rl.config import official_grpo_control
 from tau2_agentic_rl.versions import sha256_file
 
 MANIFEST = "rl_resume_identity.json"
@@ -63,7 +64,7 @@ def build_resume_identity(
         digest = fingerprint(value)
         files[f"annotations.{name}"] = digest
         runtime["annotations"][name] = {"sha256": digest}
-    if is_procredit(project):
+    if is_procredit(project) or official_grpo_control(project):
         source_paths = sorted((project_root / "src" / "tau2_agentic_rl").rglob("*.py"))
         if not source_paths:
             raise ValueError("ProCredit resume identity requires its actual source tree")

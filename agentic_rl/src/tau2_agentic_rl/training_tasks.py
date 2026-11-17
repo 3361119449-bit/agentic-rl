@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from tau2_agentic_rl.annotations import load_task_mapping
+from tau2_agentic_rl.config import official_grpo_control
 
 
 def load_training_task_repairs(root: Path, project: dict) -> dict:
@@ -12,7 +13,7 @@ def load_training_task_repairs(root: Path, project: dict) -> dict:
 
     from tau2.data_model.tasks import Task
 
-    if project["judge"]["enabled"] is not True:
+    if project["judge"]["enabled"] is not True and not official_grpo_control(project):
         raise ValueError("corrected Airline training requires the trajectory Judge")
     rows = load_task_mapping(root / path)
     if rows.keys() != {"7", "14", "21", "23", "39"}:

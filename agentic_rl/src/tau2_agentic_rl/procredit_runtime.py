@@ -10,6 +10,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from tau2_agentic_rl.advantages import CreditConfig, compute_group_credit
+from tau2_agentic_rl.pass_metrics import validate_unit_score
 from tau2_agentic_rl.versions import sha256_json
 
 
@@ -55,7 +56,7 @@ def terminal_group_contract(tag: dict, group_size: int) -> dict:
 def queue_group_reports(
     keys: list[str],
     extras: list,
-    config: CreditConfig,
+    config: CreditConfig | None,
     *,
     audit_dir: Path | None = None,
     group_size: int = 8,
@@ -70,12 +71,23 @@ def queue_group_reports(
         if len(parts) != 3 or not parts[0] or not all(p.isdigit() for p in parts[1:]):
             raise ValueError("invalid pinned queue uid/session/index key")
         extra = getattr(extra, "data", extra)
-        if not isinstance(extra, dict) or not isinstance(extra.get("procredit"), dict):
-            raise ValueError("completed group is missing ProCredit scoring inputs")
-        row = extra["procredit"]
-        metric = extra.get("reward_extra_info", {}).get("train_reward", row["score"])
-        if metric != row["score"]:
-            raise ValueError("queue scalar score differs from credit score")
+        if config is None:
+            metric = validate_unit_score(extra["tau2_official_reward"])
+            if (
+                extra["reward_extra_info"]["train_reward"] != metric
+                or extra.get("truncation_zero_applied")
+                or "procredit" in extra
+            ):
+                raise ValueError("official GRPO requires an untruncated official-only score")
+            row = {field: extra[field] for field in ("trajectory_id", "task_id", "policy_version")}
+            row["score"] = metric
+        else:
+            if not isinstance(extra, dict) or not isinstance(extra.get("procredit"), dict):
+                raise ValueError("completed group is missing ProCredit scoring inputs")
+            row = extra["procredit"]
+            metric = extra.get("reward_extra_info", {}).get("train_reward", row["score"])
+            if metric != row["score"]:
+                raise ValueError("queue scalar score differs from credit score")
         if int(parts[2]) != 0:
             raise ValueError("group session slots require exactly one output at index zero")
         groups[parts[0]].append((int(parts[1]), key, row))
@@ -84,7 +96,7 @@ def queue_group_reports(
         terminal = None
         expected_sessions = list(range(group_size))
         if terminal_groups is not None:
-            if config.version != "procredit-turn-v4":
+            if config is not None and config.version != "procredit-turn-v4":
                 raise ValueError("partial membership is only supported by v4 credit")
             terminal = terminal_group_contract(terminal_groups.get(uid), group_size)
             expected_sessions = [i for i in expected_sessions if i not in terminal["failed_session_ids"]]
@@ -94,7 +106,19 @@ def queue_group_reports(
         if [m[0] for m in members] != expected_sessions:
             raise ValueError("group session slots must occur exactly once")
         rows = [member[2] for member in members]
-        credit = compute_group_credit(rows, config)
+        if config is None:
+            if terminal is None or len({(r["task_id"], str(r["policy_version"])) for r in rows}) != 1:
+                raise ValueError("official GRPO requires settled, single-policy task groups")
+            scores = [r["score"] for r in rows]
+            mean = math.fsum(scores) / len(scores)
+            std = math.sqrt(math.fsum((score - mean) ** 2 for score in scores) / len(scores))
+            advantages = [(score - mean) / (std + 1e-6) for score in scores]
+            credit = {
+                "score_mean": mean, "score_std": std, "advantages": advantages,
+                "has_signal": any(abs(value) > 1e-8 for value in advantages),
+            }
+        else:
+            credit = compute_group_credit(rows, config)
         report = {
             "version": "procredit-group-v1",
             "uid": uid,
@@ -105,12 +129,47 @@ def queue_group_reports(
             "decision": "has_signal" if credit["has_signal"] else "all_zero_advantage",
         }
         if terminal is not None:
-            report.update(version="procredit-group-v2", terminal_group=terminal)
+            report.update(
+                version="official-grpo-group-v1" if config is None else "procredit-group-v2",
+                terminal_group=terminal,
+            )
         report["audit_fingerprint"] = sha256_json(report)
         if audit_dir is not None:
             _save_group_audit(Path(audit_dir), report)
         reports[uid] = report
     return reports
+
+
+def build_official_grpo_tensors(keys, extras, response_mask, *, terminal_groups, padding=None):
+    """Apply the same population normalization using only Tau2 completion."""
+    import torch
+
+    padding = [False] * len(keys) if padding is None else padding
+    if (
+        len(keys) != len(extras) or len(padding) != len(keys)
+        or len(set(keys)) != len(keys) or all(padding)
+        or any(type(flag) is not bool for flag in padding)
+    ):
+        raise ValueError("invalid official GRPO padding or batch alignment")
+    reports = queue_group_reports(
+        [key for key, pad in zip(keys, padding, strict=True) if not pad],
+        [extra for extra, pad in zip(extras, padding, strict=True) if not pad],
+        None, terminal_groups=terminal_groups,
+    )
+    by_key = {
+        key: value for report in reports.values()
+        for key, value in zip(report["members"], report["credit"]["advantages"], strict=True)
+    }
+    tensors = []
+    for key, mask, pad in zip(keys, response_mask.unbind(), padding, strict=True):
+        if pad and mask.any().item():
+            raise ValueError("synthetic padding must have zero response mask")
+        tensors.append(mask.to(torch.float32) * (0.0 if pad else by_key[key]))
+    advantages = (
+        torch.nested.as_nested_tensor(tensors, layout=torch.jagged)
+        if response_mask.is_nested else torch.stack(tensors)
+    )
+    return {"advantages": advantages, "returns": advantages.clone()}
 
 
 def _record_token_mapping(record):

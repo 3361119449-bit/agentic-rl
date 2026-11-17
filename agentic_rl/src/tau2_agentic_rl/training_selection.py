@@ -145,7 +145,7 @@ def prepare_training_selection(source: Path, project_root: Path, project: dict) 
     if repairs and len(selected) != 30:
         raise ValueError("corrected Airline RL selection must retain all 30 tasks")
     manifest["tau2_commit"] = project["project"]["tau2_commit"]
-    directory = "procredit_v4" if project["credit"]["version"] == "procredit-turn-v4" else "procredit_v3"
+    directory = "procredit_v4" if repairs or project["credit"]["version"] == "procredit-turn-v4" else "procredit_v3"
     path, identity = write_selection(source, selected, manifest, source.parent / directory)
     print("ProCredit train selection: " + json.dumps({
         "included": manifest["included_task_ids"],

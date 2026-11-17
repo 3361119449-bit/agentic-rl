@@ -140,6 +140,26 @@ def test_one_failed_slot_keeps_seven_siblings_and_three_good_groups(scratch_dir)
     assert not any(buffer.cleared)  # No good surplus or partial group is discarded.
 
 
+def test_official_control_salvages_mixed_scores_and_filters_constant_groups(scratch_dir):
+    buffer = make_buffer(scratch_dir)
+    buffer.credit_config = None
+    buffer.official_control = True
+    for key in buffer.partitions["train"]:
+        uid, session, _ = key.split("_")
+        reward = float(uid != "good2" and session == "0")
+        buffer.transport.extras[key] = {
+            "trajectory_id": key, "task_id": uid, "policy_version": 1,
+            "tau2_official_reward": reward, "reward_extra_info": {"train_reward": reward},
+        }
+    refills = []
+    buffer.refill_fn = refills.append
+    batch, metrics = buffer.sample(1, "train", 4)
+    assert len(batch.keys) == 23
+    assert metrics["training/dynamic_sampling/salvaged_rollouts"] == 7
+    assert metrics["training/dynamic_sampling/cap_remainder_used"] == 1
+    assert refills == [1, 1]
+
+
 def test_truncation_counter_appearing_during_sampling_does_not_crash_salvage(scratch_dir):
     buffer = make_buffer(scratch_dir)
     # Exact smoke failure: the initial snapshot predates the first truncation.

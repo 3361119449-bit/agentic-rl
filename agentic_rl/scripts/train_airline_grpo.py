@@ -23,6 +23,8 @@ from tau2_agentic_rl.config import (
     current_profile,
     expand_env,
     load_yaml,
+    official_grpo_control,
+    official_grpo_profile,
     validate_procredit_config,
 )
 from tau2_agentic_rl.rl_resume import (
@@ -242,6 +244,7 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--extra", action="append", default=[])
     parser.add_argument("--config", type=Path)
+    parser.add_argument("--official-grpo-control", action="store_true")
     parser.add_argument(
         "--reward-judge",
         action=argparse.BooleanOptionalAction,
@@ -264,7 +267,12 @@ def main() -> None:
     if args.config is None and args.stage in {"smoke", "internal_dev"}:
         raise ValueError("historical stages require an explicit --config; use full_train for train30")
     config_path = (args.config or current_profile(project_root, "training")).resolve()
-    project = effective_project_config(load_yaml(config_path), args.extra)
+    project = load_yaml(config_path)
+    if args.official_grpo_control:
+        if args.reward_judge is not None:
+            raise ValueError("--official-grpo-control already determines the reward Judge setting")
+        project = official_grpo_profile(project)
+    project = effective_project_config(project, args.extra)
     if args.reward_judge is not None:
         project["judge"]["enabled"] = args.reward_judge
     validate_procredit_config(project)
@@ -332,7 +340,9 @@ def main() -> None:
         pythonpath.append(old_pythonpath)
     os.environ["PYTHONPATH"] = os.pathsep.join(pythonpath)
 
-    if project.get("credit", {}).get("version") in {"procredit-turn-v3", "procredit-turn-v4"}:
+    if official_grpo_control(project) or project.get("credit", {}).get("version") in {
+        "procredit-turn-v3", "procredit-turn-v4",
+    }:
         from tau2_agentic_rl.training_selection import prepare_training_selection
 
         sys.path.insert(0, str(args.tau2_root / "src"))

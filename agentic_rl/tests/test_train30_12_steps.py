@@ -8,17 +8,19 @@ from scripts import run_train30_12_steps as experiment
 
 
 @pytest.mark.parametrize("incomplete_step6", [False, True])
+@pytest.mark.parametrize("official_grpo", [False, True])
 def test_two_milestones_and_no_automatic_evaluation_refill(
-    monkeypatch, scratch_dir, incomplete_step6,
+    monkeypatch, scratch_dir, incomplete_step6, official_grpo,
 ):
     name = "test-train30"
     run = scratch_dir / "outputs" / "runs" / name
     markers = []
     valid_samples = 79 if incomplete_step6 else 80
+    milestones = (20, 40, 60) if official_grpo else (6, 12)
     monkeypatch.setenv("VERL_ROOT", str(scratch_dir / "verl"))
     monkeypatch.setattr(experiment, "current_profile", lambda *args: None)
     monkeypatch.setattr(experiment, "load_yaml", lambda *args: {})
-    monkeypatch.setattr(experiment, "require_checkpoint_space", lambda *args: None)
+    monkeypatch.setattr(experiment, "require_checkpoint_space", lambda *args, **kwargs: None)
 
     def checkpoint(step):
         return run / "checkpoints" / f"global_step_{step}"
@@ -32,14 +34,16 @@ def test_two_milestones_and_no_automatic_evaluation_refill(
     def run_script(project, script, args, *, pause_at=0):
         assert project == scratch_dir
         if script == "train_airline_grpo.py":
-            assert "trainer.total_training_steps=12" in args
-            assert "trainer.save_freq=6" in args
+            step = pause_at or milestones[-1]
+            assert f"trainer.total_training_steps={milestones[-1]}" in args
+            assert f"trainer.save_freq={milestones[0]}" in args
             assert "trainer.max_actor_ckpt_to_keep=null" in args
-            assert "--reward-judge" in args
-            if pause_at != 6:
-                assert args[args.index("--resume-from-path") + 1] == str(checkpoint(6))
-            markers.append(pause_at or 12)
-            checkpoint(pause_at or 12).mkdir(parents=True)
+            assert ("--official-grpo-control" if official_grpo else "--reward-judge") in args
+            if step != milestones[0]:
+                prev = milestones[milestones.index(step) - 1]
+                assert args[args.index("--resume-from-path") + 1] == str(checkpoint(prev))
+            markers.append(step)
+            checkpoint(step).mkdir(parents=True)
         elif script == "export_verl_lora.py":
             target = Path(args[args.index("--target-dir") + 1]) / "lora_adapter"
             target.mkdir()
@@ -72,14 +76,22 @@ def test_two_milestones_and_no_automatic_evaluation_refill(
     })
     if incomplete_step6:
         with pytest.raises(ValueError, match="exactly 80"):
-            experiment.run_experiment(scratch_dir, name, dry_run=False, resume=False)
+            experiment.run_experiment(scratch_dir, name, dry_run=False, resume=False,
+                                      official_grpo=official_grpo)
         with pytest.raises(ValueError, match="exactly 80"):
-            experiment.run_experiment(scratch_dir, name, dry_run=False, resume=True)
-        assert markers == [6, f"{name}_step6"]
+            experiment.run_experiment(scratch_dir, name, dry_run=False, resume=True,
+                                      official_grpo=official_grpo)
+        assert markers == [milestones[0], f"{name}_step{milestones[0]}"]
     else:
-        experiment.run_experiment(scratch_dir, name, dry_run=False, resume=False)
-        experiment.run_experiment(scratch_dir, name, dry_run=False, resume=True)
-        assert markers == [6, f"{name}_step6", 12, f"{name}_step12"]
+        experiment.run_experiment(scratch_dir, name, dry_run=False, resume=False,
+                                  official_grpo=official_grpo)
+        experiment.run_experiment(scratch_dir, name, dry_run=False, resume=True,
+                                  official_grpo=official_grpo)
+        assert markers == [value for step in milestones for value in (step, f"{name}_step{step}")]
+        preserved = (milestones[-1],) if official_grpo else milestones
+        assert {path.name for path in checkpoint(milestones[-1]).parent.iterdir()} == {
+            f"global_step_{step}" for step in preserved
+        }
 
 
 def test_fresh_experiment_checks_space_for_both_checkpoints_and_export(monkeypatch, scratch_dir):

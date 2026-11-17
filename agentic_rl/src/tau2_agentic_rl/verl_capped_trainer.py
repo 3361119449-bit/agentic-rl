@@ -54,13 +54,14 @@ from verl.utils.tracking import (
 from tau2_agentic_rl.advantages import CreditConfig, is_procredit
 from tau2_agentic_rl.checkpoints import restore_step_clock
 from tau2_agentic_rl.concurrency import api_budget
-from tau2_agentic_rl.config import load_runtime_config
+from tau2_agentic_rl.config import load_runtime_config, official_grpo_control
 from tau2_agentic_rl.dynamic_sampling import TrainingStepClock
 from tau2_agentic_rl.failures import FatalRolloutError, raise_if_fatal
 from tau2_agentic_rl.ppo_audit import audit_update
 from tau2_agentic_rl.procredit_runtime import (
     _save_group_audit,
     build_credit_tensors,
+    build_official_grpo_tensors,
     queue_group_reports,
     terminal_group_contract,
 )
@@ -100,6 +101,7 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
         rollout_counts_fn=None,
         fatal_error_fn=None,
         terminal_metadata_fn=None,
+        official_control=False,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
@@ -118,6 +120,7 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
             raise ValueError("validation group size must be a positive integer")
         self.validation_group_size = validation_group_size
         self.credit_config = credit_config
+        self.official_control = official_control
         self.group_audit_dir = group_audit_dir
         self.credit_cache = {}
         self.rollout_counts_fn = rollout_counts_fn
@@ -174,7 +177,10 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
     def _isolates_failed_groups(self, partition_id):
         return (
             partition_id == "train"
-            and getattr(getattr(self, "credit_config", None), "version", None) == "procredit-turn-v4"
+            and (
+                getattr(self, "official_control", False)
+                or getattr(getattr(self, "credit_config", None), "version", None) == "procredit-turn-v4"
+            )
         )
 
     def _audit_exhausted_groups(self, partition_id, uids):
@@ -193,12 +199,15 @@ class CappedDynamicReplayBuffer(ReplayBuffer):
             _save_group_audit(directory, report)
 
     def _dapo_filtered_keys(self, partition_id: str):
-        if self.credit_config is None:
+        if self.credit_config is None and not getattr(self, "official_control", False):
             return super()._dapo_filtered_keys(partition_id)
         if partition_id != "train":
             return set(), Counter()
         finished = set(self.finished_keys[partition_id])
-        local_only = self.credit_config.version == "procredit-turn-v4"
+        local_only = (
+            getattr(self, "official_control", False)
+            or self.credit_config.version == "procredit-turn-v4"
+        )
         terminal_groups = None
         if local_only:
             finished |= self.failure_keys[partition_id]
@@ -670,6 +679,21 @@ class CappedPPOTrainerSync(PPOTrainerSync):
 
 
     def _compute_advantage(self, batch: KVBatchMeta, metrics: dict) -> KVBatchMeta:
+        if getattr(self, "official_control", False):
+            data = tq.kv_batch_get(
+                keys=batch.keys, partition_id=batch.partition_id,
+                select_fields=["response_mask", "extra_fields"],
+            )
+            fields = build_official_grpo_tensors(
+                batch.keys, list(data["extra_fields"]), data["response_mask"],
+                terminal_groups=batch.extra_info["procredit_terminal_groups"],
+                padding=[tag.get("is_padding", False) for tag in batch.tags] if batch.tags else None,
+            )
+            tq.kv_batch_put(
+                keys=batch.keys, partition_id=batch.partition_id,
+                fields=TensorDict(fields, batch_size=len(batch.keys)),
+            )
+            return batch
         runtime = self._procredit_runtime()
         if runtime is None:
             result = super()._compute_advantage(batch, metrics)
@@ -842,9 +866,13 @@ class CappedPPOTrainerSync(PPOTrainerSync):
                 "capped trainer is fixed to 4 prompt groups x 8 trajectories"
             )
         credit_runtime = self._procredit_runtime()
+        runtime_path = os.environ.get("AGENTIC_RL_CONFIG")
+        self.official_control = bool(
+            runtime_path and official_grpo_control(load_runtime_config(runtime_path))
+        )
         budget = api_budget()
         rollout_counts_fn = None
-        if credit_runtime and credit_runtime[0].version == "procredit-turn-v4":
+        if self.official_control or (credit_runtime and credit_runtime[0].version == "procredit-turn-v4"):
             def rollout_counts_fn():
                 return budget.call("rollout_counts", "train")
         return CappedDynamicReplayBuffer(
@@ -866,7 +894,11 @@ class CappedPPOTrainerSync(PPOTrainerSync):
             rollout_group_size=self.rollout_group_size,
             validation_group_size=self.config.actor_rollout_ref.rollout.val_kwargs.n,
             credit_config=credit_runtime[0] if credit_runtime else None,
-            group_audit_dir=credit_runtime[1] if credit_runtime else None,
+            group_audit_dir=(
+                Path(self.config.trainer.default_local_dir).parent / "group_audits"
+                if self.official_control else credit_runtime[1] if credit_runtime else None
+            ),
+            official_control=self.official_control,
             rollout_counts_fn=rollout_counts_fn,
             fatal_error_fn=lambda: budget.call("fatal_rollout"),
         )

@@ -5,12 +5,36 @@ from __future__ import annotations
 import json
 import os
 import re
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
 import yaml
 
 ENV_VALUE = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}$")
+
+
+def official_grpo_control(config: dict) -> bool:
+    return config.get("training_variant") == "train30-official-grpo-v1"
+
+
+def official_grpo_profile(config: dict) -> dict:
+    """Derive the control from the current profile, including its task repairs."""
+    if config.get("project", {}).get("annotation_version") != "v7-repaired-airline-train30":
+        raise ValueError("official GRPO control needs the corrected train30 profile")
+    validate_procredit_config(config)
+    result = deepcopy(config)
+    result["training_variant"] = "train30-official-grpo-v1"
+    result["project"]["reward_version"] = "official-repaired-train30-grpo-v1"
+    result["judge"] = {"enabled": False}
+    result.pop("credit")
+    result["reward"] = {
+        key: config["reward"][key]
+        for key in ("truncation_policy", "truncation_multiplier", "progress_version")
+    }
+    result["reward"]["mode"] = "legacy"
+    validate_procredit_config(result)
+    return result
 
 
 def load_yaml(path: str | Path) -> dict[str, Any]:
@@ -84,11 +108,26 @@ def validate_procredit_config(config: dict) -> None:
         or config.get("credit", {}).get("final_turn_rule") != "simple-turn-v2"
     ):
         raise ValueError("judge trajectory_once_v1 requires one request and simple-turn-v2")
-    if config.get("project", {}).get("annotation_version") == "v7-repaired-airline-train30":
+    reward = config.get("reward", {})
+    if official_grpo_control(config):
+        if (
+            config.get("project", {}).get("annotation_version") != "v7-repaired-airline-train30"
+            or not config.get("training_selection", {}).get("task_repairs")
+            or judge.get("enabled") is not False
+            or reward.get("mode") != "legacy"
+            or reward.get("truncation_policy") != "zero-trajectory-v1"
+            or reward.get("truncation_multiplier") != 0
+            or config.get("credit")
+            or config.get("user_sim_filter", {}).get("enabled") is not False
+            or config.get("slot_recovery", {}).get("on_exhaustion") != "salvage_group"
+            or config.get("algorithm", {}).get("norm_adv_by_std_in_grpo") is not True
+            or config.get("dynamic_sampling", {}).get("signal_tolerance") != 1e-8
+        ):
+            raise ValueError("invalid official train30 GRPO control")
+    elif config.get("project", {}).get("annotation_version") == "v7-repaired-airline-train30":
         if mode != "trajectory_once_v1" or config.get("user_sim_filter", {}).get("enabled") is not False:
             raise ValueError("formal train30 requires judge trajectory_once_v1 and user_sim_filter disabled")
 
-    reward = config.get("reward", {})
     if reward.get("task_score_mode") is not None and (
         not is_procredit(config)
         or reward.get("progress_version") != "progress-v3"

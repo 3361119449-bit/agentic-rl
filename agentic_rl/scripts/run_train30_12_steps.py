@@ -1,4 +1,4 @@
-"""Run the train30 12-update experiment with official tests at steps 6 and 12."""
+"""Run train30 with checkpoint-bound official evaluations."""
 
 from __future__ import annotations
 
@@ -47,20 +47,28 @@ def verified_checkpoint(project: Path, run: Path, step: int) -> Path:
     return checkpoint
 
 
-def require_checkpoint_space(run: Path, last_step: int, evaluations: Path, name: str) -> None:
+def require_checkpoint_space(
+    run: Path, last_step: int, evaluations: Path, name: str,
+    *, milestones=(6, 12), keep_latest=False,
+) -> None:
     model = Path(os.environ["MERGED_SFT_MODEL"])
     # Both scheduled checkpoints contain the full base model. Export needs one
     # more full copy temporarily, even though only the adapter is retained.
     base_size = sum(path.stat().st_size for path in model.glob("*.safetensors"))
     if not base_size:
         raise FileNotFoundError(f"no merged model weights in {model}")
-    pending_saves = sum(step > last_step for step in (6, 12))
+    pending_saves = sum(step > last_step for step in milestones)
     needs_export = any(
         not (evaluations / f"{name}_step{step}").exists()
         and not (run / f"official_eval_step{step}" / "lora_adapter").exists()
-        for step in (6, 12)
+        for step in milestones
     )
     minimum = base_size * (pending_saves + needs_export)
+    if keep_latest:
+        # The previous checkpoint survives until its replacement is verified.
+        # Export occurs only after pruning, so it never overlaps two checkpoints.
+        minimum = base_size * max(min(pending_saves, 2), bool(pending_saves and needs_export) * 2,
+                                  int(needs_export))
     target = next(parent for parent in (run, *run.parents) if parent.is_dir())
     free = shutil.disk_usage(target).free
     if free < minimum:
@@ -71,17 +79,33 @@ def require_checkpoint_space(run: Path, last_step: int, evaluations: Path, name:
         )
 
 
-def run_experiment(project: Path, name: str, *, dry_run: bool, resume: bool) -> None:
+def prune_checkpoints(latest: Path) -> None:
+    for path in latest.parent.glob("global_step_*"):
+        if (
+            re.fullmatch(r"global_step_\d+", path.name)
+            and int(path.name.removeprefix("global_step_")) < int(latest.name.removeprefix("global_step_"))
+        ):
+            if path.resolve() != path or not path.is_dir():
+                raise ValueError(f"unexpected checkpoint path {path}")
+            shutil.rmtree(path)
+
+
+def run_experiment(
+    project: Path, name: str, *, dry_run: bool, resume: bool, official_grpo=False,
+) -> None:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
         raise ValueError("invalid experiment run name")
     if filter_enabled(load_yaml(current_profile(project, "official_evaluation"))):
         raise ValueError("official evaluation requires the user-simulator filter to be off")
     run = project / "outputs" / "runs" / name
     evaluations = project / "outputs" / "evaluations"
+    milestones = (20, 40, 60) if official_grpo else (6, 12)
+    total_steps = milestones[-1]
+    reward_flag = "--official-grpo-control" if official_grpo else "--reward-judge"
     train_args = [
-        "--stage", "full_train", "--reward-judge", "--run-name", name, "--seed", str(SEED),
-        "--extra", "trainer.total_training_steps=12",
-        "--extra", "trainer.save_freq=6",
+        "--stage", "full_train", reward_flag, "--run-name", name, "--seed", str(SEED),
+        "--extra", f"trainer.total_training_steps={total_steps}",
+        "--extra", f"trainer.save_freq={milestones[0]}",
         "--extra", "trainer.test_freq=-1",
         # A recovery checkpoint between 6 and 12 must not evict step 6.
         "--extra", "trainer.max_actor_ckpt_to_keep=null",
@@ -91,11 +115,12 @@ def run_experiment(project: Path, name: str, *, dry_run: bool, resume: bool) -> 
         "--max-refill-rounds", "0", "--seed", str(SEED),
     ]
     if dry_run:
-        run_script(project, "train_airline_grpo.py", [*train_args, "--dry-run"], pause_at=6)
+        first = milestones[0]
+        run_script(project, "train_airline_grpo.py", [*train_args, "--dry-run"], pause_at=first)
         run_script(project, "evaluate_airline.py", [
-            *eval_args, "--tag", f"{name}_step6", "--dry-run",
+            *eval_args, "--tag", f"{name}_step{first}", "--dry-run",
         ])
-        print("Plan: train to 6, official test (80), resume to 12, official test (80).", flush=True)
+        print(f"Plan: {total_steps} optimizer updates; official test (80) at {milestones}.", flush=True)
         return
 
     def evaluate_step(step: int) -> None:
@@ -146,26 +171,30 @@ def run_experiment(project: Path, name: str, *, dry_run: bool, resume: bool) -> 
             if re.fullmatch(r"global_step_\d+", path.name)
         )
         if resume:
-            if not completed or completed[-1] > 12:
-                raise ValueError("resume requires a checkpoint from this 12-step experiment")
+            if not completed or completed[-1] > total_steps:
+                raise ValueError("resume requires a checkpoint from the requested experiment")
             step = completed[-1]
             checkpoint = verified_checkpoint(project, run, step)
         else:
-            if run.exists() or any((evaluations / f"{name}_step{s}").exists() for s in (6, 12)):
+            if run.exists() or any((evaluations / f"{name}_step{s}").exists() for s in milestones):
                 raise FileExistsError("use a new run name or --resume for this experiment")
             step, checkpoint = 0, None
-        require_checkpoint_space(run, step, evaluations, name)
-        if step < 6:
-            continuation = ["--resume-from-path", str(checkpoint)] if checkpoint else []
-            run_script(project, "train_airline_grpo.py", [*train_args, *continuation], pause_at=6)
-        sixth = verified_checkpoint(project, run, 6)
-        evaluate_step(6)
-        if step < 12:
-            run_script(project, "train_airline_grpo.py", [
-                *train_args, "--resume-from-path", str(checkpoint if step >= 6 else sixth),
-            ])
-        verified_checkpoint(project, run, 12)
-        evaluate_step(12)
+        require_checkpoint_space(run, step, evaluations, name, milestones=milestones,
+                                 keep_latest=official_grpo)
+        for milestone in milestones:
+            if step < milestone:
+                previous_checkpoint = ["--resume-from-path", str(checkpoint)] if checkpoint else []
+                run_script(
+                    project, "train_airline_grpo.py", [*train_args, *previous_checkpoint],
+                    pause_at=milestone if milestone < total_steps else 0,
+                )
+                step = milestone
+                checkpoint = verified_checkpoint(project, run, milestone)
+            if official_grpo and step == milestone:
+                prune_checkpoints(checkpoint)
+            elif not official_grpo and step > milestone:
+                verified_checkpoint(project, run, milestone)
+            evaluate_step(milestone)
 
 
 def main() -> None:
@@ -173,8 +202,12 @@ def main() -> None:
     parser.add_argument("--run-name", required=True)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--official-grpo-60", action="store_true")
     args = parser.parse_args()
-    run_experiment(PROJECT, args.run_name, dry_run=args.dry_run, resume=args.resume)
+    run_experiment(
+        PROJECT, args.run_name, dry_run=args.dry_run, resume=args.resume,
+        official_grpo=args.official_grpo_60,
+    )
 
 
 if __name__ == "__main__":
