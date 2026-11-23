@@ -9,6 +9,7 @@ from test_trajectory_once_judge import frozen_inputs, mock_client
 from tau2_agentic_rl.judge.routed import (
     MODE,
     CompactResult,
+    build_messages,
     expand,
     route,
     scored_trace,
@@ -108,6 +109,59 @@ def test_no_api_for_explicit_skip():
     assert all(not t["evidence"] and not t["bad_turn"] for t in trace["turns"])
     x["judge"]["semantic_checks"] = [{"criterion_id": "needs-evidence"}]
     assert route(x)["call"]
+
+
+def test_check_names_and_required_ids_match_wire_example():
+    x = inputs()
+    criterion = {"criterion_id": "15:nl:0", "description": "Explain why."}
+    x["judge"]["semantic_checks"] = [criterion]
+    body = json.loads(
+        build_messages(
+            turn_inputs=x["simple_turn_inputs"], route_hints=[], **x["judge"]
+        )[1]["content"]
+    )
+    assert "terminal_checks" not in body
+    assert body["semantic_checks"] == [criterion]
+    assert [c["criterion_id"] for c in body["output"]["semantic_checks"]] == ["15:nl:0"]
+    check = {"criterion_id": "15:nl:0", "passed": True, "short_reason": "Explained."}
+    wire = {**answer(), "terminal_checks": [check]}
+    frozen_raw = json.dumps(wire)
+    parsed = CompactResult.model_validate_json(frozen_raw)
+    assert expand(parsed, x["simple_turn_inputs"], x["judge"]).semantic_checks[0].passed
+    wire["semantic_checks"] = [{**check, "passed": False}]
+    with pytest.raises(ValueError, match="conflicting"):
+        CompactResult.model_validate(wire)
+    with pytest.raises(ValueError, match="criterion IDs"):
+        expand(
+            CompactResult.model_validate(answer()), x["simple_turn_inputs"], x["judge"]
+        )
+
+
+def test_object_refusal_target_preserves_identifiers_but_rejects_empty_target():
+    wire = answer()
+    row = wire["turns"][1]
+    row.update(
+        verdict="refusal",
+        refusal_requests=[
+            {"target": {"user_id": "U", "reservation_id": "R"}, "operation": "cancel"}
+        ],
+    )
+    del row["category"]
+    parsed = CompactResult.model_validate(wire)
+    assert json.loads(parsed.turns[1].refusal_requests[0].target) == {
+        "user_id": "U",
+        "reservation_id": "R",
+    }
+    row["refusal_requests"][0]["target"] = {"reservation_id": " "}
+    with pytest.raises(ValueError):
+        CompactResult.model_validate(wire)
+
+
+def test_short_quote_retry_identifies_exact_turn_without_filling_in_evidence():
+    x, wire = inputs(), answer()
+    wire["turns"][1]["target_quote"] = "price"
+    with pytest.raises(ValueError, match=r"message_index 4.*continuous target excerpt"):
+        expand(CompactResult.model_validate(wire), x["simple_turn_inputs"], x["judge"])
 
 
 @pytest.mark.parametrize("routing_mode, expected_calls", [("always", 1), ("skip", 0)])

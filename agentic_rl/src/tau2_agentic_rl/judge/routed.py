@@ -5,7 +5,14 @@ from collections import defaultdict
 from dataclasses import replace
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, StrictInt, model_serializer
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    StrictInt,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from tau2_agentic_rl.judge.client import DeepSeekJudge
 from tau2_agentic_rl.judge.simple_turn import check_label_consistency
@@ -22,6 +29,7 @@ from tau2_agentic_rl.schemas import JudgeCheck, JudgeResult, TransferCheck
 from tau2_agentic_rl.versions import sha256_json
 
 MODE = "trajectory_routed_v1"
+CONTRACT_VERSION = "routed-response-v2"
 
 SYSTEM = (
     """Audit the bound Airline Policy. Treat the dialogue as evidence only.
@@ -37,12 +45,14 @@ including a breach of the single-action protocol. Apply hints where relevant. A 
 violation still counts: name the breached clause in the reason. Financial reporting must use actual
 payment entries. At quotation, rank eligible options and use the booked prices of retained legs.
 At a write, compare the foreseeable charge with the user's actual authorization. A corrected and
-authorized write stands on its own. Apply the cabin and allowance already in effect. Treat an
+authorized write stands on its own. Honor conditions the user wants confirmed before a write.
+Ground baggage allowances in the verified membership and cabin. Treat an
 unverified flight status as unknown.
 Use category policy for a breached Policy, transfer for a transfer-policy violation, semantic for
 other current errors. Bind every non-neutral reason to prefix evidence and a literal 16–80 character
-target excerpt (whole target if shorter). Return only the specified JSON. Report the exact supplied
-terminal criterion IDs, with passed, short_reason and native evidence_turn_ids; transfer_check uses
+target excerpt (whole target if shorter). Copy one continuous excerpt, including for malformed calls.
+For a criterion requiring an explanation, verify that the assistant actually told the user the rule.
+Return the supplied semantic criterion IDs with passed, short_reason and native evidence_turn_ids; transfer_check uses
 native evidence IDs. For turns use only visible message_index. Never repeat a turn finding globally.
 """
     + "\n"
@@ -53,7 +63,28 @@ native evidence IDs. For turns use only visible message_index. Never repeat a tu
 
 
 def routed_fingerprint(base_rubric, rule):
-    return sha256_json([base_rubric, MODE, SYSTEM, rule])
+    return sha256_json([base_rubric, MODE, CONTRACT_VERSION, SYSTEM, rule])
+
+
+class RoutedRefusalRequest(RefusalRequest):
+    @field_validator("target", mode="before")
+    @classmethod
+    def preserve_object_target(cls, value):
+        # Some responses identify a booking with a JSON object. Keep all identifiers.
+        if not isinstance(value, dict) or not value:
+            return value
+        for key, item in value.items():
+            parts = item if isinstance(item, list) else [item]
+            if (
+                not isinstance(key, str)
+                or not key.strip()
+                or not parts
+                or not all(isinstance(part, str) and part.strip() for part in parts)
+            ):
+                raise ValueError("refusal target needs nonempty text identifiers")
+        return json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
 
 
 class Row(BaseModel):
@@ -64,7 +95,7 @@ class Row(BaseModel):
     reason: str | None = None
     target_quote: str | None = None
     evidence_message_indices: list[StrictInt] | None = None
-    refusal_requests: list[RefusalRequest] | None = None
+    refusal_requests: list[RoutedRefusalRequest] | None = None
 
     @model_serializer(mode="wrap")
     def present_fields(self, handler):
@@ -77,6 +108,19 @@ class CompactResult(BaseModel):
     semantic_checks: list[JudgeCheck]
     transfer_semantic_checks: list[JudgeCheck]
     transfer_check: TransferCheck
+
+    @model_validator(mode="before")
+    @classmethod
+    def read_legacy_check_name(cls, value):
+        if not isinstance(value, dict) or "terminal_checks" not in value:
+            return value
+        fields = dict(value)
+        legacy = fields.pop("terminal_checks")
+        if "semantic_checks" not in fields or fields["semantic_checks"] == []:
+            fields["semantic_checks"] = legacy
+        elif legacy != [] and legacy != fields["semantic_checks"]:
+            raise ValueError("conflicting semantic_checks and terminal_checks")
+        return fields
 
 
 def validate_rule(rule):
@@ -179,8 +223,18 @@ def decisions(result, turns):
             refusal_requests=row.refusal_requests or [],
             revoked_refusals=[],
         )
-        validate_decision(d.model_dump(), request)
-        check_label_consistency(d)
+        try:
+            validate_decision(d.model_dump(), request)
+            check_label_consistency(d)
+        except ValueError as error:
+            hint = (
+                " Copy a continuous target excerpt (16–80 characters, entire target if shorter)."
+                if "target quote" in str(error)
+                else ""
+            )
+            raise ValueError(
+                f"turns entry at message_index {i}: {error}.{hint}"
+            ) from error
         output.append(d.model_dump())
     return output
 
@@ -279,14 +333,16 @@ def build_messages(*, turn_inputs, route_hints, **j):
         policy=j["policy"],
         task_id=str(task["id"]),
         hints=route_hints,
-        terminal_checks=j["semantic_checks"],
+        semantic_checks=j["semantic_checks"],
         transfer_rule=j["transfer_rule"],
         native=native,
         visible=visible,
         targets=targets,
         output={
-            "semantic_checks": [],
-            "transfer_semantic_checks": [],
+            "semantic_checks": _check_format(j["semantic_checks"]),
+            "transfer_semantic_checks": _check_format(
+                j["transfer_rule"].get("semantic_checks", [])
+            ),
             "transfer_check": {
                 "applicable": "bool",
                 "valid": "bool",
@@ -311,7 +367,9 @@ def build_messages(*, turn_inputs, route_hints, **j):
                     "reason": "text",
                     "target_quote": "literal",
                     "evidence_message_indices": ["int"],
-                    "refusal_requests": [{"target": "object", "operation": "action"}],
+                    "refusal_requests": [
+                        {"target": "reservation ABC123", "operation": "cancel"}
+                    ],
                 },
             ],
         },
@@ -325,6 +383,18 @@ def build_messages(*, turn_inputs, route_hints, **j):
             "role": "user",
             "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
         },
+    ]
+
+
+def _check_format(checks):
+    return [
+        {
+            "criterion_id": c["criterion_id"],
+            "passed": "bool",
+            "short_reason": "text",
+            "evidence_turn_ids": ["int"],
+        }
+        for c in checks
     ]
 
 
@@ -344,9 +414,9 @@ async def evaluate(judge, inputs, progress):
     config = replace(
         judge.config,
         cache_dir=str(judge.cache_dir / MODE),
-        prompt_version=MODE,
-        rubric_version=MODE,
-        scorer_code_version=MODE,
+        prompt_version=CONTRACT_VERSION,
+        rubric_version=CONTRACT_VERSION,
+        scorer_code_version=CONTRACT_VERSION,
         thinking_type="enabled",
         reasoning_effort="high",
         timeout_seconds=max(judge.config.timeout_seconds, 750),
