@@ -10,6 +10,10 @@ from tau2_agentic_rl.agent_policy import load_agent_system_prompt, prompt_sha256
 from tau2_agentic_rl.annotations import load_task_judge_guidance, load_task_mapping
 from tau2_agentic_rl.config import load_yaml
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
+from tau2_agentic_rl.judge.routed import MODE as ROUTED_MODE
+from tau2_agentic_rl.judge.routed import record_verdict, routed_fingerprint, scored_trace
+from tau2_agentic_rl.procredit_runtime import credit_from_record
+from tau2_agentic_rl.reward.truncation import deterministic_zero_reward, zero_truncated
 from tau2_agentic_rl.reward.required_actions import (
     load_action_dependencies,
     load_required_actions,
@@ -50,6 +54,8 @@ def main() -> None:
     semantic = load_task_mapping(root / annotations["semantic_checks"])
     task_guidance = load_task_judge_guidance(root, annotations, set(semantic))
     policy = load_task_mapping(root / annotations["policy_rules"])
+    routed = config.get("judge", {}).get("mode") == ROUTED_MODE
+    routes = load_task_mapping(root / annotations["judge_routes"]) if routed else {}
     reward_config = build_reward_config(config)
     store = TrajectoryStore(args.output_dir, attach_evaluation_identity=False)
 
@@ -60,17 +66,26 @@ def main() -> None:
             raise ValueError(
                 f"record was not generated with the bound SFT system prompt: {path}"
             )
-        if record.official_scores is None or record.judge_result is None:
+        source_mode = (record.scoring_inputs or {}).get("reward_project_config", {}).get("judge", {}).get("mode")
+        if (source_mode == ROUTED_MODE) != routed:
+            raise ValueError("Judge mode changed; frozen decisions cannot be reused across protocols")
+        if routed and record.scoring_inputs.get("routing_rule") != routes[record.task_id]:
+            raise ValueError("frozen task routing rule changed")
+        truncated = routed and zero_truncated(config, record.termination_reason)
+        judge = record_verdict(record) if routed and not truncated else record.judge_result
+        if record.official_scores is None or (judge is None and not truncated):
             raise ValueError(f"record lacks frozen scorer inputs: {path}")
         expected_rubric = rubric_fingerprint(
             semantic[record.task_id].get("semantic_checks", []),
-            policy[record.task_id].get("judge_checks", []),
+            [] if routed else policy[record.task_id].get("judge_checks", []),
             transfer[record.task_id],
             require_policy_attribution=reward_config.credit_version == "procredit-turn-v4",
             transfer_validation_version=reward_config.transfer_validation_version,
             semantic_checks_only=semantic[record.task_id].get("semantic_checks_only", False),
             task_guidance=task_guidance.get(record.task_id),
         )
+        if routed:
+            expected_rubric = routed_fingerprint(expected_rubric, routes[record.task_id])
         if record.metadata.get("judge_rubric_sha256") != expected_rubric:
             raise ValueError(
                 f"Judge rubric changed or was not fingerprinted; re-judge before rescoring: {path}"
@@ -79,17 +94,21 @@ def main() -> None:
             raise ValueError(
                 f"record lacks the delivered environment transcript: {path}"
             )
-        if enabled(config):
+        if truncated:
+            credit_from_record(record)
+        elif enabled(config):
             # This command has no model transport: never invent missing labels
             # when an old trajectory is rescored under the new default config.
             validate_record_labels(record)
-        reward = score_trajectory(
+        reward = deterministic_zero_reward(
+            termination_reason=record.termination_reason, project=config, official=record.official_scores,
+        ) if truncated else score_trajectory(
             events=record.tool_events,
             messages=record.environment_transcript,
             assistant_turns=record.assistant_turns,
             required_actions=required[record.task_id],
             official=record.official_scores,
-            judge=record.judge_result,
+            judge=judge,
             transfer_rule=transfer[record.task_id],
             action_dependencies=dependencies.get(record.task_id, []),
             termination_reason=record.termination_reason,
@@ -108,6 +127,8 @@ def main() -> None:
             scoring_inputs["reward_project_config"] = {
                 key: deepcopy(config.get(key, {})) for key in ("reward", "credit", "rollout")
             }
+            if source_mode is not None:
+                scoring_inputs["reward_project_config"]["judge"] = {"mode": source_mode}
             metadata["scoring_inputs_sha256"] = sha256_json(scoring_inputs)
         previous_manifest = metadata.pop("evaluation_manifest_id", None)
         if previous_manifest:
@@ -120,13 +141,23 @@ def main() -> None:
                 "scoring_inputs": scoring_inputs,
             }
         )
-        if enabled(config):
+        if truncated:
+            credit_from_record(updated)
+        elif enabled(config):
             previous = record.metadata["simple_turn_labels"]
-            updated.metadata["simple_turn_labels"] = {
-                **previous,
-                **build_label_trace(scoring_inputs["simple_turn_inputs"], previous["decisions"],
-                                    record.tool_events, reward.details["policy_credit"]),
-            }
+            if routed:
+                updated.metadata["simple_turn_labels"] = scored_trace(
+                    scoring_inputs["simple_turn_inputs"], record.tool_events, reward.details["policy_credit"],
+                    tuple(metadata.get(k) for k in ("judge_raw", "judge_prompt_hash", "judge_cache_key")),
+                )
+            else:
+                updated.metadata["simple_turn_labels"] = {
+                    **previous,
+                    **build_label_trace(
+                        scoring_inputs["simple_turn_inputs"], previous["decisions"],
+                        record.tool_events, reward.details["policy_credit"],
+                    ),
+                }
             validate_record_labels(updated)
         store.save(updated)
         count += 1

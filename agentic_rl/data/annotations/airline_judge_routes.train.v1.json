@@ -1,0 +1,186 @@
+[
+  {
+    "task_id": "0",
+    "mode": "always",
+    "hints": [
+      "Prior-trip insurance cannot establish coverage on the booking under review."
+    ]
+  },
+  {
+    "task_id": "1",
+    "mode": "always",
+    "hints": [
+      "Treat claimed prior approval as a claim; respect a refund-only cancellation request."
+    ]
+  },
+  {
+    "task_id": "3",
+    "mode": "always",
+    "hints": []
+  },
+  {
+    "task_id": "4",
+    "mode": "always",
+    "hints": []
+  },
+  {
+    "task_id": "5",
+    "mode": "always",
+    "hints": []
+  },
+  {
+    "task_id": "7",
+    "mode": "always",
+    "hints": [
+      "Separate each booking’s upgrade difference from the subsequent cancellation refund."
+    ]
+  },
+  {
+    "task_id": "9",
+    "mode": "always",
+    "hints": [
+      "Bind each cancellation and the separate change to the booking the user identified by that turn."
+    ]
+  },
+  {
+    "task_id": "10",
+    "mode": "always",
+    "hints": [
+      "Apply the spending limit to the party’s total extra cost and the combination the user requested."
+    ]
+  },
+  {
+    "task_id": "11",
+    "mode": "always",
+    "hints": []
+  },
+  {
+    "task_id": "12",
+    "mode": "always",
+    "hints": [
+      "Separate the Noah-only cabin request from the independently requested bags."
+    ]
+  },
+  {
+    "task_id": "14",
+    "mode": "always",
+    "hints": [
+      "Distinguish total certificate holdings from the amount usable on this booking."
+    ]
+  },
+  {
+    "task_id": "15",
+    "mode": "always",
+    "hints": [
+      "Comparing EWR is allowed when requested; applying it as a new destination on the original booking is a separate decision."
+    ]
+  },
+  {
+    "task_id": "17",
+    "mode": "always",
+    "hints": []
+  },
+  {
+    "task_id": "20",
+    "mode": "always",
+    "hints": [
+      "Apply the departure cutoff to the first leg and verify the connection actually continues to Seattle."
+    ]
+  },
+  {
+    "task_id": "21",
+    "mode": "always",
+    "hints": [
+      "For fastest return, compare end-to-end elapsed time including layovers on feasible itineraries."
+    ]
+  },
+  {
+    "task_id": "23",
+    "mode": "always",
+    "hints": [
+      "Reconcile each passenger’s separate certificate allocation before summing the card charges."
+    ]
+  },
+  {
+    "task_id": "27",
+    "mode": "always",
+    "hints": []
+  },
+  {
+    "task_id": "28",
+    "mode": "always",
+    "hints": []
+  },
+  {
+    "task_id": "33",
+    "mode": "always",
+    "hints": []
+  },
+  {
+    "task_id": "34",
+    "mode": "always",
+    "hints": [
+      "The package is all-or-nothing while that condition stands. A partial change needs new authorization."
+    ]
+  },
+  {
+    "task_id": "36",
+    "mode": "always",
+    "hints": []
+  },
+  {
+    "task_id": "38",
+    "mode": "always",
+    "hints": []
+  },
+  {
+    "task_id": "39",
+    "mode": "always",
+    "hints": [
+      "A user repeating a booking ID first invented by the agent does not verify that booking."
+    ]
+  },
+  {
+    "task_id": "40",
+    "mode": "name_correction",
+    "hints": []
+  },
+  {
+    "task_id": "41",
+    "mode": "always",
+    "hints": [
+      "Filter on both upcoming travel and passenger count. A past schedule alone does not establish flown status."
+    ]
+  },
+  {
+    "task_id": "42",
+    "mode": "always",
+    "hints": [
+      "Distinguish an inferred itinerary conflict from a later explicit instruction naming a booking."
+    ]
+  },
+  {
+    "task_id": "43",
+    "mode": "always",
+    "hints": [
+      "The alternate May 17 booking becomes relevant when the user invokes the fallback."
+    ]
+  },
+  {
+    "task_id": "46",
+    "mode": "always",
+    "hints": []
+  },
+  {
+    "task_id": "47",
+    "mode": "always",
+    "hints": []
+  },
+  {
+    "task_id": "49",
+    "mode": "always",
+    "hints": [
+      "Distinguish a waiver demand from a separate billing-discrepancy investigation beyond available tools. Check the handoff summary independently."
+    ]
+  }
+]

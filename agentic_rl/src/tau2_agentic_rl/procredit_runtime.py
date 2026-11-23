@@ -208,6 +208,11 @@ def credit_from_record(record) -> dict:
         raise ValueError("record lacks complete ProCredit scoring inputs")
     validate_progress_trace(trace, turns=record.assistant_turns)
     frozen = record.scoring_inputs
+    judge_result = record.judge_result
+    if frozen.get("reward_project_config", {}).get("judge", {}).get("mode") == "trajectory_routed_v1":
+        from tau2_agentic_rl.judge.routed import record_verdict
+
+        judge_result = record_verdict(record)
     frozen_reward = frozen.get("reward_project_config", {}).get("reward", {})
     if trace["version"] != frozen_reward.get("progress_version", trace["version"]):
         raise ValueError("record progress version differs from frozen configuration")
@@ -228,30 +233,30 @@ def credit_from_record(record) -> dict:
                 transfer_task_completion,
             )
 
-            if record.judge_result is None:
+            if judge_result is None:
                 raise ValueError("v2 transfer completion requires explicit frozen Judge facts")
             transfer_valid, transfer_scores = transfer_components(
                 record.tool_events, record.environment_transcript,
-                record.scoring_inputs["judge"]["transfer_rule"], record.judge_result,
+                record.scoring_inputs["judge"]["transfer_rule"], judge_result,
                 validation_version="transfer-policy-v2",
             )
             if transfer_scores != reward.components or transfer_valid != reward.details.get("transfer_valid"):
                 raise ValueError("transfer completion evidence differs from frozen facts")
             terminal = transfer_task_completion(
-                transfer_scores, transfer_valid, record.judge_result, "transfer-policy-v2",
+                transfer_scores, transfer_valid, judge_result, "transfer-policy-v2",
             )
         if semantic_progress:
             from tau2_agentic_rl.pass_metrics import official_success
 
             if (
-                record.judge_result is None
+                judge_result is None
                 or sha256_json(frozen) != record.metadata.get("scoring_inputs_sha256")
                 or frozen.get("progress_trace") != trace
                 or frozen.get("official_scores") != record.official_scores.model_dump()
             ):
                 raise ValueError("official completion requires frozen scoring evidence")
             terminal = record.official_scores.reward
-            progress = terminal_progress(trace, record.judge_result, transfer=transfer_target)
+            progress = terminal_progress(trace, judge_result, transfer=transfer_target)
             if reward.strict_success != float(official_success(terminal)):
                 raise ValueError("strict success differs from official reward")
         if (
@@ -295,10 +300,10 @@ def credit_from_record(record) -> dict:
         "response_turn_ids": record.response_turn_ids,
     }
     if version in {"procredit-turn-v2", "procredit-turn-v3", "procredit-turn-v4"}:
-        if record.judge_result is None:
+        if judge_result is None:
             raise ValueError("policy-local credit requires a frozen Judge result")
         expected_policy = build_policy_credit(
-            reward=reward, judge=record.judge_result, events=record.tool_events,
+            reward=reward, judge=judge_result, events=record.tool_events,
             turns=record.assistant_turns,
         )
         if expected_policy != reward.details.get("policy_credit"):

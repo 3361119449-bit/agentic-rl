@@ -111,6 +111,10 @@ class SimpleTurnJudge(DeepSeekJudge):
 
 async def score_simple_turns(inputs, events, policy_credit, judge, *, progress=None,
                              mode="per_turn", batch_response=None):
+    if mode == "trajectory_routed_v1":
+        from tau2_agentic_rl.judge.routed import scored_trace
+
+        return scored_trace(inputs, events, policy_credit, batch_response)
     if mode == "trajectory_once_v1":
         from tau2_agentic_rl.judge.trajectory_once import label_trace_from_response
 

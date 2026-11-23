@@ -150,7 +150,7 @@ def decisions_from_result(result, turn_inputs):
     return decisions
 
 
-def build_messages(*, turn_inputs, **global_inputs):
+def timeline(*, turn_inputs, **global_inputs):
     if turn_inputs.get("version") != INDEPENDENT_VERSION:
         raise ValueError("trajectory_once_v1 requires simple-turn-v2")
     if turn_inputs["policy"] != global_inputs["policy"]:
@@ -196,6 +196,11 @@ def build_messages(*, turn_inputs, **global_inputs):
         compact.append({k: v for k, v in native.items() if k not in {"content", "tool_calls"}}
                        | {"visible_message_index": index})
     trajectory["messages"] = compact
+    return visible, targets, trajectory
+
+
+def build_messages(*, turn_inputs, **global_inputs):
+    visible, targets, trajectory = timeline(turn_inputs=turn_inputs, **global_inputs)
     messages = build_judge_messages(
         **{**global_inputs, "trajectory": trajectory},
         turn_output_schema={
@@ -223,6 +228,10 @@ class TrajectoryOnceJudge(DeepSeekJudge):
 async def evaluate_scoring_inputs(judge, inputs, *, progress=None):
     """Shared by live rollout and frozen rescoring; no fallback between modes."""
     mode = inputs.get("reward_project_config", {}).get("judge", {}).get("mode", "per_turn")
+    if mode == "trajectory_routed_v1":
+        from tau2_agentic_rl.judge.routed import evaluate
+
+        return await evaluate(judge, inputs, progress)
     if mode == "per_turn":
         return await judge.evaluate(**inputs["judge"])
     if mode != MODE:

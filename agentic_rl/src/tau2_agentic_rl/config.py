@@ -77,15 +77,21 @@ def validate_procredit_config(config: dict) -> None:
 
     judge = config.get("judge", {})
     mode = judge.get("mode", "per_turn")
-    if mode not in {"per_turn", "trajectory_once_v1"}:
+    if mode not in {"per_turn", "trajectory_once_v1", "trajectory_routed_v1"}:
         raise ValueError("unknown judge.mode")
-    if mode == "trajectory_once_v1" and (
+    if mode in {"trajectory_once_v1", "trajectory_routed_v1"} and (
         judge.get("calls_per_trajectory") != 1
         or config.get("credit", {}).get("final_turn_rule") != "simple-turn-v2"
     ):
         raise ValueError("judge trajectory_once_v1 requires one request and simple-turn-v2")
+    if mode == "trajectory_routed_v1" and (
+        not config.get("annotations", {}).get("judge_routes")
+        or config.get("annotations", {}).get("task_judge_guidance")
+        or config.get("reward", {}).get("transfer_validation_version") != "transfer-policy-v2"
+    ):
+        raise ValueError("routed Judge requires a route table and transfer-policy-v2")
     if config.get("project", {}).get("annotation_version") == "v7-repaired-airline-train30":
-        if mode != "trajectory_once_v1" or config.get("user_sim_filter", {}).get("enabled") is not False:
+        if mode not in {"trajectory_once_v1", "trajectory_routed_v1"} or config.get("user_sim_filter", {}).get("enabled") is not False:
             raise ValueError("formal train30 requires judge trajectory_once_v1 and user_sim_filter disabled")
 
     reward = config.get("reward", {})

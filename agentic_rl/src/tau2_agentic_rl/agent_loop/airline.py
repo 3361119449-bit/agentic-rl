@@ -46,6 +46,8 @@ from tau2_agentic_rl.initial_prompt import (
 )
 from tau2_agentic_rl.judge.client import DeepSeekJudge, JudgeConfig
 from tau2_agentic_rl.judge.prompts import rubric_fingerprint
+from tau2_agentic_rl.judge.routed import route as routing_decision
+from tau2_agentic_rl.judge.routed import routed_fingerprint
 from tau2_agentic_rl.judge.simple_turn import score_simple_turns
 from tau2_agentic_rl.judge.trajectory_once import evaluate_scoring_inputs
 from tau2_agentic_rl.policy_rules import validate_policy_rows
@@ -213,6 +215,15 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
         self.task_judge_guidance = load_task_judge_guidance(
             self.root, annotations, set(self.semantic)
         )
+        self.routing_rules = {}
+        if self.project.get("judge", {}).get("mode") == "trajectory_routed_v1":
+            from tau2_agentic_rl.judge.routed import validate_rule
+
+            self.routing_rules = load_task_mapping(self.root / annotations["judge_routes"])
+            if self.routing_rules.keys() != self.semantic.keys():
+                raise ValueError("Judge routing must cover every configured task")
+            for rule in self.routing_rules.values():
+                validate_rule(rule)
         self.transfer = load_task_mapping(self.root / annotations["transfer_rules"])
         self.policy_rules = load_task_mapping(self.root / annotations["policy_rules"])
         validate_policy_rows(self.policy_rules)
@@ -976,7 +987,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 termination_reason = "infrastructure_error"
 
         semantic_row = self.semantic[task_id]
-        task_guidance = self.task_judge_guidance.get(task_id)
+        routed = self.project.get("judge", {}).get("mode") == "trajectory_routed_v1"
+        task_guidance = None if routed else self.task_judge_guidance.get(task_id)
         transfer_rule = self.transfer[task_id]
         policy_row = self.policy_rules[task_id]
         judge_result = None
@@ -997,7 +1009,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "semantic_checks": semantic_row.get("semantic_checks", []),
                 **({"task_guidance": task_guidance} if task_guidance else {}),
                 **({"semantic_checks_only": True} if semantic_row.get("semantic_checks_only") else {}),
-                "mandatory_policy_checks": policy_row.get("judge_checks", []),
+                "mandatory_policy_checks": [] if routed else policy_row.get("judge_checks", []),
                 "transfer_rule": transfer_rule,
                 **({"transfer_validation_version": self.project["reward"]["transfer_validation_version"]}
                    if self.project.get("reward", {}).get("transfer_validation_version") else {}),
@@ -1012,6 +1024,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "judge": {"mode": self.project.get("judge", {}).get("mode", "per_turn")},
             },
         }
+        if routed:
+            scoring_inputs["routing_rule"] = self.routing_rules[task_id]
         if progress_inputs is not None:
             scoring_inputs["progress_inputs"] = progress_inputs
         if simple_turn_enabled(self.project) and infrastructure_error is None and not zero_cutoff:
@@ -1034,6 +1048,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             semantic_checks_only=judge_inputs.get("semantic_checks_only", False),
             task_guidance=task_guidance,
         )
+        if routed:
+            judge_rubric_sha256 = routed_fingerprint(judge_rubric_sha256, self.routing_rules[task_id])
         quality_record = None
         if user_sim_inputs is not None and infrastructure_error is None:
             quality_record = TrajectoryRecord(
@@ -1218,7 +1234,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             initial_db_hash=environment.initial_db_hash(),
             final_db_hash=final_db_hash,
             official_scores=official,
-            judge_result=judge_result,
+            judge_result=None if judge_raw is None and routed else judge_result,
             custom_reward=custom_reward,
             user_sim_inputs=user_sim_inputs,
             user_sim_result=quality_record.user_sim_result if quality_record else None,
@@ -1244,6 +1260,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "evaluation_sample_index": kwargs.get("extra_info", {}).get(
                     "evaluation_sample_index"
                 ),
+                **({"judge_routing": routing_decision(scoring_inputs)} if routed and simple_turn_labels is not None else {}),
                 "judge_raw": judge_raw,
                 **({"simple_turn_labels": simple_turn_labels} if simple_turn_enabled(self.project) else {}),
                 "judge_prompt_hash": judge_prompt_hash,

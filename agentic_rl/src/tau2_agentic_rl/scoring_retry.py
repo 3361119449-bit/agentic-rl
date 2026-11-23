@@ -160,7 +160,11 @@ async def retry_scoring(record, judge, store, *, progress=None):
                 mode=inputs.get("reward_project_config", {}).get("judge", {}).get("mode", "per_turn"),
                 batch_response=(raw, prompt_hash, cache_key),
             )
-        record.judge_result = result
+        if inputs.get("routing_rule"):
+            from tau2_agentic_rl.judge.routed import route
+
+            record.metadata["judge_routing"] = route(inputs)
+        record.judge_result = None if inputs.get("routing_rule") and raw is None else result
         record.custom_reward = reward
         record.metadata.update(
             judge_raw=raw, judge_prompt_hash=prompt_hash, judge_cache_key=cache_key

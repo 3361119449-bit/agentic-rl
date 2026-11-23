@@ -238,7 +238,7 @@ def validate_decision(decision, request):
     return d
 
 
-def build_label_trace(inputs, decisions, events, policy_credit):
+def build_label_trace(inputs, decisions, events, policy_credit, *, unreviewed=False):
     turns = len(inputs["turn_message_indices"])
     version = inputs.get("version")
     independent = version == INDEPENDENT_VERSION
@@ -247,7 +247,9 @@ def build_label_trace(inputs, decisions, events, policy_credit):
         task_guidance=inputs.get("task_guidance"),
     ):
         raise ValueError("invalid frozen turn label inputs")
-    if len(decisions) != turns:
+    if unreviewed and (not independent or decisions is not None):
+        raise ValueError("unreviewed trace cannot contain model decisions")
+    if not unreviewed and len(decisions) != turns:
         raise ValueError("missing turn labels")
     if not policy_credit.get("attribution_complete"):
         raise ValueError("simple turn labels require complete old policy attribution")
@@ -275,6 +277,12 @@ def build_label_trace(inputs, decisions, events, policy_credit):
             raise ValueError("tool error lacks an attributable generation")
         evidence[turn_id - 1].append({"source": "tool_error", "event_id": event["event_id"],
                                      "reason": event["error_kind"]})
+    if unreviewed:
+        return {"version":version, "judge_version":JUDGE_VERSION, "inputs_sha256":sha256_json(inputs),
+                "decisions":[], "reviewed":False, "turns":[
+                    {"turn_index":i,"bad_turn":bool(items),"request_keys":[],"eligible_refusal_keys":[],
+                     "eligible_correct_refusal":False,"refusal_bonus":0,"evidence":items}
+                    for i,items in enumerate(evidence)]}
     parsed, labels, seen, revoked_by = [], [], set(), {}
     for t, value in enumerate(decisions):
         d = validate_decision(value, turn_request(inputs, t, parsed))
@@ -356,6 +364,14 @@ def validate_record_labels(record):
         raise ValueError("bounded record messages differ from frozen simple turn inputs")
     trace = record.metadata.get("simple_turn_labels")
     validate_labels(trace, record.assistant_turns, version=version)
+    if inputs.get("reward_project_config", {}).get("judge", {}).get("mode") == "trajectory_routed_v1":
+        from tau2_agentic_rl.judge.routed import scored_trace
+
+        rebuilt = scored_trace(expected, record.tool_events, record.custom_reward.details["policy_credit"],
+                               tuple(record.metadata.get(k) for k in ("judge_raw","judge_prompt_hash","judge_cache_key")))
+        if trace != rebuilt:
+            raise ValueError("routed labels differ from the frozen decision or rule-only record")
+        return trace
     rebuilt = build_label_trace(expected, trace["decisions"], record.tool_events,
                                 record.custom_reward.details["policy_credit"])
     if any(trace.get(k) != v for k, v in rebuilt.items()):
