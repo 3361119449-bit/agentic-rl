@@ -50,6 +50,7 @@ from tau2_agentic_rl.judge.routed import route as routing_decision
 from tau2_agentic_rl.judge.routed import routed_fingerprint
 from tau2_agentic_rl.judge.simple_turn import score_simple_turns
 from tau2_agentic_rl.judge.trajectory_once import evaluate_scoring_inputs
+from tau2_agentic_rl.full_official_group import OPTION as FULL_GROUP_OPTION, cancel_group_wait, choose_group_branch, terminal_only_reward
 from tau2_agentic_rl.policy_rules import validate_policy_rows
 from tau2_agentic_rl.procredit_runtime import credit_from_record
 from tau2_agentic_rl.reward.db_subgoals import (
@@ -332,6 +333,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     return await asyncio.shield(task)
                 except asyncio.CancelledError:
                     recovery_stop.set()
+                    cancel_group_wait()
                     # Tau2's synchronous user call may still be running in a
                     # thread. Retain the lease until the interaction really ends,
                     # even if shutdown sends more than one cancellation.
@@ -988,6 +990,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
 
         semantic_row = self.semantic[task_id]
         routed = self.project.get("judge", {}).get("mode") == "trajectory_routed_v1"
+        exclude_queries = self.project.get("judge", {}).get("exclude_pure_queries", False)
         task_guidance = None if routed else self.task_judge_guidance.get(task_id)
         transfer_rule = self.transfer[task_id]
         policy_row = self.policy_rules[task_id]
@@ -1021,7 +1024,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 "reward": self.project.get("reward", {}),
                 "credit": self.project.get("credit", {}),
                 "rollout": self.project["rollout"],
-                "judge": {"mode": self.project.get("judge", {}).get("mode", "per_turn")},
+                "judge": {"mode": self.project.get("judge", {}).get("mode", "per_turn"),
+                          **({"exclude_pure_queries": True} if exclude_queries else {})},
             },
         }
         if routed:
@@ -1033,6 +1037,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 messages, scoring_inputs["judge"]["policy"], assistant_turns,
                 version=self.project["credit"]["final_turn_rule"],
                 task_guidance=task_guidance,
+                query_events=tool_events if exclude_queries else None,
             )
         if db_subgoal_inputs is not None:
             scoring_inputs["db_subgoal_inputs"] = db_subgoal_inputs
@@ -1049,7 +1054,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             task_guidance=task_guidance,
         )
         if routed:
-            judge_rubric_sha256 = routed_fingerprint(judge_rubric_sha256, self.routing_rules[task_id])
+            judge_rubric_sha256 = routed_fingerprint(judge_rubric_sha256, self.routing_rules[task_id],
+                                                     exclude_pure_queries=exclude_queries)
         quality_record = None
         if user_sim_inputs is not None and infrastructure_error is None:
             quality_record = TrajectoryRecord(
@@ -1136,7 +1142,24 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     progress()
                 except Exception as exc:
                     infrastructure_error = ("progress_scoring", exc)
-        if infrastructure_error is None and reward_judge_enabled(self.project) and not zero_cutoff:
+        response_ids = prompt_ids[len(initial_prompt_ids) :]
+        try:
+            validate_aligned_response(response_ids, response_mask, aligned_log_probs, token_turns)
+        except Exception as exc:
+            if infrastructure_error is None or infrastructure_error[0] in SCORING_FAILURES:
+                infrastructure_error = ("token_alignment", exc)
+                termination_reason = "infrastructure_error"
+
+        official_group = None
+        if (self.project.get("reward", {}).get(FULL_GROUP_OPTION) and split == "train"
+                and not os.environ.get("EVALUATION_MANIFEST_ID") and infrastructure_error is None
+                and not zero_cutoff and official is not None):
+            official_group = await choose_group_branch(official.reward, trajectory_id, lease)
+            if official_group is not None:
+                scoring_inputs["official_group"] = official_group
+
+        use_judge = reward_judge_enabled(self.project) and official_group is None
+        if infrastructure_error is None and use_judge and not zero_cutoff:
             try:
                 (
                     judge_result,
@@ -1149,8 +1172,8 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                 infrastructure_error = ("judge", exc)
 
         required = self.required_actions[task_id]
-        custom_reward = None
-        if infrastructure_error is None and reward_judge_enabled(self.project) and not zero_cutoff:
+        custom_reward = terminal_only_reward(progress_trace, assistant_turns) if official_group else None
+        if infrastructure_error is None and use_judge and not zero_cutoff:
             try:
                 if official is None or judge_result is None:
                     raise RuntimeError("successful rollout lacks scorer inputs")
@@ -1176,7 +1199,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             except Exception as exc:
                 infrastructure_error = ("reward_scoring", exc)
 
-        if infrastructure_error is None and simple_turn_enabled(self.project) and not zero_cutoff:
+        if infrastructure_error is None and official_group is None and simple_turn_enabled(self.project) and not zero_cutoff:
             try:
                 simple_turn_labels = await score_simple_turns(
                     scoring_inputs["simple_turn_inputs"], tool_events,
@@ -1192,24 +1215,6 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
             custom_reward = deterministic_zero_reward(
                 termination_reason=interaction_termination_reason,
                 project=self.project, official=official)
-        response_ids = prompt_ids[len(initial_prompt_ids) :]
-        try:
-            validate_aligned_response(
-                response_ids,
-                response_mask,
-                aligned_log_probs,
-                token_turns,
-            )
-        except Exception as exc:
-            if infrastructure_error is None or infrastructure_error[0] in {
-                "judge",
-                "reward_scoring",
-                "turn_labels",
-            }:
-                infrastructure_error = ("token_alignment", exc)
-                termination_reason = "infrastructure_error"
-                custom_reward = None
-                judge_result = None
         record = TrajectoryRecord(
             schema_version="2.0" if procredit else "1.0",
             trajectory_id=trajectory_id,
@@ -1253,6 +1258,7 @@ class Tau2AirlineAgentLoop(AgentLoopBase):
                     slot_context=kwargs.get("extra_info", {}).get("slot_recovery")),
                 "truncation_zero_applied": zero_cutoff and infrastructure_error is None,
                 "judge_skipped_for_truncation": zero_cutoff,
+                **({"judge_routing": {"call": False, "reason": FULL_GROUP_OPTION}} if official_group else {}),
                 "user_sim_filter_skipped_for_truncation": zero_cutoff and filter_enabled(self.project),
                 "effective_evaluation_reward": 0.0 if zero_cutoff else (official.reward if official else None),
                 "concurrency": await self.shared_budget.acall("snapshot"),

@@ -76,6 +76,35 @@ def test_evaluation_defaults_to_official_only_and_supports_explicit_judge():
     assert evaluate_airline.parse_args(["--no-reward-judge"]).reward_judge is False
 
 
+def test_muon_from_same_profile_is_bound_to_the_real_training_command():
+    original = load_yaml(ROOT / "configs/rl/airline_procredit_v4_train30_c32_routed.yaml")
+    project = effective_project_config(original, [], optimizer_name="muon")
+    assert "name" not in original["optimizer"] and "betas" in original["optimizer"]
+    assert {k for k in original if project[k] != original[k]} == {"optimizer"}
+    assert effective_project_config(project, []) == project
+    assert original["optimizer"]["lr"] == 5e-6
+    assert project["optimizer"]["lr"] == 1e-5 and project["optimizer"]["eps"] == 1e-7
+    command = build_command(project_root=ROOT, model_path="/model", train_file=Path("/train"),
+                            val_file=Path("/val"), total_epochs=1, project_config=project, extra=[])
+    assert "actor_rollout_ref.actor.optim.optimizer=Muon" in command
+    assert "actor_rollout_ref.actor.optim.lr=1e-05" in command
+    assert "actor_rollout_ref.actor.fsdp_config.use_orig_params=false" in command
+    assert not any(".optim.betas=" in item for item in command)
+    args = next(i for i in command if ".optim.override_optimizer_config=" in i)
+    for field in ("momentum:0.95", "nesterov:true", "ns_steps:5", "eps:1e-07", "adjust_lr_fn:match_rms_adamw",
+                  "ns_coefficients:[3.4445,-4.775,2.0315]"):
+        assert field in args
+    for override in ("actor_rollout_ref.actor.fsdp_config.use_orig_params=true",
+                     "actor_rollout_ref.actor.optim.optimizer=AdamW", "actor_rollout_ref.actor.optim.betas=[0.8,0.9]"):
+        with pytest.raises(ValueError):
+            effective_project_config(project, [override])
+
+    original["optimizer"]["lr"] = 7e-5
+    assert effective_project_config(original, [], optimizer_name="muon")["optimizer"]["lr"] == 1e-5
+    tuned = effective_project_config(original, ["actor_rollout_ref.actor.optim.lr=2.0e-05"], optimizer_name="muon")
+    assert effective_project_config(tuned, [], optimizer_name="muon")["optimizer"]["lr"] == 2e-5
+
+
 @pytest.mark.parametrize(
     "override",
     [

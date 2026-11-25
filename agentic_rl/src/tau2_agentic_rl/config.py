@@ -77,6 +77,9 @@ def validate_procredit_config(config: dict) -> None:
 
     judge = config.get("judge", {})
     mode = judge.get("mode", "per_turn")
+    exclude_queries = judge.get("exclude_pure_queries", False)
+    if type(exclude_queries) is not bool or (exclude_queries and mode != "trajectory_routed_v1"):
+        raise ValueError("judge.exclude_pure_queries requires a boolean and the routed Judge when enabled")
     if mode not in {"per_turn", "trajectory_once_v1", "trajectory_routed_v1"}:
         raise ValueError("unknown judge.mode")
     if mode in {"trajectory_once_v1", "trajectory_routed_v1"} and (
@@ -95,6 +98,14 @@ def validate_procredit_config(config: dict) -> None:
             raise ValueError("formal train30 requires judge trajectory_once_v1 and user_sim_filter disabled")
 
     reward = config.get("reward", {})
+    full_group = reward.get("full_official_group_terminal_only", False)
+    if type(full_group) is not bool or (full_group and (
+        mode != "trajectory_routed_v1" or config.get("rollout", {}).get("group_size") != 8
+        or config.get("dynamic_sampling", {}).get("group_size") != 8
+        or reward.get("task_score_mode") != "official_semantic_progress_v1"
+        or reward.get("truncation_policy") != "zero-trajectory-v1"
+    )):
+        raise ValueError("full_official_group_terminal_only requires routed training groups of eight with official scoring")
     if reward.get("task_score_mode") is not None and (
         not is_procredit(config)
         or reward.get("progress_version") != "progress-v3"

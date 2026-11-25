@@ -92,9 +92,26 @@ async def retry_scoring(record, judge, store, *, progress=None):
             record.messages, inputs["judge"]["policy"], record.assistant_turns,
             version=inputs["reward_project_config"]["credit"]["final_turn_rule"],
             task_guidance=inputs["judge"].get("task_guidance"),
+            query_events=record.tool_events if inputs["reward_project_config"].get("judge", {}).get("exclude_pure_queries") else None,
         )
         if inputs.get("simple_turn_inputs") != expected:
             raise ValueError("bounded messages differ from frozen turn scoring inputs")
+    if "official_group" in inputs:
+        from tau2_agentic_rl.full_official_group import OPTION, terminal_only_reward
+        from tau2_agentic_rl.procredit_runtime import credit_from_record
+
+        if zero_cutoff:
+            raise ValueError("truncated session cannot belong to a full official group")
+        reward = terminal_only_reward(record.progress_trace, record.assistant_turns)
+        metadata = {**record.metadata, "failure_phase": None, "failure_type": None,
+                    "failure_message": None, "failure_kind": None,
+                    "scoring_retries": [*attempts, {"attempt": len(attempts) + 1,
+                                                    "phase": OPTION, "success": True}]}
+        updated = record.model_copy(update={"metadata": metadata, "custom_reward": reward})
+        credit_from_record(updated)
+        store.save(updated)
+        record.metadata, record.custom_reward = metadata, reward
+        return True
     if zero_cutoff:
         if inputs.get("progress_inputs") is not None and inputs.get("progress_trace") is None:
             inputs["progress_trace"] = await asyncio.to_thread(

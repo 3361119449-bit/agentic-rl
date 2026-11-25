@@ -20,6 +20,7 @@ class CreditConfig:
     final_turn_rule: str | None = None
     progress_credit: str | None = None
     norm_adv_by_std_in_grpo: bool = True
+    full_official_group_terminal_only: bool = False
 
     def __post_init__(self):
         if type(self.norm_adv_by_std_in_grpo) is not bool:
@@ -71,10 +72,13 @@ class CreditConfig:
             norm_adv_by_std_in_grpo=project.get("algorithm", {}).get(
                 "norm_adv_by_std_in_grpo", True
             ),
+            full_official_group_terminal_only=project.get("reward", {}).get("full_official_group_terminal_only", False),
         )
 
     def audit_config(self) -> dict:
         values = asdict(self)
+        if not self.full_official_group_terminal_only:
+            values.pop("full_official_group_terminal_only")
         if self.norm_adv_by_std_in_grpo:
             values.pop("norm_adv_by_std_in_grpo")
         if self.progress_credit is None:
@@ -145,6 +149,13 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
     This function supports smaller hand-checkable groups for audits.
     """
     config = config or CreditConfig()
+    scalar_group = any("official_group" in row for row in rows)
+    if scalar_group:
+        group = rows[0].get("official_group") or {}
+        if (not config.full_official_group_terminal_only or len(rows) != 8 or not group.get("uid")
+                or group.get("members") != [row.get("trajectory_id") for row in rows]
+                or any(row.get("official_group") != group for row in rows)):
+            raise ValueError("terminal-only credit requires the complete original official group")
     if len(rows) < (1 if config.version == "procredit-turn-v4" else 2):
         raise ValueError("credit requires genuine group members (legacy: at least two)")
     identity_fields = (
@@ -210,7 +221,7 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
             raise ValueError("missing token-to-turn mapping")
         turns = len(phi) - 1
         costs = [0.0] * turns
-        if config.version in {"procredit-turn-v3", "procredit-turn-v4"}:
+        if not scalar_group and config.version in {"procredit-turn-v3", "procredit-turn-v4"}:
             process = row.get("process_credit")
             process_version = "process-credit-v2" if local_only else "process-credit-v1"
             if not isinstance(process, dict) or process.get("version") != process_version:
@@ -227,6 +238,13 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
         present = set(mapping) - {-1}
         if not present:
             raise ValueError("trajectory contains no policy tokens")
+        if scalar_group:
+            if (not semantic_progress or not row["valid"] or terminal != 1 or multiplier != 1
+                    or final_progress != phi[-1]):
+                raise ValueError("terminal-only credit needs an official pass and verified final progress")
+            validated.append((score, mapping, present, [0.] * turns))
+            policies.append((set(), True))
+            continue
         if config.progress_credit == "immediate_delta_v1":
             # Signed progress for THIS generation, never a future return.
             # Truncation is zeroed below after the unchanged trajectory baseline.
@@ -299,6 +317,13 @@ def compute_group_credit(rows: list[dict], config: CreditConfig | None = None) -
         trajectory_advantage = score - mean
         if config.norm_adv_by_std_in_grpo:
             trajectory_advantage /= std + config.epsilon
+        if scalar_group:
+            results.append({
+                "trajectory_id": row["trajectory_id"], "trajectory_advantage": trajectory_advantage,
+                "turn_returns": returns, "turn_advantages": [0.] * len(returns),
+                "token_advantages": [trajectory_advantage if t >= 0 else 0. for t in mapping],
+            })
+            continue
         turn_advantages = [
             (value if config.progress_credit == "immediate_delta_v1" else value - turn_mean)
             if complete and t in present else 0.0

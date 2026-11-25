@@ -94,6 +94,16 @@ def queue_group_reports(
         if [m[0] for m in members] != expected_sessions:
             raise ValueError("group session slots must occur exactly once")
         rows = [member[2] for member in members]
+        if (config.full_official_group_terminal_only and len(rows) == 8
+                and all(r.get("terminal_success") == 1 and r.get("multiplier") == 1 for r in rows)
+                and not all("official_group" in r for r in rows)):
+            raise ValueError("full official passes reached the queue without group routing")
+        for session, _, row in members:
+            group = row.get("official_group")
+            if group is not None and (not isinstance(group, dict) or group.get("uid") != uid
+                                      or len(rows) != 8 or not isinstance(group.get("members"), list)
+                                      or len(group["members"]) != 8 or group["members"][session] != row["trajectory_id"]):
+                raise ValueError("terminal-only group membership differs from the queue")
         credit = compute_group_credit(rows, config)
         report = {
             "version": "procredit-group-v1",
@@ -197,6 +207,9 @@ def credit_from_record(record) -> dict:
     if zero_truncated(record.scoring_inputs.get("reward_project_config", {}),
                       getattr(record, "termination_reason", None)):
         return _zero_credit_from_record(record)
+    if "official_group" in record.scoring_inputs:
+        from tau2_agentic_rl.full_official_group import terminal_only_row
+        return terminal_only_row(record, _record_token_mapping(record))
     reward, trace = record.custom_reward, record.progress_trace
     if (
         record.schema_version != "2.0"

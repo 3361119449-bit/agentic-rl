@@ -18,7 +18,7 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
                     final_turn_rule=None, turn_scorer=None, zero_truncation=False,
                     hard_limit=None, natural_stop_at=None, judge_enabled=True,
                     semantic_row=None, task_guidance=None, judge_mode=None, actual_judge=None,
-                    task_score_mode=None, scoring_retries=2, routing_rule=None):
+                    task_score_mode=None, scoring_retries=2, routing_rule=None, prepare_only=False):
     loop, scope = minimal_loop(scratch_dir)
     cleaned, judge_calls = [], []
     loop.project["project"].update(tau2_commit="fixture", verl_commit="fixture")
@@ -196,6 +196,8 @@ def rollout_fixture(scratch_dir, *, policy_credit_v2=False, fail_after_delivery=
         )
 
     scope["build_progress_trace"] = local_verifier
+    if prepare_only:
+        return loop, scope
     if fail_after_delivery:
         with pytest.raises(RuntimeError, match="tau2_text_step; audit record saved") as caught:
             asyncio.run(loop._run_trajectory({}, extra_info={"task_id": "0"}))

@@ -17,6 +17,11 @@ OPTIMIZER_FIELDS = {
     "lr_scheduler_type": "lr_scheduler_type",
 }
 OPTIMIZER_PREFIX = "actor_rollout_ref.actor.optim"
+MUON_DEFAULT_LR = 1e-5
+MUON_PRESET = {
+    "momentum": 0.95, "nesterov": True, "ns_steps": 5, "eps": 1e-7,
+    "ns_coefficients": [3.4445, -4.775, 2.0315], "adjust_lr_fn": "match_rms_adamw",
+}
 
 TRAINING_KEYS = {
     "algorithm.adv_estimator": "algorithm.adv_estimator",
@@ -62,6 +67,18 @@ def hydra_value(value: Any) -> str:
 
 
 def optimizer_overrides(optimizer: dict) -> dict[str, str]:
+    if optimizer.get("name") == "muon":
+        common = {key: value for key, value in optimizer.items() if key not in {*MUON_PRESET, "name"}}
+        if "betas" in common or any(optimizer.get(k) != v for k, v in MUON_PRESET.items()):
+            raise ValueError("Muon preset requires its recorded Newton–Schulz, momentum and scale settings")
+        options = optimizer_overrides(common)
+        options[f"{OPTIMIZER_PREFIX}.optimizer"] = "Muon"
+        options[f"{OPTIMIZER_PREFIX}.optimizer_impl"] = "torch.optim"
+        options[f"{OPTIMIZER_PREFIX}.override_optimizer_config"] = (
+            "{" + ",".join(f"{key}:{hydra_value(optimizer[key])}" for key in MUON_PRESET) + "}"
+        )
+        options["actor_rollout_ref.actor.fsdp_config.use_orig_params"] = "false"
+        return options
     unknown = optimizer.keys() - OPTIMIZER_FIELDS.keys() - {"eps"}
     if unknown:
         raise ValueError(f"Unsupported optimizer fields: {sorted(unknown)}")
@@ -160,11 +177,22 @@ def training_overrides(project: dict[str, Any]) -> dict[str, str]:
 
 
 def effective_project_config(
-    project: dict[str, Any], extra: list[str]
+    project: dict[str, Any], extra: list[str], *, optimizer_name: str | None = None
 ) -> dict[str, Any]:
     import yaml
 
     result = deepcopy(project)
+    if optimizer_name not in (None, "adamw", "muon"):
+        raise ValueError("unknown RL optimizer")
+    if optimizer_name == "muon" and result["optimizer"].get("name") != "muon":
+        optimizer_overrides(result["optimizer"])
+        result["optimizer"].pop("betas", None)
+        result["optimizer"].update(name="muon", lr=MUON_DEFAULT_LR, **deepcopy(MUON_PRESET))
+    if optimizer_name == "adamw" and result["optimizer"].get("name") == "muon":
+        raise ValueError("select the AdamW baseline profile for --optimizer adamw")
+    muon = result["optimizer"].get("name") == "muon"
+    if muon and result.get("precision", {}).get("lora_master_dtype") != "float32":
+        raise ValueError("Muon requires the single-GPU FP32 LoRA training profile")
     validate_precision_overrides(result, extra)
     reverse = {target: source for source, target in TRAINING_KEYS.items()}
     reverse.update({
@@ -177,6 +205,11 @@ def effective_project_config(
         normalized = key.lstrip("+")
         if not separator:
             raise ValueError("--extra must use key=value")
+        target = normalized.lstrip("~")
+        if target in (f"{OPTIMIZER_PREFIX}.optimizer", f"{OPTIMIZER_PREFIX}.optimizer_impl"):
+            raise ValueError("select the RL optimizer with --optimizer")
+        if muon and target in (f"{OPTIMIZER_PREFIX}.betas", "actor_rollout_ref.actor.fsdp_config.use_orig_params"):
+            raise ValueError("Muon derives parameter layout and uses its own momentum setting")
         if normalized.lstrip("~") == f"{OPTIMIZER_PREFIX}.grad_clip":
             raise ValueError("set gradient clipping in algorithm.grad_clip in the project YAML")
         if "max_tokens_per_microbatch" in result["ppo"] and normalized.lstrip("~") in {
@@ -191,7 +224,7 @@ def effective_project_config(
             normalized.lstrip("~") in (OPTIMIZER_PREFIX, f"{OPTIMIZER_PREFIX}.eps")
             or normalized.lstrip("~").startswith(f"{OPTIMIZER_PREFIX}.override_optimizer_config")
         ):
-            raise ValueError("set AdamW epsilon in optimizer.eps in the project YAML")
+            raise ValueError("set optimizer numerical options through the project configuration")
         if normalized.lstrip("~") == "trainer.critic_warmup":
             value = yaml.safe_load(raw)
             if normalized.startswith("~") or type(value) is not int or value != 0:

@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections import defaultdict
 from copy import deepcopy
 
 from pydantic import BaseModel, ConfigDict, StrictBool, StrictInt
@@ -70,8 +71,42 @@ def transform_advantage(a0, bad_turn, eligible_correct_refusal):
     return a0
 
 
-def build_turn_inputs(messages, policy, turns, *, version=VERSION, task_guidance=None):
+def _pure_query_indices(messages, indices, events):
+    from tau2_agentic_rl.tooling import validate_tool_turn
+
+    query_tools = {
+        "get_user_details", "get_reservation_details", "get_flight_status",
+        "list_all_airports", "search_direct_flight", "search_onestop_flight",
+    }
+    by_turn = defaultdict(list)
+    fields = {"turn_id", "name", "success", "error_kind", "db_effect", "execution_status"}
+    for event in events:
+        item = event.model_dump(include=fields) if hasattr(event, "model_dump") else event
+        by_turn[item["turn_id"]].append(item)
+    skipped = []
+    for n, i in enumerate(indices, 1):
+        message = messages[i]
+        calls = message.get("tool_calls") or []
+        if len(calls) != 1 or len(by_turn[n]) != 1:
+            continue
+        name = calls[0].get("function", calls[0]).get("name")
+        event = by_turn[n][0]
+        if (name not in query_tools or event.get("name") != name
+                or event.get("success") is not True or event.get("error_kind")
+                or event.get("db_effect") or event.get("execution_status")
+                or str(message.get("content") or "").strip() not in ("", "<|im_end|>")):
+            continue
+        raw = message.get("raw_generated_text")
+        if raw is not None and validate_tool_turn(raw, 1) is not None:
+            continue
+        skipped.append(i)
+    return skipped
+
+
+def build_turn_inputs(messages, policy, turns, *, version=VERSION, task_guidance=None, query_events=None):
     """Freeze exactly the bounded messages, never the environment transcript."""
+    if query_events is not None and version != INDEPENDENT_VERSION:
+        raise ValueError("query target filtering requires independent turn labels")
     if type(turns) is not int or turns < 1 or not isinstance(policy, str) or not policy.strip():
         raise ValueError("simple turn labels require turns and bound policy")
     if version not in VERSIONS:
@@ -90,6 +125,8 @@ def build_turn_inputs(messages, policy, turns, *, version=VERSION, task_guidance
         raise ValueError("invalid task Judge guidance")
     return {"version": version, "messages": deepcopy(messages), "policy": policy,
             "turn_message_indices": indices,
+            **({"rule_only_query_indices": _pure_query_indices(messages, indices, query_events)}
+               if query_events is not None else {}),
             **({"task_guidance": task_guidance} if task_guidance else {})}
 
 
@@ -245,11 +282,13 @@ def build_label_trace(inputs, decisions, events, policy_credit, *, unreviewed=Fa
     if inputs != build_turn_inputs(
         inputs["messages"], inputs["policy"], turns, version=version,
         task_guidance=inputs.get("task_guidance"),
+        query_events=events if "rule_only_query_indices" in inputs else None,
     ):
         raise ValueError("invalid frozen turn label inputs")
     if unreviewed and (not independent or decisions is not None):
         raise ValueError("unreviewed trace cannot contain model decisions")
-    if not unreviewed and len(decisions) != turns:
+    skipped = set(inputs.get("rule_only_query_indices", []))
+    if not unreviewed and len(decisions) != turns - len(skipped):
         raise ValueError("missing turn labels")
     if not policy_credit.get("attribution_complete"):
         raise ValueError("simple turn labels require complete old policy attribution")
@@ -284,7 +323,14 @@ def build_label_trace(inputs, decisions, events, policy_credit, *, unreviewed=Fa
                      "eligible_correct_refusal":False,"refusal_bonus":0,"evidence":items}
                     for i,items in enumerate(evidence)]}
     parsed, labels, seen, revoked_by = [], [], set(), {}
-    for t, value in enumerate(decisions):
+    reviewed = iter(decisions)
+    for t, index in enumerate(inputs["turn_message_indices"]):
+        if index in skipped:
+            labels.append({"turn_index": t, "bad_turn": bool(evidence[t]),
+                           "request_keys": [], "eligible_refusal_keys": [], "eligible_correct_refusal": False,
+                           "refusal_bonus": 0, "evidence": evidence[t], "judge_skip_reason": "pure_query"})
+            continue
+        value = next(reviewed)
         d = validate_decision(value, turn_request(inputs, t, parsed))
         parsed.append(d)
         bad = bool(evidence[t]) or d["bad_turn"]
@@ -359,6 +405,7 @@ def validate_record_labels(record):
     expected = build_turn_inputs(
         record.messages, inputs["judge"]["policy"], record.assistant_turns,
         version=version, task_guidance=inputs["judge"].get("task_guidance"),
+        query_events=record.tool_events if inputs.get("reward_project_config", {}).get("judge", {}).get("exclude_pure_queries") else None,
     )
     if inputs.get("simple_turn_inputs") != expected:
         raise ValueError("bounded record messages differ from frozen simple turn inputs")

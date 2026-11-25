@@ -15,6 +15,7 @@ from tau2_agentic_rl.judge.routed import (
     scored_trace,
 )
 from tau2_agentic_rl.judge.trajectory_once import evaluate_scoring_inputs
+from tau2_agentic_rl.reward.simple_turn import build_turn_inputs
 
 
 def inputs():
@@ -51,6 +52,26 @@ def answer():
     )
 
 
+@pytest.mark.parametrize(
+    "rule",
+    [
+        "requires disclosure before writing; skipping it is bad",
+        'A satisfied condition or "tell me afterward" adds no hold',
+        "An uncapped write at a specified price is bad without prior evidence",
+        "even $1 off is bad. Judge estimates as quotes",
+        "A tool limit alone earns no refusal",
+        "the prescribed transfer notice alone is neutral even if the call was improper",
+        "Claiming success after a failed transfer is bad",
+    ],
+)
+def test_narrow_rules_reach_the_routed_system_message(rule):
+    x = inputs()
+    system, _ = build_messages(
+        turn_inputs=x["simple_turn_inputs"], route_hints=[], **x["judge"]
+    )
+    assert rule in system["content"]
+
+
 def test_online_path_mocked_offline(monkeypatch, scratch_dir):
     x = inputs()
     calls = []
@@ -75,6 +96,73 @@ def test_online_path_mocked_offline(monkeypatch, scratch_dir):
     assert len(trace["judge_calls"]) == 1
     asyncio.run(evaluate_scoring_inputs(client, x))
     assert len(calls) == 1
+
+
+def _query_fixture(name="search_direct_flight", *, content="", success=True, error=None, copies=1):
+    x = inputs()
+    old = x["simple_turn_inputs"]
+    messages = old["messages"]
+    messages[2].update(content=content, tool_calls=[{"id": "c1", "function": {"name": name, "arguments": "{}"}}] * copies)
+    messages[3].update(tool_call_id="c1")
+    event = {"event_id": "t1", "turn_id": 1, "name": name, "arguments": {}, "success": success,
+             "error_kind": error, "result": messages[3]["content"]}
+    x["judge"]["trajectory"]["tool_events"] = [event]
+    x["reward_project_config"]["judge"]["exclude_pure_queries"] = True
+    x["simple_turn_inputs"] = build_turn_inputs(messages, old["policy"], 2,
+                                                version=old["version"], query_events=[event])
+    return x, event
+
+
+@pytest.mark.parametrize("name", ["get_user_details", "get_reservation_details", "get_flight_status",
+                                 "list_all_airports", "search_direct_flight", "search_onestop_flight"])
+def test_pure_queries_leave_only_the_later_reply_as_a_target(name):
+    x, event = _query_fixture(name)
+    turns, j = x["simple_turn_inputs"], x["judge"]
+    body = json.loads(build_messages(turn_inputs=turns, route_hints=[], **j)[1]["content"])
+    assert body["targets"] == [{"message_index": 4}]
+    assert body["visible"][2]["message"]["tool_calls"][0]["function"]["name"] == name
+    assert body["visible"][3]["message"]["content"] == event["result"]
+    assert body["native"]["tool_events"][0]["result_visible_message_index"] == 3
+    wire = answer()
+    with pytest.raises(ValueError, match="target message_index"):
+        expand(CompactResult.model_validate(wire), turns, j)
+    wire["turns"].pop(0)
+    result = expand(CompactResult.model_validate(wire), turns, j)
+    assert result.mandatory_policy_checks[0].violation_assistant_turn_ids == [2]
+    event.update(duplicate_query=True, duplicate_of_event_id="earlier")
+    trace = scored_trace(turns, [event], {"violating_turns": [1], "attribution_complete": True},
+                         (json.dumps(wire), "prompt", "cache"))
+    assert [d["turn_index"] for d in trace["decisions"]] == [1]
+    assert trace["turns"][0]["judge_skip_reason"] == "pure_query"
+    assert [e["source"] for e in trace["turns"][0]["evidence"]] == ["duplicate_query"]
+    assert all(t["bad_turn"] for t in trace["turns"])
+
+
+@pytest.mark.parametrize("params", [
+    {"name": "calculate"}, {"name": "book_reservation"}, {"content": "I've changed it."},
+    {"success": False, "error": "model_caused_execution_error"}, {"copies": 2},
+])
+def test_other_tools_and_impure_queries_still_require_a_verdict(params):
+    x, _ = _query_fixture(**params)
+    assert x["simple_turn_inputs"]["rule_only_query_indices"] == []
+    expand(CompactResult.model_validate(answer()), x["simple_turn_inputs"], x["judge"])
+
+
+def test_query_only_trajectory_can_still_answer_terminal_criteria():
+    x, event = _query_fixture()
+    j = x["judge"]
+    j["semantic_checks"] = [{"criterion_id": "15:nl:0", "description": "Explain the price."}]
+    turns = build_turn_inputs(x["simple_turn_inputs"]["messages"][:4], j["policy"], 1,
+                              version="simple-turn-v2", query_events=[event])
+    body = json.loads(build_messages(turn_inputs=turns, route_hints=[], **j)[1]["content"])
+    assert body["targets"] == [] and body["semantic_checks"] == j["semantic_checks"]
+    wire = dict(answer(), turns=[], semantic_checks=[{"criterion_id": "15:nl:0", "passed": False,
+                                                      "short_reason": "No price was explained."}])
+    result = expand(CompactResult.model_validate(wire), turns, j)
+    assert not result.semantic_checks[0].passed
+    trace = scored_trace(turns, [event], {"violating_turns": [], "attribution_complete": True},
+                         (json.dumps(wire), "prompt", "cache"))
+    assert trace["decisions"] == [] and trace["turns"][0]["judge_skip_reason"] == "pure_query"
 
 
 @pytest.mark.parametrize(
@@ -165,8 +253,9 @@ def test_short_quote_retry_identifies_exact_turn_without_filling_in_evidence():
 
 
 @pytest.mark.parametrize("routing_mode, expected_calls", [("always", 1), ("skip", 0)])
+@pytest.mark.parametrize("exclude_queries", [False, True])
 def test_live_then_frozen_retry_and_training_reader(
-    monkeypatch, scratch_dir, routing_mode, expected_calls
+    monkeypatch, scratch_dir, routing_mode, expected_calls, exclude_queries
 ):
     from test_procredit_rollout import rollout_fixture
     from tau2_agentic_rl.procredit_runtime import credit_from_record
@@ -187,7 +276,7 @@ def test_live_then_frozen_retry_and_training_reader(
         )
 
     client = mock_client(monkeypatch, scratch_dir / "cache", respond)
-    loop, _, record = rollout_fixture(
+    loop, _ = rollout_fixture(
         scratch_dir / "run",
         credit_version="procredit-turn-v4",
         final_turn_rule="simple-turn-v2",
@@ -197,7 +286,12 @@ def test_live_then_frozen_retry_and_training_reader(
         hard_limit=2,
         task_score_mode="official_semantic_progress_v1",
         routing_rule={"task_id": "0", "mode": routing_mode, "hints": []},
+        prepare_only=True,
     )
+    loop.project["judge"]["exclude_pure_queries"] = exclude_queries
+    asyncio.run(loop._run_trajectory({}, trajectory_id="frozen", extra_info={"task_id": "0"}))
+    record = next(loop.store.records())
+    assert ("rule_only_query_indices" in record.scoring_inputs["simple_turn_inputs"]) == exclude_queries
     expected = credit_from_record(record)
     assert len(requests) == expected_calls
     assert (record.judge_result is None) == (routing_mode == "skip")
@@ -223,6 +317,7 @@ def test_train30_table_and_profile():
         root / "configs/rl/airline_procredit_v4_train30_c32_routed.yaml"
     )
     validate_procredit_config(profile)
+    assert profile["judge"]["exclude_pure_queries"] is True
     rules = load_task_mapping(root / profile["annotations"]["judge_routes"])
     tasks = json.loads(
         (root / profile["training_selection"]["split_file"]).read_bytes()
@@ -236,8 +331,9 @@ def test_train30_table_and_profile():
     assert not rules["17"]["hints"] and rules["49"]["hints"]
 
 
-@pytest.mark.parametrize("truncated", [False, True])
-def test_rescore_skipped_record_without_transport(monkeypatch, scratch_dir, truncated):
+@pytest.mark.parametrize("branch", ["task_skip", "truncated", "official_group"])
+def test_rescore_skipped_record_without_transport(monkeypatch, scratch_dir, branch):
+    import asyncio
     import sys
     from scripts import rescore_saved_trajectories as command
     from test_procredit_rollout import rollout_fixture
@@ -245,17 +341,33 @@ def test_rescore_skipped_record_without_transport(monkeypatch, scratch_dir, trun
     from tau2_agentic_rl.storage import TrajectoryStore
 
     rule = {"task_id": "0", "mode": "skip", "hints": []}
-    loop, _, record = rollout_fixture(
+    result = rollout_fixture(
         scratch_dir / "live",
         credit_version="procredit-turn-v4",
         final_turn_rule="simple-turn-v2",
         task_score_mode="official_semantic_progress_v1",
         judge_mode=MODE,
-        natural_stop_at=None if truncated else 2,
+        natural_stop_at=None if branch == "truncated" else 2,
         hard_limit=2,
         zero_truncation=True,
         routing_rule=rule,
+        prepare_only=branch == "official_group",
     )
+    if branch == "official_group":
+        from tau2_agentic_rl.full_official_group import OPTION, OfficialGroup, choose_group_branch
+        loop, _ = result
+        loop.project["reward"][OPTION] = True
+        loop.project["judge"]["exclude_pure_queries"] = True
+        async def complete_group():
+            group = OfficialGroup("frozen")
+            others = [group.session(i, choose_group_branch(1, f"sibling{i}")) for i in range(1, 8)]
+            rollout = loop._run_trajectory({}, trajectory_id="first", extra_info={"task_id": "0"})
+            await asyncio.gather(group.session(0, rollout), *others)
+        asyncio.run(complete_group())
+        record = next(loop.store.records())
+        assert "official_group" in record.scoring_inputs
+    else:
+        loop, _, record = result
     expected = credit_from_record(record)
     assert record.judge_result is None
     config = dict(

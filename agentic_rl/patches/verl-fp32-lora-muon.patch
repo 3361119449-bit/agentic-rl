@@ -1,0 +1,116 @@
+diff --git a/verl/workers/engine/fsdp/transformer_impl.py b/verl/workers/engine/fsdp/transformer_impl.py
+--- a/verl/workers/engine/fsdp/transformer_impl.py
++++ b/verl/workers/engine/fsdp/transformer_impl.py
+@@ -84,6 +84,29 @@
+ device_name = get_device_name()
+ 
+ 
++@contextmanager
++def _lora_matrix_views(matrices):
++    """Expose each single-matrix flat parameter to native Muon only during its call."""
++    saved = []
++    try:
++        for parameter, shape in matrices:
++            # FSDP owns this Parameter. Keep its identity and storage, and restore
++            # its flat gradient and data before FSDP or checkpointing sees it.
++            flat, grad = parameter.detach(), parameter.grad
++            data_view = flat.view(shape)
++            grad_view = grad.view(shape) if grad is not None else None
++            saved.append((parameter, flat, grad))
++            parameter.grad = None
++            parameter.data = data_view
++            parameter.grad = grad_view
++        yield
++    finally:
++        for parameter, flat, grad in saved:
++            parameter.grad = None
++            parameter.data = flat
++            parameter.grad = grad
++
++
+ class FSDPEngine(BaseEngine):
+     """
+     Concrete Engine implementation using PyTorch FullyShardedDataParallel (FSDP).
+@@ -484,13 +507,31 @@
+     def _build_optimizer(self, module):
+         from verl.workers.config.optimizer import build_optimizer
+ 
+-        optimizer = build_optimizer(module.parameters(), self.optimizer_config)
++        self._tau2_muon = getattr(self, "_fp32_lora_master", False) and self.optimizer_config.optimizer == "Muon"
++        parameters = module.parameters()
++        if self._tau2_muon:
++            if self.engine_config.use_orig_params or self.optimizer_config.optimizer_impl != "torch.optim":
++                raise ValueError("LoRA Muon requires the pinned flat FSDP layout and native torch.optim")
++            self._tau2_muon_matrices = []
++            for name, p in module.named_parameters():
++                if not p.requires_grad:
++                    continue
++                shapes = getattr(p, "_shapes", ())
++                if (len(shapes) != 1 or len(shapes[0]) != 2 or shapes[0].numel() != p.numel()
++                        or p.dtype != torch.float32 or p.ndim != 1
++                        or not any(tag in f".{name}." for tag in (".lora_A.", ".lora_B."))):
++                    raise ValueError(f"Expected one complete FP32 LoRA matrix in FSDP parameter {name}: {shapes}")
++                self._tau2_muon_matrices.append((p, shapes[0]))
++            parameters = [p for p, _ in self._tau2_muon_matrices]
++        with _lora_matrix_views(self._tau2_muon_matrices) if self._tau2_muon else nullcontext():
++            optimizer = build_optimizer(parameters, self.optimizer_config)
+         if getattr(self, "_fp32_lora_master", False):
+             trainable = [p for p in module.parameters() if p.requires_grad]
+             if not trainable or any(p.dtype != torch.float32 for p in trainable):
+                 raise RuntimeError("FSDP did not preserve FP32 LoRA master parameters")
+-            if not isinstance(optimizer, torch.optim.AdamW):
+-                raise ValueError("FP32 LoRA requires torch AdamW")
++            expected = torch.optim.Muon if self._tau2_muon else torch.optim.AdamW
++            if not isinstance(optimizer, expected):
++                raise ValueError(f"FP32 LoRA expected native {expected.__name__}")
+             logger.info("Verified %d FP32 LoRA master parameter tensors", len(trainable))
+         return optimizer
+ 
+@@ -584,7 +625,7 @@
+ 
+         wrap_policy = self.engine_config.wrap_policy or {}
+         self._fp32_lora_master = wrap_policy.get("tau2_fp32_lora_master", False)
+-        self._fp32_adam_verified = False
++        self._fp32_optimizer_verified = False
+         if self._fp32_lora_master and (
+             not self._is_lora
+             or self.model_config.lora_rank <= 0
+@@ -835,6 +876,8 @@
+         # Unscale gradients before clip so the clip threshold is applied to true gradient
+         # magnitudes, not scaled ones. scaler.step() will skip the update if any grad is inf/nan.
+         if scaler is not None:
++            if getattr(self, "_tau2_muon", False):
++                raise RuntimeError("The FP32 LoRA Muon preset requires BF16 compute without a loss scaler")
+             scaler.unscale_(self.optimizer)
+ 
+         if isinstance(self.module, FSDP):
+@@ -859,18 +902,22 @@
+                 print(f"WARN: grad_norm is not finite: {grad_norm}")
+                 self.optimizer.zero_grad()
+             else:
+-                self.optimizer.step()
+-
+-        if getattr(self, "_fp32_lora_master", False) and not self._fp32_adam_verified and self.optimizer.state:
+-            moments = ("exp_avg", "exp_avg_sq")
++                if getattr(self, "_tau2_muon", False):
++                    with _lora_matrix_views(self._tau2_muon_matrices):
++                        self.optimizer.step()
++                else:
++                    self.optimizer.step()
++
++        if getattr(self, "_fp32_lora_master", False) and not self._fp32_optimizer_verified and self.optimizer.state:
++            moments = ("momentum_buffer",) if self._tau2_muon else ("exp_avg", "exp_avg_sq")
+             if any(
+                 state[key].dtype != torch.float32
+                 for state in self.optimizer.state.values()
+                 for key in moments
+             ):
+-                raise RuntimeError("AdamW moments must be FP32 for FP32 LoRA")
+-            self._fp32_adam_verified = True
+-            logger.info("Verified FP32 AdamW first and second moments")
++                raise RuntimeError(f"Optimizer state {moments} must be FP32 for FP32 LoRA")
++            self._fp32_optimizer_verified = True
++            logger.info("Verified FP32 %s state %s", type(self.optimizer).__name__, moments)
+ 
+         if self._qat_enabled:
+             from verl.utils.qat.core import invalidate_all_scales

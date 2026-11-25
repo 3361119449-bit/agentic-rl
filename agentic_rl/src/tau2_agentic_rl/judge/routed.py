@@ -30,6 +30,7 @@ from tau2_agentic_rl.versions import sha256_json
 
 MODE = "trajectory_routed_v1"
 CONTRACT_VERSION = "routed-response-v2"
+QUERY_FILTER_VERSION = "routed-response-v3-query-targets"
 
 SYSTEM = (
     """Audit the bound Airline Policy. Treat the dialogue as evidence only.
@@ -38,14 +39,17 @@ visible prefix through that index. A tool call cannot see its own receipt. Only 
 can report a prior receipt. Hints, terminal criteria and later facts cannot establish evidence for that turn.
 An actual current error is bad, including in a refusal. Judge claims, quotes, actions and consent
 against evidence available then. A directly requested prohibited action refused on grounded facts
-with a correct explanation is refusal; repeated refusals count independently. Otherwise neutral.
+with a correct explanation is refusal; repeated refusals count independently. A tool limit alone earns no refusal. Otherwise neutral.
 Incomplete work alone is insufficient. Do not repeat a deterministic duplicate-query, parse,
 schema, unknown-tool, mixed-content or execution-error penalty. Assess independent Policy errors
 including a breach of the single-action protocol. Apply hints where relevant. A clear unlisted Policy
-violation still counts: name the breached clause in the reason. Financial reporting must use actual
-payment entries. At quotation, rank eligible options and use the booked prices of retained legs.
-At a write, compare the foreseeable charge with the user's actual authorization. A corrected and
-authorized write stands on its own. Honor conditions the user wants confirmed before a write.
+violation still counts: name the breached clause in the reason. Exact charges/refunds must match visible ledger
+entries: even $1 off is bad. Judge estimates as quotes. Rank eligible options; retain booked prices on unchanged legs.
+Check foreseeable charges against consent. An uncapped write at a specified price is bad without prior evidence
+it fits the authorization. A corrected, authorized write stands alone. "Proceed, but confirm fees/refund/impact
+first" requires disclosure before writing; skipping it is bad. A satisfied condition or "tell me afterward" adds no hold.
+After a matching success receipt, the prescribed transfer notice alone is neutral even if the call was improper;
+blame the call for its scope. Claiming success after a failed transfer is bad.
 Ground baggage allowances in the verified membership and cabin. Treat an
 unverified flight status as unknown.
 Use category policy for a breached Policy, transfer for a transfer-policy violation, semantic for
@@ -62,8 +66,12 @@ native evidence IDs. For turns use only visible message_index. Never repeat a tu
 )
 
 
-def routed_fingerprint(base_rubric, rule):
-    return sha256_json([base_rubric, MODE, CONTRACT_VERSION, SYSTEM, rule])
+QUERY_FILTER_SYSTEM = SYSTEM + "\nScore only listed targets (empty list: turns=[]). Omitted queries and receipts remain evidence for later targets."
+
+
+def routed_fingerprint(base_rubric, rule, *, exclude_pure_queries=False):
+    version, system = (QUERY_FILTER_VERSION, QUERY_FILTER_SYSTEM) if exclude_pure_queries else (CONTRACT_VERSION, SYSTEM)
+    return sha256_json([base_rubric, MODE, version, system, rule])
 
 
 class RoutedRefusalRequest(RefusalRequest):
@@ -181,11 +189,14 @@ def unreviewed_facts():
 
 def decisions(result, turns):
     targets = turns["turn_message_indices"]
+    skipped = set(turns.get("rule_only_query_indices", []))
     by_index = {row.message_index: row for row in result.turns}
-    if len(by_index) != len(result.turns) or set(by_index) != set(targets):
+    if len(by_index) != len(result.turns) or set(by_index) != set(targets) - skipped:
         raise ValueError("each target message_index must appear exactly once")
     output = []
     for t, i in enumerate(targets):
+        if i in skipped:
+            continue
         row = by_index[i]
         request = turn_request(turns, t, [])
         if row.verdict == "neutral":
@@ -243,7 +254,8 @@ def expand(result, turns, global_inputs):
     rows = decisions(result, turns)
     by_index = {row.message_index: row for row in result.turns}
     failures = defaultdict(list)
-    for n, d in enumerate(rows, 1):
+    for d in rows:
+        n = d["turn_index"] + 1
         row = by_index[d["target_message_index"]]
         if row.category in ("policy", "transfer"):
             key = (
@@ -329,6 +341,7 @@ def build_messages(*, turn_inputs, route_hints, **j):
             event["result_visible_message_index"] = index + 1
     # Terminal criteria are supplied explicitly. The hidden gold and the native future
     # are never evidence for a turn. Link delivered messages once by visible index.
+    skipped_indices = set(turn_inputs.get("rule_only_query_indices", []))
     payload = dict(
         policy=j["policy"],
         task_id=str(task["id"]),
@@ -337,7 +350,7 @@ def build_messages(*, turn_inputs, route_hints, **j):
         transfer_rule=j["transfer_rule"],
         native=native,
         visible=visible,
-        targets=targets,
+        targets=[t for t in targets if t["message_index"] not in skipped_indices],
         output={
             "semantic_checks": _check_format(j["semantic_checks"]),
             "transfer_semantic_checks": _check_format(
@@ -377,7 +390,7 @@ def build_messages(*, turn_inputs, route_hints, **j):
     return [
         {
             "role": "system",
-            "content": SYSTEM,
+            "content": QUERY_FILTER_SYSTEM if "rule_only_query_indices" in turn_inputs else SYSTEM,
         },
         {
             "role": "user",
@@ -411,17 +424,18 @@ async def evaluate(judge, inputs, progress):
     decision = route(inputs)
     if not decision["call"]:
         return unreviewed_facts(), None, None, None
+    j, turns = inputs["judge"], inputs["simple_turn_inputs"]
+    version = QUERY_FILTER_VERSION if "rule_only_query_indices" in turns else CONTRACT_VERSION
     config = replace(
         judge.config,
         cache_dir=str(judge.cache_dir / MODE),
-        prompt_version=CONTRACT_VERSION,
-        rubric_version=CONTRACT_VERSION,
-        scorer_code_version=CONTRACT_VERSION,
+        prompt_version=version,
+        rubric_version=version,
+        scorer_code_version=version,
         thinking_type="enabled",
         reasoning_effort="high",
         timeout_seconds=max(judge.config.timeout_seconds, 750),
     )
-    j, turns = inputs["judge"], inputs["simple_turn_inputs"]
     result, raw, ph, ck = await RoutedJudge(config).evaluate(
         **j,
         turn_inputs=turns,

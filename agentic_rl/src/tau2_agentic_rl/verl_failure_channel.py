@@ -9,6 +9,7 @@ from verl.trainer.ppo.v1.agent_loop_tq import AgentLoopManagerTQ, AgentLoopWorke
 
 from tau2_agentic_rl.concurrency import QueueWaitError, api_budget
 from tau2_agentic_rl.failures import raise_if_fatal
+from tau2_agentic_rl.full_official_group import OfficialGroup
 from tau2_agentic_rl.slot_recovery import (
     RolloutInfrastructureError,
     SlotRecoveryExhausted,
@@ -84,18 +85,12 @@ class FailureAwareAgentLoopWorkerTQ(_TQWorker):
             params = dict(sampling_params)
             if not prompt.pop("__do_sample__", True) and not trajectory["validate"]:
                 params.update(top_p=1.0, top_k=-1, temperature=0)
-            tasks = [
-                asyncio.create_task(
-                    self._run_agent_loop(
-                        params,
-                        trajectory=trajectory,
-                        trace=trace,
-                        session_id=i,
-                        **prompt,
-                    )
+            group = OfficialGroup(uid) if partition == "train" and n == 8 else None
+            for i in range(n):
+                operation = self._run_agent_loop(
+                    params, trajectory=trajectory, trace=trace, session_id=i, **prompt
                 )
-                for i in range(n)
-            ]
+                tasks.append(asyncio.create_task(group.session(i, operation) if group else operation))
             results = await asyncio.gather(*tasks, return_exceptions=True)
             errors = [result for result in results if isinstance(result, BaseException)]
             failed_sessions = [i for i, result in enumerate(results) if isinstance(result, BaseException)]

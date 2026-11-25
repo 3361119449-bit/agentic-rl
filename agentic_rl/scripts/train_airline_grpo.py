@@ -242,6 +242,8 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--extra", action="append", default=[])
     parser.add_argument("--config", type=Path)
+    parser.add_argument("--optimizer", choices=("adamw", "muon"),
+                        help="Opt into native Muon for FP32 LoRA matrices; the default profile uses AdamW.")
     parser.add_argument(
         "--reward-judge",
         action=argparse.BooleanOptionalAction,
@@ -264,7 +266,8 @@ def main() -> None:
     if args.config is None and args.stage in {"smoke", "internal_dev"}:
         raise ValueError("historical stages require an explicit --config; use full_train for train30")
     config_path = (args.config or current_profile(project_root, "training")).resolve()
-    project = effective_project_config(load_yaml(config_path), args.extra)
+    project = effective_project_config(load_yaml(config_path), args.extra, optimizer_name=args.optimizer)
+    muon = project["optimizer"].get("name") == "muon"
     if args.reward_judge is not None:
         project["judge"]["enabled"] = args.reward_judge
     validate_procredit_config(project)
@@ -272,7 +275,7 @@ def main() -> None:
         project.get("precision", {}).get("lora_master_dtype") == "float32"
         or project["ppo"].get("max_tokens_per_microbatch") is not None
     ):
-        require_precision_patch(args.verl_root)
+        require_precision_patch(args.verl_root, muon=muon)
     repaired_training = bool(project.get("training_selection", {}).get("task_repairs"))
     args.stage = args.stage or ("full_train" if repaired_training else "internal_dev")
     if repaired_training and args.stage != "full_train":
@@ -305,6 +308,8 @@ def main() -> None:
             int(args.resume_from_path.name.split("global_step_")[1]),
         )
     generated_run_name = f"{args.stage}_lr{project['optimizer']['lr']}_seed{args.seed}"
+    if muon:
+        generated_run_name += "_muon"
     run_name = _safe_run_name(args.run_name or generated_run_name)
     run_root = project_root / "outputs" / "runs" / run_name
     if not args.dry_run:

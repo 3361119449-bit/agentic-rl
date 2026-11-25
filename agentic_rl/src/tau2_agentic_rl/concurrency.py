@@ -81,16 +81,23 @@ class _QueueWait:
             raise QueueWaitError(self.resource, "stalled", waited, stalled)
 
 
-@dataclass(frozen=True)
+@dataclass
 class BudgetLease:
     budget: "SharedBudget"
     resource: str
     lease_id: str
     queue_wait_seconds: float
+    released: bool = False
 
     def progress(self):
         """Call after REAL work (reset, generation, step), not on a timer."""
-        self.budget.call("heartbeat", self.resource, self.lease_id)
+        if not self.released:
+            self.budget.call("heartbeat", self.resource, self.lease_id)
+
+    def release(self):
+        if not self.released:
+            self.budget.call("release", self.resource, self.lease_id)
+            self.released = True
 
 
 class BudgetState:
@@ -246,10 +253,11 @@ class SharedBudget:
         while not self.call("try_acquire", resource, lease, self.limits):
             wait.check(self.call("progress", resource))
             time.sleep(0.05)
+        acquired = BudgetLease(self, resource, lease, time.monotonic() - wait.start)
         try:
-            yield BudgetLease(self, resource, lease, time.monotonic() - wait.start)
+            yield acquired
         finally:
-            self.call("release", resource, lease)
+            acquired.release()
 
     @asynccontextmanager
     async def aslot(self, resource):
@@ -266,10 +274,11 @@ class SharedBudget:
         while not self.call("try_acquire", resource, lease, self.limits):
             wait.check(self.call("progress", resource))
             await asyncio.sleep(0.05)
+        acquired = BudgetLease(self, resource, lease, time.monotonic() - wait.start)
         try:
-            yield BudgetLease(self, resource, lease, time.monotonic() - wait.start)
+            yield acquired
         finally:
-            self.call("release", resource, lease)
+            acquired.release()
 
 
 def api_budget():

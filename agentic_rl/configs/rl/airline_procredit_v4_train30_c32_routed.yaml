@@ -5,7 +5,7 @@ project:
   tau2_commit: a2c024725189473d2d7cea3a5cfdbcc67478e41f
   verl_commit: 483b8a009ba3a97563edee3a19887e4862b8094a
   annotation_version: v7-repaired-airline-train30
-  reward_version: v13.2-procredit-task-routed-v1
+  reward_version: v13.2-procredit-task-routed-full-group-query-filter-v1
 agent_policy:
   path: configs/prompts/airline_sft_v4_single_tool.v1.json
   system_prompt_sha256: 54c8a8153c0f9fe4d2bc4d57a3698221d09388d84245afdcc253378ee4238cb2
@@ -55,6 +55,7 @@ user_simulator:
 judge:
   enabled: true
   mode: trajectory_routed_v1
+  exclude_pure_queries: true
   provider: DeepSeek
   model: ${DEEPSEEK_JUDGE_MODEL}
   base_url: ${DEEPSEEK_BASE_URL}
@@ -77,6 +78,7 @@ annotations:
   transfer_rules: data/annotations/airline_transfer_rules.train.v1.json
   policy_rules: data/annotations/airline_mandatory_policy_rules.train.v1.json
 reward:
+  full_official_group_terminal_only: true
   truncation_multiplier: 0.0
   truncation_policy: zero-trajectory-v1
   mandatory_policy_gate: false
