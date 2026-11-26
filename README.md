@@ -17,6 +17,8 @@
 
 先从 SFT step 334 完成 DPO 并评估。随后设计新版 Judge：默认只检查本题终局语义；仅指定任务额外判断**当前助手轮是否正确拒绝**，逐轮 policy 违规评分留待后续。终局模板只带完成条件和必要证据，不需要轮 ID。启用逐轮评分时只给当前待评目标 ID，历史可见事实可用于判断，早先的轮 ID 不可引用。验收后从选定的 DPO 模型开展 GRPO，记录判分质量和实际 Judge 开销。
 
+此前讨论的**完整 Judge 方案**也保留为后续可选路线。若决定继续，可从已归档的路由候选恢复逐轮 policy 与过程评分，并和轻量版对照。当前优先做低开销 GRPO，完整版的启动时间待定。
+
 [当前状态](PROJECT_STATE.md) · [DPO、Judge 与 GRPO 交接](docs/handoffs/2026-11-26-dpo-judge-grpo.md) · [历史 v13.2 GRPO 配置与复现](agentic_rl/docs/current_experiment.md)
 
 ## 历史实验
