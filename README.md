@@ -1,24 +1,23 @@
 # agentic-rl
 
-> 当前主线：**SFT v4 Step 334 → 修复后的 30 任务 GRPO → 冻结官方评估**。正式配置为 [`airline_procredit_v4_train30.yaml`](agentic_rl/configs/rl/airline_procredit_v4_train30.yaml)，奖励使用 **v13.2-procredit-official-semantic-progress**。
+在 Tau2 Airline 上训练和评估 Qwen3-4B 航空客服智能体。**当前实验顺序：冻结 SFT v4 → DPO → 按任务缩小 Judge 的评分范围 → GRPO。** SFT 和两条早期 GRPO 对照已有结果，接下来先完成 DPO。
 
-围绕 **Tau2 Airline** 的 **Qwen3-4B 智能体训练与评估实验项目**，覆盖 SFT 数据清洗、轨迹采集与转换、LoRA 监督微调、GRPO / DAPO-style 强化学习，以及冻结模型的官方 `pass^1` / `pass^4` 评估。
+## 已经完成的实验
+
+| 阶段 | 结果 |
+|---|---|
+| SFT v4 | 119 个源对话、1,374 个目标轮；实际训练 117 个对话／1,338 行，冻结 step 334。首次官方测试按 30 助手轮上限，34/80 成功，pass¹ 42.5%、pass⁴ 20%。 |
+| GRPO | 完成 12 步探索、官方奖励 120 步对照、自定义 v13.2 奖励 20 步。自定义 step 20 在 35 轮上限的三批测评分别成功 34、35、24 / 80。另一次仅限 24K 上下文，35 条官方通过轨迹中至少 13 条仍有严重过程错误。 |
+| 历史 Judge 双审 | 自定义 20 步实际入训 638 条、9,125 个助手轮。补入工具目录后确认 599 处错标、13 处待定，另有 540 处标签正确但理由错误。已对旧路由候选做离线覆盖复核。 |
+| DPO | 旧 AdamW 27 对已训练和测评。新 Muon 155 对已做 CPU 和数据验收；156 对修订包另存，待选定数据版本、做 GPU 验收并训练。 |
+
+[实验总账](EXPERIMENTS.md)按评分协议列出结果；[官方奖励 120 步归档](agentic_rl/docs/experiments/2026-11-19-official-grpo120.md)记录训练里程碑。
 
 ## 当前实验主线
 
-**审核后的 Airline SFT v4 → 下一助手轮 SFT → 冻结 Step 334 → 修复任务与 Judge 验证 → 30 任务 GRPO → 冻结官方评估。** 当前服务器准备、参数与启动方式见 [当前实验配置](agentic_rl/docs/current_experiment.md)。
+先从 SFT step 334 完成 DPO 并评估。随后设计新版 Judge：默认只检查本题终局语义；仅指定任务额外判断**当前助手轮是否正确拒绝**，逐轮 policy 违规评分留待后续。终局模板只带完成条件和必要证据，不需要轮 ID。启用逐轮评分时只给当前待评目标 ID，历史可见事实可用于判断，早先的轮 ID 不可引用。验收后从选定的 DPO 模型开展 GRPO，记录判分质量和实际 Judge 开销。
 
-1. **SFT 数据和训练已完成。** 使用审核后的 `20261106_full_semantic_v4` 数据，共 119 条轨迹、1,374 个目标轮，覆盖官方 train 的 30 个任务。按完整源对话划分为训练 1,338 行、验证 36 行。输入包含完整可见历史，loss 只监督下一次助手正文或工具调用。Qwen3-4B-Instruct-2507 使用 16K、non-thinking、LoRA rank 64、alpha 128、学习率 `1e-4`、训练 2 个 epoch。冻结合并模型来自 Step 334。[SFT 工具与格式](training/qwen3_4b_sft/README.md)
-2. **冻结 SFT 官方基线已完成。** 在官方 test 20 个任务上各跑 4 条，共 80 条，8 并发，关闭用户合规筛选和 Agent 奖励 Judge，保留 Tau2 官方评分。该次使用 30 个助手轮次上限和完整工具回执，得到 **pass^1 42.5%、pass^4 20.0%**。这组分数使用当次 manifest 的口径。
-3. **v13 奖励已完成离线验证。** 用已冻结的 80 条、1,227 轮复算。整轨迹 GRPO 仍按 `R = 终局成功 + 0.5 × 最终进度` 在组内归一化。当轮额外信用使用 `0.5 × (本轮后进度 − 本轮前进度)`，不再使用剩余回报及逐轮均值。同一请求在不同轮被正确拒绝可分别获奖，同轮有错则坏轮优先。该历史验算使用全局与逐轮 Judge；当前正式入口已合为一次整轨请求返回两类结论。[v13 实现与验证（PR #10）](https://github.com/3361119449-bit/agentic-rl/pull/10)
-4. **当前正式 RL 使用全部 30 个训练任务。** 从 Step 334 的 bf16 合并模型新挂 RL LoRA，加载 Task 7、14、21、23、39 的修复。组归一化使用「Tau2 官方奖励 + 0.5 × 最终进度」，最终进度同时计入必要动作和整轨语义检查。启用整轨迹 Judge 与 30 任务指导，一次请求返回整轨结论及全部 `simple-turn-v2` 轮次标签。原来的 6 个内部验证任务已编入训练，关闭训练前及周期内部验证；官方 test 20 个任务继续隔离。每组 8 条、8 并发、最多 35 个助手轮次。[奖励公式](agentic_rl/docs/reward_v13.md#official-completion-and-terminal-progress) · [当前划分](agentic_rl/data/splits/airline_repaired_train30.v1.json) · [任务修复](agentic_rl/task_repairs/README.md)
-5. **冻结模型并做同条件对照。** 正式 test 固定 20 × 4 = 80 个样本。新实验采用 35 个助手轮次上限，真实截断整条归零并记录原因。训练截断槽位最多重采 2 次，评估截断保留在分母。官方对照关闭用户合规筛选和 Agent 奖励 Judge，报告 `evaluation_pass1/pass4` 并单列原始 Tau2 分。与 30 轮基线做严格对比时，两边须使用同一提示词、轮次及评分口径。[截断策略](agentic_rl/TRUNCATION_35.md) · [冻结评估](agentic_rl/README.md#冻结评估)
-
-### 实验配置与仓库默认值
-
-正式 RL 和官方测评沿用 SFT v4 的单工具提示词 `54c8a815…`，上下文为 24,576 tokens。训练关闭用户合规筛选，官方测评同时关闭 Agent 奖励 Judge。启动入口使用 [正式配置清单](agentic_rl/configs/current.json)。
-
-训练入口默认采用修复后的 `full_train`。复现旧划分时需通过 `--config` 显式选择归档配置并指定相应阶段。[奖励公式](agentic_rl/docs/reward_v13.md) · [训练命令](agentic_rl/README.md#从-sft-v4-开始-grpo)
+[当前状态](PROJECT_STATE.md) · [DPO、Judge 与 GRPO 交接](docs/handoffs/2026-11-26-dpo-judge-grpo.md) · [历史 v13.2 GRPO 配置与复现](agentic_rl/docs/current_experiment.md)
 
 ## 历史实验
 

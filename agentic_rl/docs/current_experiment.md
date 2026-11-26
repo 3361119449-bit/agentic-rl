@@ -1,12 +1,14 @@
-# 当前实验：SFT v4 后的 30 任务 GRPO
+# 历史实验复现：SFT v4 后的 30 任务 v13.2 GRPO
 
-当前训练入口与官方测评从 [配置清单](../configs/current.json) 选择正式配置。历史流程见 [归档](../../docs/legacy-experiments.md)。
+本页保留 30 任务 v13.2 的配置与复现入口。该线已完成 20 个优化步。下表描述仓库配置模板；实际 20 步运行的轨迹并发为 32，agent worker 为 8，运行结果见[实验总账](../../EXPERIMENTS.md)。
+
+2026-11-26 起的主线先做 DPO，再设计按任务启用正确拒绝奖励的 Judge，然后做 GRPO。[下一阶段交接](../../docs/handoffs/2026-11-26-dpo-judge-grpo.md) · [历史配置清单](../configs/current.json) · [早期流程](../../docs/legacy-experiments.md)
 
 ## 流程与配置
 
 审核后的 SFT v4 → Qwen3-4B 下一助手轮 SFT → 冻结 Step 334 bf16 合并模型 → 修复任务/评分验收 → 30 任务 GRPO → 冻结官方评估。
 
-| 项目 | 当前设置 |
+| 项目 | 历史配置模板 |
 | --- | --- |
 | 正式配置 | `configs/rl/airline_procredit_v4_train30.yaml` |
 | 任务 | 官方 train 全部 30 个；旧 6 个 internal dev 编入训练；official test 20 个保持隔离 |
@@ -51,10 +53,10 @@ python scripts/train_airline_grpo.py --stage full_train --reward-judge --dry-run
 # 需要实际训练时去掉 --dry-run，并设置独立 --run-name 及所需更新步数。
 ```
 
-当前服务器入口为 `/root/autodl-tmp/run_rl_train30.sh`，代码在 `/root/autodl-tmp/agentic-rl-train30-20261115/agentic_rl`，复用模型 `/root/sft_eval_v4_20261106_merged`。这些是该服务器的部署路径，其他机器按环境变量配置。
+该次部署记录中的服务器入口为 `/root/autodl-tmp/run_rl_train30.sh`，代码在 `/root/autodl-tmp/agentic-rl-train30-20261115/agentic_rl`，复用模型 `/root/sft_eval_v4_20261106_merged`。这些是该服务器的部署路径，其他机器按环境变量配置。
 
 启动会核验 FP32 LoRA 和微批上限两份 veRL 补丁。框架在包装后检查可训练参数 dtype，并在第一次实际更新后检查 AdamW 状态。调整训练配置时使用新 run name，从冻结 SFT 权重启动。
 
-此前 63 项离线检查没有覆盖真实的单轮生成预算、完整回执和 Judge 请求次数，不能据此宣称正式配置已完全就绪。修正后新增生产循环行为测试：超过 1,024 tokens 的回复可正常结束；回执不裁剪；仅总上下文耗尽时停止；live 与冻结重试均使用整轨一次请求；用户筛选关闭。测试采用模拟接口和本地 tokenizer，不调用评分 API。GPU 完整单步训练仍需另行验收。
+此前 63 项离线检查没有覆盖真实的单轮生成预算、完整回执和 Judge 请求次数，不能据此宣称正式配置已完全就绪。修正后新增生产循环行为测试：超过 1,024 tokens 的回复可正常结束；回执不裁剪；仅总上下文耗尽时停止；live 与冻结重试均使用整轨一次请求；用户筛选关闭。测试采用模拟接口和本地 tokenizer，不调用评分 API。其后该线已有 20 步实际运行记录，归档中的运行配置用于复核 GPU 训练事实。
 
 训练后的官方对照仍为 20 个 test 任务 × 4 = 80 条，关闭用户筛选与 Agent 奖励 Judge、保留官方评分；按同一提示词、35 轮与截断口径对比冻结 SFT/RL 模型。历史 30 轮基线与旧奖励的分数按原 manifest 保留，不混为同条件结果。

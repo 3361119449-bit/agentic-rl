@@ -1,10 +1,10 @@
 # Tau2 Airline Agentic RL
 
-> [正式配置清单](configs/current.json) 绑定修复后的 30 个训练任务、20 个官方测试任务和 **v13.2-procredit-official-semantic-progress**。见 [当前实验配置](docs/current_experiment.md) 与 [奖励公式](docs/reward_v13.md)。
+> [正式配置清单](configs/current.json) 绑定修复后的 30 个训练任务、20 个官方测试任务和 **v13.2-procredit-official-semantic-progress**。见 [历史 v13.2 GRPO 配置](docs/current_experiment.md) 与 [奖励公式](docs/reward_v13.md)。
 
 这是本仓库的强化学习与冻结评估模块。项目使用固定版 Tau2 Airline 环境、选定的 Qwen3-4B SFT（或上一阶段 RL）合并模型和新挂载的 RL LoRA，在 veRL v0.9.0 上进行 GRPO / DAPO-style 训练。项目总览、数据版本与实验路线见 [根目录 README](../README.md)。
 
-现行实验从 Airline SFT v4 的 Step 334 合并模型开始。SFT 数据、冻结官方基线、v13 离线验证与后续 GRPO 的状态见 [当前实验主线](../README.md#当前实验主线)。旧的两阶段 RL 和早期 ProCredit 消融见 [历史实验归档](../docs/legacy-experiments.md)。
+本页记录从 SFT v4 step 334 运行历史 GRPO 的方式。接下来的顺序是 DPO、按任务启用正确拒绝奖励的 Judge、再做 GRPO，进度见 [当前实验主线](../README.md#当前实验主线)。旧的两阶段 RL 和早期 ProCredit 消融见 [历史实验归档](../docs/legacy-experiments.md)。
 
 默认入口及 `--stage full_train` 使用全部 30 个任务，关闭原 6 个内部验证任务的训练内验证，启用整轨迹 Judge 与各任务指导，保留 `simple-turn-v2` 逐轮评分。[35 轮截断归零与训练重采](TRUNCATION_35.md)、转人工、重复查询和进度规则保持现有配置。旧 v12 与 24/6 流程见 [历史归档](../docs/legacy-experiments.md)。
 
@@ -160,7 +160,7 @@ set +a
 
 必须手工填写：
 
-- `MERGED_SFT_MODEL`：完整底座模型目录，当前实验选用 SFT v4 Step 334 合并模型；
+- `MERGED_SFT_MODEL`：完整底座模型目录，该历史运行选用 SFT v4 Step 334 合并模型；
 - `DEEPSEEK_USER_MODEL`：服务商中用户模拟器的精确模型 ID；
 - `DEEPSEEK_JUDGE_MODEL`：Agent 奖励 Judge 的精确模型 ID；训练与评估默认使用；评估显式传 `--no-reward-judge` 时不需要该奖励模型，但独立用户合规检查仍必填；
 - `DEEPSEEK_USER_SIM_JUDGE_MODEL`：独立用户模拟器合规检查模型的精确 ID；训练和评估必填，可与奖励 Judge 使用同一型号，但提示词、输入与缓存独立；
@@ -235,7 +235,7 @@ python -m pytest contract_tests -v
 两个真实 Ray worker 的共享并发额度。GitHub Actions 单独运行此层；CPU 单元测试
 不能替代它，也不能替代 GPU/API smoke。
 
-当前正式训练配置 `configs/rl/airline_procredit_v4_train30.yaml`、internal-dev/官方训练集
+历史 v13.2 训练配置 `configs/rl/airline_procredit_v4_train30.yaml`、internal-dev/官方训练集
 评估使用的 `configs/rl/airline_grpo_v1.yaml`，以及 official-test 配置
 `configs/evaluation/airline_eval_v1.yaml`，其 `rollout` 中以下五项默认均为 **8**：
 
@@ -394,7 +394,7 @@ python scripts/train_airline_grpo.py \
 
 ### 从 SFT v4 开始 GRPO
 
-将 `MERGED_SFT_MODEL` 指向 SFT v4 Step 334 的完整合并模型。选定奖励版本后，用新的 run 名称启动。当前正式实验核对实际配置中的 `reward_version: v13.2-procredit-official-semantic-progress`、`progress_credit: immediate_delta_v1` 与 `final_turn_rule: simple-turn-v2`。提示词和用户筛选以该 run 的记录为准。
+将 `MERGED_SFT_MODEL` 指向 SFT v4 Step 334 的完整合并模型。选定奖励版本后，用新的 run 名称启动。复现 v13.2 实验时核对实际配置中的 `reward_version: v13.2-procredit-official-semantic-progress`、`progress_credit: immediate_delta_v1` 与 `final_turn_rule: simple-turn-v2`。提示词和用户筛选以该 run 的记录为准。
 
 `--stage full_train` 训练全部 30 个任务，并加载 Task 7、14、21、23、39 的修复。整轨一次 Judge 使用对应任务指导，同时返回逐轮标签。v13.2 的完成分取官方奖励，最终进度计入必要动作和整轨语义，再按原公式一起组归一化。原有的 6 个内部验证任务已编入训练，本阶段默认关闭训练内验证。按本次实验设置 `RL_EPOCHS` 和 `RL_UPDATES`，前者控制遍历上限，后者控制 optimizer 更新上限。正式运行前可加 `--dry-run` 检查实际任务与命令。
 
@@ -536,7 +536,7 @@ v4 训练中，临时错误或 invalid user 补采耗尽只排除对应 slot，�
 配置、断言、token alignment 和未知代码错误通过 Ray job 共享的 fatal 标记传到 trainer，
 阻止后续采样、补采和 actor 更新，不再被 veRL 的通用 `failure` 状态吞掉。
 
-训练 GRPO / DAPO 与 `scripts/evaluate_airline.py` 共用 `user_sim_filter`。当前正式 `airline_procredit_v4_train30.yaml` 关闭该筛选；旧配置仍保留原开关，以实际运行配置为准。关闭合规筛选不关闭对话所需的用户模拟器。
+训练 GRPO / DAPO 与 `scripts/evaluate_airline.py` 共用 `user_sim_filter`。v13.2 配置 `airline_procredit_v4_train30.yaml` 关闭该筛选；旧配置仍保留原开关，以实际运行配置为准。关闭合规筛选不关闭对话所需的用户模拟器。
 它在符合检查条件的完整交互结束后执行；按当前策略归零的截断轨迹跳过检查。
 不修改 Agent 的 SFT 系统提示词，不给 User Simulator 追加纠错提示。
 只因为 **User Simulator 本身实质破坏任务环境** 才丢弃整条 trajectory：
